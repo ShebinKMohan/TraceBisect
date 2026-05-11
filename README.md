@@ -16,10 +16,12 @@ pip install tracebisect
 
 ## Current Alpha Commands
 
-```bash
-tracebisect --version
-tracebisect demo
-```
+- `tracebisect --version` — prints the package version.
+- `tracebisect demo` — prints a static preview of the v1.3 money-shot output.
+- `tracebisect ingest`, `tracebisect record`, `tracebisect diff`,
+  `tracebisect export-pytest` — alpha stubs. They parse the locked CLI
+  signatures from spec section 4.2 but exit with code 2 and an
+  "alpha — not implemented yet" message until V1 lands.
 
 ## V1 Scope
 

@@ -5,4 +5,3 @@ release metadata and simple runtime access.
 """
 
 __version__ = "0.0.1a0"
-
