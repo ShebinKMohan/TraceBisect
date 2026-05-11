@@ -44,9 +44,9 @@ dev = [
 tracebisect = "tracebisect.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/tracebisect/tracebisect"
-Repository = "https://github.com/tracebisect/tracebisect"
-Issues = "https://github.com/tracebisect/tracebisect/issues"
+Homepage = "https://github.com/ShebinKMohan/TraceBisect"
+Repository = "https://github.com/ShebinKMohan/TraceBisect"
+Issues = "https://github.com/ShebinKMohan/TraceBisect/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/tracebisect"]

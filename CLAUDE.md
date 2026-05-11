@@ -1,6 +1,6 @@
-# Grove Worktree: feature-setup
+# Grove Worktree: feature-design-docs
 
-> Branch: `feature-setup` | Base: `main` | Created: 2026-05-09T18:23:52.033Z
+> Branch: `feature-design-docs` | Base: `main` | Created: 2026-05-11T06:52:01.607Z
 
 ## Task
 
