@@ -20,7 +20,7 @@ from colorama import init as colorama_init
 
 from tracebisect.version import __version__
 
-REPO_URL = "https://github.com/tracebisect/tracebisect"
+REPO_URL = "https://github.com/ShebinKMohan/TraceBisect"
 
 _ALPHA_MESSAGE_TEMPLATE = (
     "tracebisect {subcommand} is not implemented yet (alpha {version}). See {repo} for V1 progress."

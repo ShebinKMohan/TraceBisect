@@ -48,7 +48,7 @@ from typing import Any, TypeAlias
 
 __all__ = ["Trace", "assert_aligned", "capture_trace", "load_baseline"]
 
-_REPO_URL = "https://github.com/tracebisect/tracebisect"
+_REPO_URL = "https://github.com/ShebinKMohan/TraceBisect"
 _ALPHA_MESSAGE = (
     "tracebisect.testing.{name} is not implemented yet "
     "(alpha 0.0.1a0). See " + _REPO_URL + " for V1 progress."
