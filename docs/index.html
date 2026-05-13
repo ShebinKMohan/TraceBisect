@@ -28,7 +28,14 @@ TraceBisect V1 demo
   Type:     changed_tool_args</code></pre>
       </section>
 
-      <section class="mt-10 grid gap-5 md:grid-cols-2">
+      <section class="mt-10 grid gap-5 md:grid-cols-3">
+        <div class="rounded border border-zinc-800 bg-zinc-900/50 p-5">
+          <h2 class="font-semibold">Record a scenario</h2>
+          <pre class="mt-3 overflow-x-auto text-sm text-zinc-300"><code>from tracebisect import record_trace, wrap_tool
+
+with record_trace(user_input="refund users") as rec:
+    ...</code></pre>
+        </div>
         <div class="rounded border border-zinc-800 bg-zinc-900/50 p-5">
           <h2 class="font-semibold">Debug a recorded failure</h2>
           <pre class="mt-3 overflow-x-auto text-sm text-zinc-300"><code>tracebisect ingest raw-otel.json baseline.tbtrace

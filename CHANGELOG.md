@@ -18,6 +18,9 @@
 - Implements the minimal V1 `tracebisect record` command contract: run a
   scenario with `TRACEBISECT_OUTPUT`, enforce `stub` / `live` side-effect mode
   gating, validate the emitted trace, and write canonical JSONL.
+- Adds the native Python recorder API (`record_trace`, `wrap_tool`, and
+  `TraceRecorder.llm_call`) for demo/onboarding scenarios that need to emit
+  canonical traces without hand-building schema dataclasses.
 - Upgrades `tracebisect demo` from a static preview to an end-to-end
   refund-search walkthrough that writes demo traces, renders the real first
   divergence, and exports a runnable pytest regression test.
