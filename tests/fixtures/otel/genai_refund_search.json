@@ -1,0 +1,55 @@
+{
+  "resourceSpans": [
+    {
+      "resource": {
+        "attributes": [
+          {"key": "service.name", "value": {"stringValue": "refund-api"}}
+        ]
+      },
+      "scopeSpans": [
+        {
+          "scope": {"name": "opentelemetry.instrumentation.gen_ai"},
+          "spans": [
+            {
+              "traceId": "trc_genai_refund",
+              "spanId": "envelope_001",
+              "parentSpanId": null,
+              "name": "http.server.request",
+              "kind": "SPAN_KIND_SERVER",
+              "startTimeUnixNano": "1778932400000000000",
+              "endTimeUnixNano": "1778932401000000000",
+              "attributes": [
+                {"key": "http.method", "value": {"stringValue": "POST"}},
+                {"key": "http.route", "value": {"stringValue": "/refund/search"}},
+                {"key": "http.status_code", "value": {"intValue": "200"}}
+              ],
+              "status": {"code": "STATUS_CODE_OK"}
+            },
+            {
+              "traceId": "trc_genai_refund",
+              "spanId": "genai_llm_001",
+              "parentSpanId": "envelope_001",
+              "name": "gen_ai.chat",
+              "kind": "SPAN_KIND_CLIENT",
+              "startTimeUnixNano": "1778932400200000000",
+              "endTimeUnixNano": "1778932400700000000",
+              "attributes": [
+                {"key": "gen_ai.operation.name", "value": {"stringValue": "chat"}},
+                {"key": "gen_ai.system", "value": {"stringValue": "openai"}},
+                {"key": "gen_ai.request.model", "value": {"stringValue": "gpt-4o-mini"}},
+                {"key": "gen_ai.response.model", "value": {"stringValue": "gpt-4o-2024-08-06"}},
+                {"key": "gen_ai.usage.input_tokens", "value": {"intValue": "84"}},
+                {"key": "gen_ai.usage.output_tokens", "value": {"intValue": "22"}},
+                {"key": "gen_ai.request.temperature", "value": {"doubleValue": 0.0}},
+                {"key": "gen_ai.request.seed", "value": {"intValue": "42"}},
+                {"key": "input.value", "value": {"stringValue": "Find active users eligible for refund review."}},
+                {"key": "output.value", "value": {"stringValue": "search_database query=users WHERE active = true"}}
+              ],
+              "status": {"code": "STATUS_CODE_OK"}
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

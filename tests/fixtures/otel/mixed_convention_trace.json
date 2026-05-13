@@ -1,0 +1,70 @@
+{
+  "resourceSpans": [
+    {
+      "resource": {
+        "attributes": [
+          {"key": "service.name", "value": {"stringValue": "triage-agent"}},
+          {"key": "service.version", "value": {"stringValue": "0.9.2"}}
+        ]
+      },
+      "scopeSpans": [
+        {
+          "scope": {"name": "mixed.instrumentation"},
+          "spans": [
+            {
+              "traceId": "trc_mixed",
+              "spanId": "mixed_agent",
+              "parentSpanId": null,
+              "name": "agent_run",
+              "kind": "SPAN_KIND_INTERNAL",
+              "startTimeUnixNano": "1778932500000000000",
+              "endTimeUnixNano": "1778932501000000000",
+              "attributes": [
+                {"key": "openinference.span.kind", "value": {"stringValue": "AGENT"}},
+                {"key": "openinference.agent.name", "value": {"stringValue": "triage-agent"}},
+                {"key": "input.value", "value": {"stringValue": "Summarize today's open support tickets."}},
+                {"key": "output.value", "value": {"stringValue": "Two open tickets today: TKT-1 and TKT-4."}}
+              ],
+              "status": {"code": "STATUS_CODE_OK"}
+            },
+            {
+              "traceId": "trc_mixed",
+              "spanId": "mixed_genai_llm",
+              "parentSpanId": "mixed_agent",
+              "name": "gen_ai.chat",
+              "kind": "SPAN_KIND_CLIENT",
+              "startTimeUnixNano": "1778932500100000000",
+              "endTimeUnixNano": "1778932500700000000",
+              "attributes": [
+                {"key": "gen_ai.operation.name", "value": {"stringValue": "chat"}},
+                {"key": "gen_ai.system", "value": {"stringValue": "anthropic"}},
+                {"key": "gen_ai.request.model", "value": {"stringValue": "claude-3-5-sonnet"}},
+                {"key": "gen_ai.response.model", "value": {"stringValue": "claude-3-5-sonnet-20241022"}},
+                {"key": "gen_ai.usage.input_tokens", "value": {"intValue": "120"}},
+                {"key": "gen_ai.usage.output_tokens", "value": {"intValue": "18"}},
+                {"key": "gen_ai.request.temperature", "value": {"doubleValue": 0.2}}
+              ],
+              "status": {"code": "STATUS_CODE_OK"}
+            },
+            {
+              "traceId": "trc_mixed",
+              "spanId": "mixed_oi_tool",
+              "parentSpanId": "mixed_genai_llm",
+              "name": "list_open_tickets",
+              "kind": "SPAN_KIND_INTERNAL",
+              "startTimeUnixNano": "1778932500800000000",
+              "endTimeUnixNano": "1778932500840000000",
+              "attributes": [
+                {"key": "openinference.span.kind", "value": {"stringValue": "TOOL"}},
+                {"key": "tool.name", "value": {"stringValue": "list_open_tickets"}},
+                {"key": "tool.parameters", "value": {"stringValue": "{\"since\": \"2026-05-12T00:00:00Z\"}"}},
+                {"key": "output.value", "value": {"stringValue": "[{\"id\": \"TKT-1\", \"status\": \"open\"}, {\"id\": \"TKT-4\", \"status\": \"open\"}]"}}
+              ],
+              "status": {"code": "STATUS_CODE_OK"}
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
