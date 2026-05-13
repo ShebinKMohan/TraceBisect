@@ -18,13 +18,14 @@ import json
 import shlex
 import subprocess
 import sys
+import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 
-from colorama import Fore, Style
 from colorama import init as colorama_init
 
 from tracebisect.align import AlignmentError, align
+from tracebisect.demo import build_refund_baseline_trace, build_refund_candidate_trace
 from tracebisect.diff import detect_divergences
 from tracebisect.jsonl import read_trace, write_trace
 from tracebisect.otel import import_otel_json
@@ -32,25 +33,6 @@ from tracebisect.render import render_terminal_diff
 from tracebisect.schema import TraceBisectSchemaError
 from tracebisect.testing import capture_trace
 from tracebisect.version import __version__
-
-REPO_URL = "https://github.com/ShebinKMohan/TraceBisect"
-
-_ALPHA_MESSAGE_TEMPLATE = (
-    "tracebisect {subcommand} is not implemented yet (alpha {version}). See {repo} for V1 progress."
-)
-
-
-def _alpha_message(subcommand: str) -> str:
-    return _ALPHA_MESSAGE_TEMPLATE.format(
-        subcommand=subcommand,
-        version=__version__,
-        repo=REPO_URL,
-    )
-
-
-def _alpha_stub(subcommand: str) -> int:
-    print(_alpha_message(subcommand), file=sys.stderr)
-    return 2
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -68,7 +50,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser(
         "demo",
-        help="Print the v1.3 money-shot output preview.",
+        help="Run the built-in refund-search V1 demo.",
     )
 
     ingest = subparsers.add_parser(
@@ -110,6 +92,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     diff.add_argument("baseline", help="Baseline .tbtrace path.")
     diff.add_argument("candidate", help="Candidate .tbtrace path.")
+    diff.add_argument(
+        "--mode",
+        choices=["permissive", "strict", "ci"],
+        default="permissive",
+        help="Determinism mode for comparison (default: permissive).",
+    )
 
     # export-pytest LOCKED SIGNATURE.
     # Positionals: baseline, output. There is intentionally NO candidate
@@ -145,42 +133,58 @@ def build_parser() -> argparse.ArgumentParser:
 
 def run_demo() -> int:
     colorama_init()
-    red = Fore.RED
-    green = Fore.GREEN
-    yellow = Fore.YELLOW
-    dim = Style.DIM
-    reset = Style.RESET_ALL
+    artifact_dir = Path(tempfile.mkdtemp(prefix="tracebisect-demo-"))
+    baseline_path = artifact_dir / "baseline.tbtrace"
+    candidate_path = artifact_dir / "candidate.tbtrace"
+    scenario_path = artifact_dir / "scenario_current.py"
+    test_path = artifact_dir / "test_refund_regression.py"
 
-    lines = [
-        f"{red}✗ First divergence at event 7: tool_call.search_database{reset}",
-        f"  Severity: {red}CRITICAL{reset}",
-        "  Type:     changed_tool_args",
-        "",
-        f"  {green}Expected:{reset}",
-        f'    {green}query = "users WHERE active = true"{reset}',
-        "",
-        f"  {red}Actual:{reset}",
-        f'    {red}query = "users WHERE active = true AND deleted = false"{reset}',
-        f"                                    {red}++++++++++++++++++++{reset}",
-        "",
-        f"  {yellow}Direct effects:{reset}",
-        "    tool output changed",
-        "    final answer changed",
-        "    cost increased 18.4%",
-        "    no errors introduced",
-        "",
-        f"  {dim}Source metadata:{reset}",
-        f"    {dim}baseline trace recorded at commit a3f9c1d{reset}",
-        f"    {dim}candidate trace recorded at commit b71e442{reset}",
-        f"    {dim}prompt template `refund_search` differs between runs{reset}",
-        "",
-        "Exported test:",
-        "  tests/test_refund_agent_regression_042.py",
-        "",
-        f"{dim}Static alpha preview. See {REPO_URL} for V1 progress.{reset}",
-    ]
-    for line in lines:
-        print(line)
+    baseline = build_refund_baseline_trace()
+    candidate = build_refund_candidate_trace()
+    write_trace(baseline, baseline_path)
+    write_trace(candidate, candidate_path)
+    scenario_path.write_text(
+        "\n".join(
+            [
+                "import os",
+                "import shutil",
+                "from pathlib import Path",
+                f"source = Path({str(baseline_path)!r})",
+                "target = Path(os.environ['TRACEBISECT_OUTPUT'])",
+                "shutil.copyfile(source, target)",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    test_path.write_text(
+        _pytest_template(
+            baseline_path=str(baseline_path),
+            scenario_cmd=[sys.executable, str(scenario_path)],
+            assertions=["tool_args", "final_output", "cost"],
+            cost_threshold=1.5,
+        ),
+        encoding="utf-8",
+    )
+
+    matches = align(baseline, candidate)
+    divergences = detect_divergences(matches, baseline, candidate)
+
+    print("TraceBisect V1 demo")
+    print("===================")
+    print()
+    print("Scenario: refund agent changed its search_database filter.")
+    print()
+    print(render_terminal_diff(divergences, use_color=sys.stdout.isatty()))
+    print()
+    print("Generated pytest regression test:")
+    print(f"  {test_path}")
+    print()
+    print("Try it:")
+    print(f"  python -m tracebisect diff {baseline_path} {candidate_path}")
+    print(f"  pytest {test_path}")
+    print()
+    print(f"Artifacts: {artifact_dir}")
     return 0
 
 
@@ -233,7 +237,13 @@ def run_record(
     return 0
 
 
-def run_diff(baseline: str, candidate: str) -> int:
+def run_diff(baseline: str, candidate: str, *, mode: str = "permissive") -> int:
+    if mode not in {"permissive", "strict", "ci"}:
+        print(
+            "tracebisect diff failed: mode must be permissive, strict, or ci",
+            file=sys.stderr,
+        )
+        return 2
     try:
         baseline_trace = read_trace(baseline)
         candidate_trace = read_trace(candidate)
@@ -243,7 +253,8 @@ def run_diff(baseline: str, candidate: str) -> int:
         print(f"tracebisect diff failed: {exc}", file=sys.stderr)
         return 1
 
-    print(render_terminal_diff(divergences))
+    colorama_init()
+    print(render_terminal_diff(divergences, use_color=sys.stdout.isatty()))
     return 1 if divergences else 0
 
 
@@ -349,7 +360,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
 
     if command == "diff":
-        return run_diff(args.baseline, args.candidate)
+        return run_diff(args.baseline, args.candidate, mode=args.mode)
 
     if command == "export-pytest":
         try:

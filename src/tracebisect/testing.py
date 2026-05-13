@@ -93,7 +93,7 @@ def assert_aligned(
     candidate: Trace,
     assertions: Sequence[str],
     cost_threshold: float = 1.5,
-    mode: str = "ci",
+    mode: Mode = "ci",
 ) -> None:
     """Assert selected V1 dimensions between a baseline and candidate trace."""
     if isinstance(assertions, str):

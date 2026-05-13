@@ -42,18 +42,28 @@ def test_demo_command_succeeds(capsys: pytest.CaptureFixture[str]) -> None:
     captured = capsys.readouterr()
     assert exit_code == 0
     out = captured.out
-    assert "First divergence at event 7" in out
+    assert "TraceBisect V1 demo" in out
+    assert "First divergence" in out
     assert "tool_call.search_database" in out
+    assert "changed_tool_args" in out
     assert "CRITICAL" in out
-    assert "Direct effects:" in out
-    assert "Source metadata:" in out
+    assert "users WHERE active = true" in out
+    assert "users WHERE active = true AND deleted = false" in out
+    assert "Generated pytest regression test" in out
 
 
-def test_demo_mentions_repo_url(capsys: pytest.CaptureFixture[str]) -> None:
+def test_demo_writes_artifacts(capsys: pytest.CaptureFixture[str]) -> None:
     exit_code = main(["demo"])
     captured = capsys.readouterr()
     assert exit_code == 0
-    assert "github.com" in captured.out.lower()
+    artifact_line = next(
+        line for line in captured.out.splitlines() if line.startswith("Artifacts: ")
+    )
+    artifact_dir = Path(artifact_line.removeprefix("Artifacts: "))
+    assert read_trace(artifact_dir / "baseline.tbtrace").trace_id == "trc_demo_refund_baseline"
+    assert read_trace(artifact_dir / "candidate.tbtrace").trace_id == "trc_demo_refund_candidate"
+    assert (artifact_dir / "test_refund_regression.py").exists()
+    assert (artifact_dir / "scenario_current.py").exists()
 
 
 @pytest.mark.parametrize(
@@ -70,6 +80,18 @@ def test_parser_exposes_all_subcommands(argv: list[str], expected_command: str) 
     parser = build_parser()
     args = parser.parse_args(argv)
     assert args.command == expected_command
+
+
+def test_diff_parser_exposes_determinism_mode() -> None:
+    parser = build_parser()
+
+    default_args = parser.parse_args(["diff", "baseline.tbtrace", "candidate.tbtrace"])
+    strict_args = parser.parse_args(
+        ["diff", "baseline.tbtrace", "candidate.tbtrace", "--mode", "strict"]
+    )
+
+    assert default_args.mode == "permissive"
+    assert strict_args.mode == "strict"
 
 
 def test_ingest_otel_json_writes_canonical_tbtrace(
