@@ -2,23 +2,18 @@
 
 import {
   AlertTriangle,
-  CircleDollarSign,
-  FileCode2,
-  GitCompare,
-  ShieldCheck,
   Sparkles,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { compareTraces, fetchDemoReport, fetchTraces, uploadTrace } from "@/lib/api";
-import type { Report, TraceSummary } from "@/lib/types";
-import { FirstDivergenceCard } from "@/components/first-divergence-card";
+import type { Report, TraceEvent, TraceSummary } from "@/lib/types";
+import { CompareDrawer } from "@/components/compare-drawer";
+import { EventDetailsPanel } from "@/components/event-details-panel";
 import { IntegrationPanel } from "@/components/integration-panel";
-import { MetricCard } from "@/components/metric-card";
-import { PytestPanel } from "@/components/pytest-panel";
+import { RunList } from "@/components/run-list";
 import { Sidebar } from "@/components/sidebar";
-import { SignalChart } from "@/components/signal-chart";
 import { Topbar } from "@/components/topbar";
-import { TraceTimeline } from "@/components/trace-timeline";
+import { TraceWorkbench } from "@/components/trace-workbench";
 import { UploadComparePanel } from "@/components/upload-compare-panel";
 
 export function StudioDashboard() {
@@ -27,6 +22,8 @@ export function StudioDashboard() {
   const [baselineId, setBaselineId] = useState("");
   const [candidateId, setCandidateId] = useState("");
   const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [activeSide, setActiveSide] = useState<"baseline" | "candidate">("candidate");
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -43,6 +40,21 @@ export function StudioDashboard() {
   const highlightedIds = useMemo(() => {
     return new Set([first?.baseline_event_id, first?.candidate_event_id].filter((id): id is string => Boolean(id)));
   }, [first]);
+  const activeTrace = activeSide === "baseline" ? report?.baseline : report?.candidate;
+  const activeEvents = activeSide === "baseline" ? (report?.events.baseline ?? []) : (report?.events.candidate ?? []);
+  const selectedEvent =
+    activeEvents.find((event) => event.id === selectedEventId) ??
+    activeEvents.find((event) => highlightedIds.has(event.id)) ??
+    activeEvents[0] ??
+    null;
+
+  useEffect(() => {
+    const preferred =
+      activeSide === "baseline" ? first?.baseline_event_id : first?.candidate_event_id;
+    const nextEvent =
+      activeEvents.find((event) => event.id === preferred) ?? activeEvents[0] ?? null;
+    setSelectedEventId(nextEvent?.id ?? null);
+  }, [activeEvents, activeSide, first?.baseline_event_id, first?.candidate_event_id]);
 
   function toggleTheme() {
     const nextTheme = theme === "light" ? "dark" : "light";
@@ -97,6 +109,10 @@ export function StudioDashboard() {
     }
   }
 
+  function handleSelectEvent(event: TraceEvent) {
+    setSelectedEventId(event.id);
+  }
+
   return (
     <main className="studio-shell">
       <div className="dashboard-frame">
@@ -106,10 +122,10 @@ export function StudioDashboard() {
 
           <section className="hero-band">
             <div>
-              <p className="eyebrow">Trace regression intelligence</p>
+              <p className="eyebrow">Project / Refund Ops</p>
               <h1 data-testid="studio-title">TraceBisect Studio</h1>
               <p>
-                Compare AI-agent runs, isolate the first behavioral break, and move the finding into CI.
+                Inspect agent runs from start to finish, compare a baseline against a candidate, and export the first meaningful regression as a CI test.
               </p>
             </div>
             <div className="hero-status" data-testid="comparison-summary">
@@ -118,6 +134,13 @@ export function StudioDashboard() {
             </div>
           </section>
 
+          <nav className="project-tabs" aria-label="Project sections">
+            <a href="#" aria-current="page">Runs</a>
+            <a href="#">Threads</a>
+            <a href="#">Divergences</a>
+            <a href="#">Setup</a>
+          </nav>
+
           {error ? (
             <section className="error-band" role="alert">
               <AlertTriangle size={18} aria-hidden />
@@ -125,54 +148,27 @@ export function StudioDashboard() {
             </section>
           ) : null}
 
-          <section className="metric-grid" aria-label="Comparison metrics">
-            <MetricCard
-              featured
-              icon={<GitCompare size={20} aria-hidden />}
-              label="Divergences"
-              value={loading ? "..." : (report?.divergence_count ?? 0)}
-              detail="V1 detector output"
-              testId="metric-divergences"
+          <div className="observability-grid">
+            <RunList
+              activeSide={activeSide}
+              onSelectSide={setActiveSide}
+              report={report}
+              traces={traces}
             />
-            <MetricCard
-              icon={<ShieldCheck size={20} aria-hidden />}
-              label="First severity"
-              value={first?.severity ?? "INFO"}
-              detail={first?.type ?? "no drift"}
+            <TraceWorkbench
+              events={activeEvents}
+              highlightedIds={highlightedIds}
+              onSelectEvent={handleSelectEvent}
+              selectedEventId={selectedEvent?.id ?? null}
+              side={activeSide}
+              trace={activeTrace}
             />
-            <MetricCard
-              icon={<CircleDollarSign size={20} aria-hidden />}
-              label="Cost ratio"
-              value={first ? `${first.impact.cost_delta_ratio.toFixed(2)}x` : "1.00x"}
-              detail="fixed 20% severity model"
-            />
-            <MetricCard
-              icon={<FileCode2 size={20} aria-hidden />}
-              label="Pytest export"
-              value={report?.pytest.filename ?? "pending"}
-              detail="copy-ready guardrail"
-            />
-          </section>
+            <EventDetailsPanel divergence={first} event={selectedEvent} side={activeSide} />
+          </div>
 
-          <div className="content-grid">
+          <div className="operations-grid">
             <div className="primary-column">
-              <FirstDivergenceCard divergence={first} />
-              <SignalChart divergences={report?.divergences ?? []} />
-              <div className="trace-grid">
-                <TraceTimeline
-                  title="Baseline"
-                  trace={report?.baseline}
-                  events={report?.events.baseline ?? []}
-                  highlightedIds={highlightedIds}
-                />
-                <TraceTimeline
-                  title="Candidate"
-                  trace={report?.candidate}
-                  events={report?.events.candidate ?? []}
-                  highlightedIds={highlightedIds}
-                />
-              </div>
-              <PytestPanel filename={report?.pytest.filename} source={report?.pytest.source} />
+              <CompareDrawer divergence={first} report={report} />
             </div>
 
             <aside className="side-column">

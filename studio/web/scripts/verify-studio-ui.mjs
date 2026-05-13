@@ -127,6 +127,10 @@ async function main() {
 
   await page.goto(baseUrl, { waitUntil: "networkidle" });
   await expectText(page, '[data-testid="studio-title"]', "TraceBisect Studio", "product title");
+  await expectText(page, '[data-testid="runs-table"]', "Refund regression", "runs table");
+  await expectText(page, '[data-testid="trace-tree"]', "TOOL_CALL", "trace tree event type");
+  await expectText(page, '[data-testid="trace-tree"]', "search_database", "trace tree event name");
+  await expectText(page, '[data-testid="details-panel"]', "search_database", "details panel");
   await expectText(
     page,
     '[data-testid="first-divergence-card"]',
@@ -137,7 +141,7 @@ async function main() {
   await expectText(page, '[data-testid="integration-otel"]', "OpenTelemetry", "OTel integration card");
   await assertContrast(page, '[data-testid="studio-title"]', "light title");
   await assertContrast(page, '[data-testid="first-divergence-card"] h2', "light divergence heading");
-  await assertContrast(page, '[data-testid="metric-divergences"] strong', "light divergence metric");
+  await assertContrast(page, '[data-testid="metric-divergences"]', "light divergence metric");
   await assertNoHorizontalOverflow(page, "desktop light");
   await page.screenshot({ path: path.join(screenshotDir, "desktop-light.png"), fullPage: true });
 
@@ -146,7 +150,7 @@ async function main() {
   assert(theme === "dark", `Theme toggle did not set dark mode. Actual: ${theme}`);
   await assertContrast(page, '[data-testid="studio-title"]', "dark title");
   await assertContrast(page, '[data-testid="first-divergence-card"] h2', "dark divergence heading");
-  await assertContrast(page, '[data-testid="metric-divergences"] strong', "dark divergence metric");
+  await assertContrast(page, '[data-testid="metric-divergences"]', "dark divergence metric");
   await assertNoHorizontalOverflow(page, "desktop dark");
   await page.screenshot({ path: path.join(screenshotDir, "desktop-dark.png"), fullPage: true });
 
