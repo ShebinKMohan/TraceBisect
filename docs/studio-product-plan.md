@@ -44,7 +44,7 @@ logic in TypeScript or a new service.
 The first Studio MVP is deliberately narrow:
 
 1. A FastAPI backend that exposes the existing engine.
-2. A React/Vite frontend that renders a real comparison report.
+2. A Next.js 16 frontend that renders a real comparison report.
 3. A seeded demo using the existing refund-search traces.
 4. Upload support for `.tbtrace` and OTel/OpenInference JSON.
 5. A compare action that returns first-divergence data and pytest export text.
@@ -63,10 +63,12 @@ src/tracebisect/studio/
 
 studio/web/
   package.json
-  src/
-    App.tsx
-    main.tsx
-    styles.css
+  app/
+    layout.tsx
+    page.tsx
+    globals.css
+  components/
+  lib/
 ```
 
 Backend:
@@ -79,7 +81,9 @@ Backend:
 
 Frontend:
 
-- React + Vite.
+- Next.js 16 App Router in `studio/web`.
+- Standardized palette: `#2C6975`, `#68B2A0`, `#CDE0C9`, `#E0ECDE`, `#FFFFFF`.
+- Light and dark dashboard modes with the same component structure.
 - No auth, billing, teams, or database in the first slice.
 - Show the seeded demo immediately on first load.
 - UI must look like a product dashboard, not a docs page.

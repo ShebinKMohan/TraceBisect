@@ -10,7 +10,10 @@ dist/
 htmlcov/
 .coverage
 node_modules/
+studio/web/.next/
 studio/web/dist/
+studio/web/out/
+studio/web/.artifacts/
 studio/web/*.tsbuildinfo
 studio/web/vite.config.d.ts
 studio/web/vite.config.js

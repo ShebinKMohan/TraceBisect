@@ -29,9 +29,9 @@ same first-divergence output that `tracebisect diff` produces.
 ## TraceBisect Studio
 
 Studio is the portfolio-facing web product. It wraps the existing Python engine
-with a FastAPI backend and React dashboard so developers can upload two traces,
-compare them visually, inspect the first divergence, and copy a generated pytest
-regression test.
+with a FastAPI backend and a Next.js 16 dashboard so developers can upload two
+traces, compare them visually, inspect the first divergence, and copy a
+generated pytest regression test.
 
 Run the API:
 
@@ -47,7 +47,7 @@ npm install
 npm run dev
 ```
 
-Then open <http://127.0.0.1:5173>. The seeded refund-agent report loads from
+Then open <http://127.0.0.1:3000>. The seeded refund-agent report loads from
 the same engine used by `tracebisect demo`.
 
 ## Commands

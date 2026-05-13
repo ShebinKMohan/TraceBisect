@@ -2,9 +2,9 @@
 
 ## 0.1.0
 
-- Adds TraceBisect Studio MVP: a FastAPI backend and React dashboard that wrap
-  the existing trace engine with a visual first-divergence report, trace upload,
-  compare action, and generated pytest preview.
+- Adds TraceBisect Studio MVP: a FastAPI backend and Next.js 16 dashboard that
+  wrap the existing trace engine with a visual first-divergence report, trace
+  upload, compare action, and generated pytest preview.
 - Implements canonical trace schema, JSONL read/write, checked-in `.tbtrace`
   fixtures, OTel/OpenInference JSON import, and the real `tracebisect ingest`
   command.
