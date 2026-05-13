@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tracebisect"
-version = "0.0.1a0"
+version = "0.1.0"
 description = "Git bisect for AI agent traces"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -14,7 +14,7 @@ authors = [
 ]
 keywords = ["ai", "llm", "agents", "observability", "pytest", "opentelemetry"]
 classifiers = [
-  "Development Status :: 3 - Alpha",
+  "Development Status :: 4 - Beta",
   "Environment :: Console",
   "Intended Audience :: Developers",
   "License :: OSI Approved :: MIT License",
@@ -66,4 +66,3 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 python_version = "3.10"
 strict = true
 packages = ["tracebisect"]
-

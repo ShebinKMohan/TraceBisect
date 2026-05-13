@@ -1,15 +1,10 @@
 # Changelog
 
-## 0.0.1a0
+## 0.1.0
 
-- Initial alpha scaffold.
-- Adds CI and trusted-publishing release workflow.
-- Adds `src/tracebisect/py.typed` (PEP 561 marker) so the package signals
-  that it ships type hints.
-- Adds `python -m tracebisect` support via `src/tracebisect/__main__.py`.
 - Implements canonical trace schema, JSONL read/write, checked-in `.tbtrace`
   fixtures, OTel/OpenInference JSON import, and the real `tracebisect ingest`
-  command for V1 development.
+  command.
 - Implements the V1 alignment engine, divergence detection, terminal diff
   rendering, `tracebisect diff` with determinism modes, generated pytest
   export, and the public `tracebisect.testing` runtime
@@ -28,3 +23,11 @@
   commands and generated-test smoke coverage.
 - Refreshes the README quickstart and static docs page around the implemented
   V1 local CLI flow.
+
+## 0.0.1a0
+
+- Initial alpha scaffold.
+- Adds CI and trusted-publishing release workflow.
+- Adds `src/tracebisect/py.typed` (PEP 561 marker) so the package signals
+  that it ships type hints.
+- Adds `python -m tracebisect` support via `src/tracebisect/__main__.py`.

@@ -18,8 +18,8 @@ OTEL_FIXTURE = REPO_ROOT / "tests" / "fixtures" / "otel" / "openinference_refund
 NATIVE_FIXTURE = REPO_ROOT / "tests" / "fixtures" / "refund_search_baseline.tbtrace"
 
 
-def test_version_string_is_pep440_alpha() -> None:
-    assert __version__ == "0.0.1a0"
+def test_version_string_is_current_release() -> None:
+    assert __version__ == "0.1.0"
 
 
 def test_version_flag_via_main(capsys: pytest.CaptureFixture[str]) -> None:
@@ -27,7 +27,7 @@ def test_version_flag_via_main(capsys: pytest.CaptureFixture[str]) -> None:
         main(["--version"])
     assert exc_info.value.code == 0
     captured = capsys.readouterr()
-    assert "tracebisect 0.0.1a0" in captured.out
+    assert "tracebisect 0.1.0" in captured.out
 
 
 def test_no_args_prints_help(capsys: pytest.CaptureFixture[str]) -> None:
@@ -276,4 +276,4 @@ def test_python_dash_m_invocation_works() -> None:
         timeout=30,
     )
     assert result.returncode == 0, result.stderr
-    assert "tracebisect 0.0.1a0" in result.stdout
+    assert "tracebisect 0.1.0" in result.stdout

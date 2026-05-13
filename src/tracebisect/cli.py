@@ -1,7 +1,7 @@
 """Command-line interface for TraceBisect.
 
-The alpha (0.0.1a0) ships the locked CLI surface so generated regression
-tests and downstream tooling can be written against stable shapes:
+The V1 CLI ships the locked command surface so generated regression tests and
+downstream tooling can be written against stable shapes:
 
 - ``tracebisect --version`` and ``tracebisect demo`` are real commands.
 - ``ingest`` converts OTel/OpenInference JSON or native ``.tbtrace`` input
