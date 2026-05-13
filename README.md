@@ -6,7 +6,7 @@ TraceBisect is a local-first command-line tool for comparing two AI agent traces
 finding the first meaningful behavioral divergence, and exporting a pytest
 regression test so the failure does not return.
 
-This repository is currently in alpha scaffold state.
+This repository is currently in active V1 implementation.
 
 ## Install
 
@@ -18,10 +18,14 @@ pip install tracebisect
 
 - `tracebisect --version` — prints the package version.
 - `tracebisect demo` — prints a static preview of the v1.3 money-shot output.
-- `tracebisect ingest`, `tracebisect record`, `tracebisect diff`,
-  `tracebisect export-pytest` — alpha stubs. They parse the locked CLI
-  signatures from spec section 4.2 but exit with code 2 and an
-  "alpha — not implemented yet" message until V1 lands.
+- `tracebisect ingest` — converts OTel/OpenInference JSON or native `.tbtrace`
+  input into canonical `.tbtrace` JSONL.
+- `tracebisect diff` — aligns two canonical traces and renders the first
+  meaningful divergence.
+- `tracebisect export-pytest` — writes a live-capture pytest regression test
+  using the public `tracebisect.testing` runtime API.
+- `tracebisect record` — runs a scenario command with `TRACEBISECT_OUTPUT`
+  set and validates the emitted `.tbtrace` file.
 
 ## V1 Scope
 
@@ -38,4 +42,3 @@ history bisection.
 
 See [spec/production-spec.md](spec/production-spec.md) for the locked product
 specification.
-

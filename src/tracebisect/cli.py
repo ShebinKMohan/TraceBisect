@@ -4,20 +4,33 @@ The alpha (0.0.1a0) ships the locked CLI surface so generated regression
 tests and downstream tooling can be written against stable shapes:
 
 - ``tracebisect --version`` and ``tracebisect demo`` are real commands.
-- ``ingest``, ``record``, ``diff``, and ``export-pytest`` parse their locked
-  signatures via argparse but exit with code 2 and an alpha message; the
-  real implementations land in V1.
+- ``ingest`` converts OTel/OpenInference JSON or native ``.tbtrace`` input
+  into canonical ``.tbtrace`` JSONL.
+- ``diff`` renders a terminal comparison of two canonical traces.
+- ``export-pytest`` writes a live-capture regression test file.
+- ``record`` runs a scenario command with the V1 capture environment contract.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
+import shlex
+import subprocess
 import sys
 from collections.abc import Sequence
+from pathlib import Path
 
 from colorama import Fore, Style
 from colorama import init as colorama_init
 
+from tracebisect.align import AlignmentError, align
+from tracebisect.diff import detect_divergences
+from tracebisect.jsonl import read_trace, write_trace
+from tracebisect.otel import import_otel_json
+from tracebisect.render import render_terminal_diff
+from tracebisect.schema import TraceBisectSchemaError
+from tracebisect.testing import capture_trace
 from tracebisect.version import __version__
 
 REPO_URL = "https://github.com/ShebinKMohan/TraceBisect"
@@ -60,14 +73,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     ingest = subparsers.add_parser(
         "ingest",
-        help="Convert a source trace into the canonical .tbtrace format (alpha stub).",
+        help="Convert a source trace into the canonical .tbtrace format.",
     )
     ingest.add_argument("source", help="Path to the source trace.")
     ingest.add_argument("output", help="Destination .tbtrace path.")
 
     record = subparsers.add_parser(
         "record",
-        help="Run a command with the built-in recorder (alpha stub).",
+        help="Run a command and capture the canonical trace it emits.",
     )
     record.add_argument(
         "--output",
@@ -93,7 +106,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     diff = subparsers.add_parser(
         "diff",
-        help="Align two traces and render the divergence diff (alpha stub).",
+        help="Align two traces and render the first meaningful divergence.",
     )
     diff.add_argument("baseline", help="Baseline .tbtrace path.")
     diff.add_argument("candidate", help="Candidate .tbtrace path.")
@@ -104,7 +117,7 @@ def build_parser() -> argparse.ArgumentParser:
     # command supplied via --scenario. See spec section 4.5.
     export = subparsers.add_parser(
         "export-pytest",
-        help="Generate a pytest regression test from a baseline (alpha stub).",
+        help="Generate a live-capture pytest regression test from a baseline.",
     )
     export.add_argument("baseline", help="Baseline .tbtrace path.")
     export.add_argument("output", help="Output .py path for the generated test.")
@@ -171,6 +184,146 @@ def run_demo() -> int:
     return 0
 
 
+def run_ingest(source: str, output: str) -> int:
+    source_path = Path(source)
+    output_path = Path(output)
+    try:
+        if source_path.suffix == ".tbtrace":
+            trace = read_trace(source_path)
+        else:
+            trace = import_otel_json(source_path)
+        write_trace(trace, output_path)
+    except (OSError, TraceBisectSchemaError) as exc:
+        print(f"tracebisect ingest failed: {exc}", file=sys.stderr)
+        return 1
+    print(f"Wrote canonical trace to {output_path}")
+    return 0
+
+
+def run_record(
+    output: str,
+    *,
+    record_command: list[str],
+    side_effects: str,
+    allow_live: bool,
+) -> int:
+    command = list(record_command)
+    if command and command[0] == "--":
+        command = command[1:]
+    if not command:
+        print("tracebisect record failed: command is required after --", file=sys.stderr)
+        return 2
+    if side_effects == "live" and not allow_live:
+        print(
+            "tracebisect record failed: --side-effects live requires --allow-live",
+            file=sys.stderr,
+        )
+        return 2
+    try:
+        trace = capture_trace(
+            command,
+            side_effects=side_effects,
+            allow_live=allow_live,
+        )
+        write_trace(trace, output)
+    except (OSError, TraceBisectSchemaError, RuntimeError, subprocess.SubprocessError) as exc:
+        print(f"tracebisect record failed: {exc}", file=sys.stderr)
+        return 1
+    print(f"Wrote recorded trace to {output}")
+    return 0
+
+
+def run_diff(baseline: str, candidate: str) -> int:
+    try:
+        baseline_trace = read_trace(baseline)
+        candidate_trace = read_trace(candidate)
+        matches = align(baseline_trace, candidate_trace)
+        divergences = detect_divergences(matches, baseline_trace, candidate_trace)
+    except (OSError, TraceBisectSchemaError, AlignmentError) as exc:
+        print(f"tracebisect diff failed: {exc}", file=sys.stderr)
+        return 1
+
+    print(render_terminal_diff(divergences))
+    return 1 if divergences else 0
+
+
+def run_export_pytest(
+    baseline: str,
+    output: str,
+    *,
+    scenario: str | None,
+    assert_dimensions: str | None,
+    cost_threshold: float,
+) -> int:
+    if not scenario:
+        print("tracebisect export-pytest failed: --scenario is required in V1", file=sys.stderr)
+        return 2
+
+    assertions = _parse_assertions(assert_dimensions)
+    scenario_cmd = shlex.split(scenario)
+    if not scenario_cmd:
+        print("tracebisect export-pytest failed: --scenario must not be empty", file=sys.stderr)
+        return 2
+
+    output_path = Path(output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(
+        _pytest_template(
+            baseline_path=str(Path(baseline)),
+            scenario_cmd=scenario_cmd,
+            assertions=assertions,
+            cost_threshold=cost_threshold,
+        ),
+        encoding="utf-8",
+    )
+    print(f"Wrote pytest regression test to {output_path}")
+    return 0
+
+
+def _parse_assertions(raw: str | None) -> list[str]:
+    if raw is None:
+        return ["tool_args", "final_output", "cost"]
+    assertions = [part.strip() for part in raw.split(",") if part.strip()]
+    if not assertions:
+        raise ValueError("--assert must contain at least one assertion dimension")
+    return assertions
+
+
+def _pytest_template(
+    *,
+    baseline_path: str,
+    scenario_cmd: list[str],
+    assertions: list[str],
+    cost_threshold: float,
+) -> str:
+    assertion_literal = "[" + ", ".join(json.dumps(item) for item in assertions) + "]"
+    scenario_literal = json.dumps(scenario_cmd, indent=4)
+    return f'''"""Generated TraceBisect regression test."""
+
+from tracebisect.testing import (
+    assert_aligned,
+    capture_trace,
+    load_baseline,
+)
+
+BASELINE_PATH = {json.dumps(baseline_path)}
+SCENARIO_CMD = {scenario_literal}
+
+
+def test_tracebisect_regression():
+    baseline = load_baseline(BASELINE_PATH)
+    candidate = capture_trace(SCENARIO_CMD)
+
+    assert_aligned(
+        baseline=baseline,
+        candidate=candidate,
+        assertions={assertion_literal},
+        cost_threshold={cost_threshold!r},
+        mode="ci",
+    )
+'''
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -184,8 +337,32 @@ def main(argv: Sequence[str] | None = None) -> int:
     if command == "demo":
         return run_demo()
 
-    if command in ("ingest", "record", "diff", "export-pytest"):
-        return _alpha_stub(command)
+    if command == "ingest":
+        return run_ingest(args.source, args.output)
+
+    if command == "record":
+        return run_record(
+            args.output,
+            record_command=args.record_command,
+            side_effects=args.side_effects,
+            allow_live=args.allow_live,
+        )
+
+    if command == "diff":
+        return run_diff(args.baseline, args.candidate)
+
+    if command == "export-pytest":
+        try:
+            return run_export_pytest(
+                args.baseline,
+                args.output,
+                scenario=args.scenario,
+                assert_dimensions=args.assert_dimensions,
+                cost_threshold=args.cost_threshold,
+            )
+        except ValueError as exc:
+            print(f"tracebisect export-pytest failed: {exc}", file=sys.stderr)
+            return 2
 
     parser.print_help()
     return 0

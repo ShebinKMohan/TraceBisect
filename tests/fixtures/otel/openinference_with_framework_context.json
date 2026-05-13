@@ -1,0 +1,112 @@
+{
+  "resourceSpans": [
+    {
+      "resource": {
+        "attributes": [
+          {"key": "service.name", "value": {"stringValue": "refund-web"}}
+        ]
+      },
+      "scopeSpans": [
+        {
+          "scope": {"name": "framework-and-openinference"},
+          "spans": [
+            {
+              "traceId": "trc_oi_with_framework",
+              "spanId": "http_root",
+              "parentSpanId": null,
+              "name": "POST /refund/search",
+              "kind": "SPAN_KIND_SERVER",
+              "startTimeUnixNano": "1778932600000000000",
+              "endTimeUnixNano": "1778932602000000000",
+              "attributes": [
+                {"key": "http.method", "value": {"stringValue": "POST"}},
+                {"key": "http.route", "value": {"stringValue": "/refund/search"}}
+              ],
+              "status": {"code": "STATUS_CODE_OK"}
+            },
+            {
+              "traceId": "trc_oi_with_framework",
+              "spanId": "auth_middleware",
+              "parentSpanId": "http_root",
+              "name": "auth_middleware",
+              "kind": "SPAN_KIND_INTERNAL",
+              "startTimeUnixNano": "1778932600100000000",
+              "endTimeUnixNano": "1778932600200000000",
+              "attributes": [
+                {"key": "auth.scheme", "value": {"stringValue": "session"}}
+              ],
+              "status": {"code": "STATUS_CODE_OK"}
+            },
+            {
+              "traceId": "trc_oi_with_framework",
+              "spanId": "response_serialization",
+              "parentSpanId": "auth_middleware",
+              "name": "response_serialization",
+              "kind": "SPAN_KIND_INTERNAL",
+              "startTimeUnixNano": "1778932601800000000",
+              "endTimeUnixNano": "1778932601900000000",
+              "attributes": [
+                {"key": "serializer.format", "value": {"stringValue": "json"}}
+              ],
+              "status": {"code": "STATUS_CODE_OK"}
+            },
+            {
+              "traceId": "trc_oi_with_framework",
+              "spanId": "agent_001",
+              "parentSpanId": "http_root",
+              "name": "refund_agent_run",
+              "kind": "SPAN_KIND_INTERNAL",
+              "startTimeUnixNano": "1778932600300000000",
+              "endTimeUnixNano": "1778932601600000000",
+              "attributes": [
+                {"key": "openinference.span.kind", "value": {"stringValue": "AGENT"}},
+                {"key": "openinference.agent.name", "value": {"stringValue": "refund-support-bot"}},
+                {"key": "input.value", "value": {"stringValue": "Find active users eligible for refund review."}},
+                {"key": "output.value", "value": {"stringValue": "Found 3 active users eligible for refund review: alice, carol, ravi."}}
+              ],
+              "status": {"code": "STATUS_CODE_OK"}
+            },
+            {
+              "traceId": "trc_oi_with_framework",
+              "spanId": "llm_001",
+              "parentSpanId": "agent_001",
+              "name": "openai.chat.completions.create",
+              "kind": "SPAN_KIND_CLIENT",
+              "startTimeUnixNano": "1778932600400000000",
+              "endTimeUnixNano": "1778932600900000000",
+              "attributes": [
+                {"key": "openinference.span.kind", "value": {"stringValue": "LLM"}},
+                {"key": "llm.model_name", "value": {"stringValue": "gpt-4o-mini"}},
+                {"key": "llm.provider", "value": {"stringValue": "openai"}},
+                {"key": "llm.token_count.prompt", "value": {"intValue": "84"}},
+                {"key": "llm.token_count.completion", "value": {"intValue": "22"}},
+                {"key": "llm.cost.usd", "value": {"doubleValue": 0.00021}},
+                {"key": "llm.invocation_parameters.temperature", "value": {"doubleValue": 0.0}},
+                {"key": "llm.invocation_parameters.seed", "value": {"intValue": "42"}},
+                {"key": "input.value", "value": {"stringValue": "Find active users eligible for refund review."}},
+                {"key": "output.value", "value": {"stringValue": ""}}
+              ],
+              "status": {"code": "STATUS_CODE_OK"}
+            },
+            {
+              "traceId": "trc_oi_with_framework",
+              "spanId": "tool_001",
+              "parentSpanId": "llm_001",
+              "name": "search_database",
+              "kind": "SPAN_KIND_INTERNAL",
+              "startTimeUnixNano": "1778932601000000000",
+              "endTimeUnixNano": "1778932601030000000",
+              "attributes": [
+                {"key": "openinference.span.kind", "value": {"stringValue": "TOOL"}},
+                {"key": "tool.name", "value": {"stringValue": "search_database"}},
+                {"key": "tool.parameters", "value": {"stringValue": "{\"query\": \"users WHERE active = true\"}"}},
+                {"key": "output.value", "value": {"stringValue": "[{\"id\": 1, \"name\": \"alice\"}, {\"id\": 7, \"name\": \"carol\"}, {\"id\": 12, \"name\": \"ravi\"}]"}}
+              ],
+              "status": {"code": "STATUS_CODE_OK"}
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -16,4 +16,13 @@
 - Adds `src/tracebisect/py.typed` (PEP 561 marker) so the package signals
   that it ships type hints.
 - Adds `python -m tracebisect` support via `src/tracebisect/__main__.py`.
-
+- Implements canonical trace schema, JSONL read/write, checked-in `.tbtrace`
+  fixtures, OTel/OpenInference JSON import, and the real `tracebisect ingest`
+  command for V1 development.
+- Implements the V1 alignment engine, divergence detection, terminal diff
+  rendering, `tracebisect diff`, `tracebisect export-pytest`, and the public
+  `tracebisect.testing` runtime (`capture_trace`, `load_baseline`,
+  `assert_aligned`) for generated regression tests.
+- Implements the minimal V1 `tracebisect record` command contract: run a
+  scenario with `TRACEBISECT_OUTPUT`, enforce `stub` / `live` side-effect mode
+  gating, validate the emitted trace, and write canonical JSONL.
