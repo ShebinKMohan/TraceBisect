@@ -8,41 +8,44 @@
   </head>
   <body class="bg-zinc-950 text-zinc-100">
     <main class="mx-auto max-w-5xl px-6 py-14">
-      <p class="text-sm uppercase text-cyan-300">TraceBisect</p>
+      <p class="text-sm uppercase text-cyan-300">TraceBisect Studio</p>
       <h1 class="mt-3 max-w-3xl text-4xl font-semibold tracking-normal">
-        Git bisect for AI agent traces
+        Visual regression reports for AI-agent runs
       </h1>
       <p class="mt-5 max-w-3xl text-lg text-zinc-300">
-        A local-first CLI that compares two agent runs, finds the first meaningful
-        behavioral divergence, and exports a pytest regression test that keeps the
-        failure from returning.
+        TraceBisect compares baseline and candidate agent traces, highlights the
+        first behavioral divergence, and turns the regression into a pytest test.
+        The CLI is the engine; Studio is the SaaS-style dashboard around it.
       </p>
 
       <section class="mt-10">
-        <h2 class="text-xl font-semibold">Try the built-in demo</h2>
+        <h2 class="text-xl font-semibold">Run the Studio dashboard</h2>
         <pre class="mt-4 overflow-x-auto rounded bg-zinc-900 p-5 text-sm text-zinc-200"><code>$ tracebisect demo
 TraceBisect V1 demo
 
 ✗ First divergence at event 2: tool_call.search_database
   Severity: CRITICAL
-  Type:     changed_tool_args</code></pre>
+  Type:     changed_tool_args
+
+$ uvicorn tracebisect.studio.api:app --reload --port 8000
+$ cd studio/web && npm run dev</code></pre>
       </section>
 
       <section class="mt-10 grid gap-5 md:grid-cols-3">
         <div class="rounded border border-zinc-800 bg-zinc-900/50 p-5">
-          <h2 class="font-semibold">Record a scenario</h2>
-          <pre class="mt-3 overflow-x-auto text-sm text-zinc-300"><code>from tracebisect import record_trace, wrap_tool
-
-with record_trace(user_input="refund users") as rec:
-    ...</code></pre>
+          <h2 class="font-semibold">Upload traces</h2>
+          <pre class="mt-3 overflow-x-auto text-sm text-zinc-300"><code>.tbtrace
+OTel / OpenInference JSON
+native recorder output</code></pre>
         </div>
         <div class="rounded border border-zinc-800 bg-zinc-900/50 p-5">
-          <h2 class="font-semibold">Debug a recorded failure</h2>
-          <pre class="mt-3 overflow-x-auto text-sm text-zinc-300"><code>tracebisect ingest raw-otel.json baseline.tbtrace
-tracebisect diff baseline.tbtrace candidate.tbtrace</code></pre>
+          <h2 class="font-semibold">Compare runs</h2>
+          <pre class="mt-3 overflow-x-auto text-sm text-zinc-300"><code>Baseline run
+Candidate run
+First divergence report</code></pre>
         </div>
         <div class="rounded border border-zinc-800 bg-zinc-900/50 p-5">
-          <h2 class="font-semibold">Prevent it in CI</h2>
+          <h2 class="font-semibold">Prevent regressions</h2>
           <pre class="mt-3 overflow-x-auto text-sm text-zinc-300"><code>tracebisect export-pytest baseline.tbtrace \
   tests/test_refund_regression.py \
   --scenario "python examples/refund_agent.py --case refund_042" \
@@ -57,10 +60,11 @@ tracebisect diff baseline.tbtrace candidate.tbtrace</code></pre>
           <li>Parent-local trace alignment with stable-ID, structural, and positional tiers.</li>
           <li>Five V1 divergence types with deterministic severity classification.</li>
           <li>Terminal diff rendering plus generated pytest tests using <code>tracebisect.testing</code>.</li>
+          <li>FastAPI + React Studio dashboard for visual comparison reports.</li>
         </ul>
         <p class="mt-5 text-zinc-400">
-          V1 intentionally does not include a dashboard, hosted SaaS, vendor-native
-          importers, or git-history bisection.
+          V1 Studio is intentionally narrow: no auth, billing, team RBAC, or
+          hosted trace storage yet.
         </p>
       </section>
     </main>

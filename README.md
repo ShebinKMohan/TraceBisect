@@ -2,13 +2,13 @@
 
 Git bisect for AI agent traces.
 
-TraceBisect is a local-first command-line tool for comparing two AI agent traces,
-finding the first meaningful behavioral divergence, and exporting a pytest
-regression test so the failure does not return.
+TraceBisect is a regression-debugging platform for AI agents. The Python CLI is
+the core engine: it compares two agent traces, finds the first meaningful
+behavioral divergence, and exports a pytest regression test so the failure does
+not return. TraceBisect Studio is the web dashboard around that engine.
 
-This repository is currently in active V1 implementation. The core local CLI
-flow is implemented: ingest, record, diff, export-pytest, and the generated-test
-runtime.
+The implemented V1 flow includes ingest, record, diff, export-pytest, the
+generated-test runtime, and a first SaaS-style Studio dashboard slice.
 
 ## Install
 
@@ -25,6 +25,30 @@ tracebisect demo
 The demo writes a baseline trace, a candidate trace, a scenario script, and a
 generated pytest regression test into a temporary directory. It then renders the
 same first-divergence output that `tracebisect diff` produces.
+
+## TraceBisect Studio
+
+Studio is the portfolio-facing web product. It wraps the existing Python engine
+with a FastAPI backend and React dashboard so developers can upload two traces,
+compare them visually, inspect the first divergence, and copy a generated pytest
+regression test.
+
+Run the API:
+
+```bash
+uvicorn tracebisect.studio.api:app --reload --port 8000
+```
+
+Run the web dashboard:
+
+```bash
+cd studio/web
+npm install
+npm run dev
+```
+
+Then open <http://127.0.0.1:5173>. The seeded refund-agent report loads from
+the same engine used by `tracebisect demo`.
 
 ## Commands
 
@@ -99,9 +123,10 @@ V1 will ship:
 - first-divergence detection
 - terminal diff rendering
 - pytest regression-test export with fresh CI capture
+- Studio web dashboard for upload, compare, visual report, and pytest copy flow
 
-V1 will not ship a dashboard, SaaS service, vendor-native importers, or git
-history bisection.
+V1 Studio is still intentionally narrow: no auth, billing, team RBAC,
+vendor-native direct importers, or git-history bisection.
 
 See [spec/production-spec.md](spec/production-spec.md) for the locked product
 specification.

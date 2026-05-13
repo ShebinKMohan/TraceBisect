@@ -9,5 +9,10 @@ build/
 dist/
 htmlcov/
 .coverage
+node_modules/
+studio/web/dist/
+studio/web/*.tsbuildinfo
+studio/web/vite.config.d.ts
+studio/web/vite.config.js
 
 /.claude/worktrees/feature-design-docs/
