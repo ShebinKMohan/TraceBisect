@@ -271,7 +271,7 @@ def run_export_pytest(
         return 2
 
     assertions = _parse_assertions(assert_dimensions)
-    scenario_cmd = shlex.split(scenario)
+    scenario_cmd = shlex.split(scenario, posix=sys.platform != "win32")
     if not scenario_cmd:
         print("tracebisect export-pytest failed: --scenario must not be empty", file=sys.stderr)
         return 2

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -247,7 +248,7 @@ def test_export_pytest_writes_live_capture_test(tmp_path: Path) -> None:
     assert "load_baseline" in generated
     assert "assert_aligned" in generated
     assert "SCENARIO_CMD = [" in generated
-    assert f'BASELINE_PATH = "{NATIVE_FIXTURE}"' in generated
+    assert f"BASELINE_PATH = {json.dumps(str(NATIVE_FIXTURE))}" in generated
     assert 'assertions=["tool_args", "final_output", "cost"]' in generated
     assert "candidate =" not in generated.split("def test_tracebisect_regression():", maxsplit=1)[0]
 

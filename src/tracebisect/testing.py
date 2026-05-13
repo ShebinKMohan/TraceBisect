@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import shlex
 import subprocess
 import tempfile
 from collections.abc import Mapping, Sequence
@@ -58,8 +57,15 @@ def capture_trace(
     if side_effects == "live" and not allow_live:
         raise ValueError("side_effects='live' requires allow_live=True")
 
-    command = shlex.split(scenario_cmd) if isinstance(scenario_cmd, str) else list(scenario_cmd)
-    if not command:
+    if isinstance(scenario_cmd, str):
+        command: Sequence[str] | str = scenario_cmd
+        use_shell = True
+        empty_command = not scenario_cmd.strip()
+    else:
+        command = list(scenario_cmd)
+        use_shell = False
+        empty_command = not command
+    if empty_command:
         raise ValueError("scenario_cmd must not be empty")
 
     with tempfile.TemporaryDirectory(prefix="tracebisect-capture-") as temp_dir:
@@ -72,6 +78,7 @@ def capture_trace(
 
         subprocess.run(
             command,
+            shell=use_shell,
             cwd=str(cwd) if cwd is not None else None,
             env=child_env,
             check=True,
