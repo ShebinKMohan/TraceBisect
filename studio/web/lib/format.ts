@@ -16,3 +16,17 @@ export function formatShortDate(value: string): string {
     minute: "2-digit",
   }).format(new Date(value));
 }
+
+export function formatDuration(value: number | null | undefined): string {
+  if (value === null || value === undefined) return "0.00s";
+  return `${(value / 1000).toFixed(2)}s`;
+}
+
+export function formatTime(value: string | null | undefined): string {
+  if (!value) return "--";
+  return new Intl.DateTimeFormat("en", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(new Date(value));
+}

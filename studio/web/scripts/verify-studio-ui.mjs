@@ -58,6 +58,11 @@ async function assertNoHorizontalOverflow(page, label) {
   );
 }
 
+async function expectTraceDetailTab(page, tabName, selector, expectedText) {
+  await page.getByTestId("trace-detail-tabs").getByRole("tab", { name: tabName }).click();
+  await expectText(page, selector, expectedText, `${tabName} trace detail tab`);
+}
+
 async function assertContrast(page, selector, label, minimum = 4.5) {
   const ratio = await page.locator(selector).evaluate((node) => {
     function parseColor(value) {
@@ -146,6 +151,30 @@ async function main() {
   await expectText(page, '[data-testid="trace-tree"]', "TOOL_CALL", "trace tree event type");
   await expectText(page, '[data-testid="trace-tree"]', "search_database", "trace tree event name");
   await expectText(page, '[data-testid="details-panel"]', "search_database", "details panel");
+  await expectTraceDetailTab(
+    page,
+    "Metadata",
+    '[data-testid="trace-detail-metadata"]',
+    "Trace id",
+  );
+  await expectTraceDetailTab(
+    page,
+    "Observations",
+    '[data-testid="trace-detail-observations"]',
+    "search_database",
+  );
+  await expectTraceDetailTab(
+    page,
+    "Timeline",
+    '[data-testid="trace-detail-timeline"]',
+    "search_database",
+  );
+  await expectTraceDetailTab(
+    page,
+    "Payload",
+    '[data-testid="trace-detail-payload"]',
+    "query",
+  );
   await expectText(
     page,
     '[data-testid="first-divergence-card"]',

@@ -16,6 +16,7 @@ export type TraceSummary = {
   created_at: string;
   event_count: number;
   root_event: string;
+  status?: string | null;
 };
 
 export type TraceEvent = {

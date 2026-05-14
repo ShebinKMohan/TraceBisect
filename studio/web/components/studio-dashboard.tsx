@@ -172,7 +172,15 @@ export function StudioDashboard() {
                 side={activeSide}
                 trace={activeTrace}
               />
-              <EventDetailsPanel divergence={first} event={selectedEvent} side={activeSide} />
+              <EventDetailsPanel
+                divergence={first}
+                event={selectedEvent}
+                events={activeEvents}
+                highlightedIds={highlightedIds}
+                onSelectEvent={handleSelectEvent}
+                side={activeSide}
+                trace={activeTrace}
+              />
               <UploadComparePanel
                 traces={traces}
                 baselineId={baselineId}
