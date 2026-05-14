@@ -73,3 +73,40 @@ def test_studio_api_uploads_and_compares_tbtrace_files() -> None:
     assert report["first_divergence"]["type"] == "changed_tool_args"
     assert report["baseline"]["display_name"] == "baseline.tbtrace"
     assert report["candidate"]["display_name"] == "candidate.tbtrace"
+
+
+def test_studio_api_replaces_duplicate_trace_uploads() -> None:
+    STORE.traces.clear()
+    STORE.trace_names.clear()
+    STORE.reports.clear()
+    client = TestClient(app)
+
+    with BASELINE.open("rb") as fh:
+        first_response = client.post(
+            "/api/traces/upload",
+            files={"file": ("first-baseline.tbtrace", fh, "application/octet-stream")},
+        )
+    with BASELINE.open("rb") as fh:
+        second_response = client.post(
+            "/api/traces/upload",
+            files={"file": ("second-baseline.tbtrace", fh, "application/octet-stream")},
+        )
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+    assert first_response.json()["trace"]["id"] == second_response.json()["trace"]["id"]
+
+    list_response = client.get("/api/traces")
+
+    assert list_response.status_code == 200
+    assert list_response.json()["traces"] == [
+        {
+            "id": "trc_refund_baseline",
+            "trace_id": "trc_refund_baseline",
+            "display_name": "second-baseline.tbtrace",
+            "source_convention": "native",
+            "created_at": "2026-05-11T06:52:01Z",
+            "event_count": 4,
+            "root_event": "run",
+        }
+    ]

@@ -35,7 +35,9 @@ class StudioStore:
     def add_trace(self, trace: Trace, *, name: str | None = None) -> str:
         trace_key = trace.trace_id or f"trace-{uuid.uuid4().hex[:12]}"
         if trace_key in self.traces:
-            trace_key = f"{trace_key}-{uuid.uuid4().hex[:8]}"
+            self.traces[trace_key] = trace
+            self.trace_names[trace_key] = name or trace.trace_id
+            return trace_key
         self.traces[trace_key] = trace
         self.trace_names[trace_key] = name or trace.trace_id
         return trace_key

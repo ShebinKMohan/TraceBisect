@@ -1,9 +1,6 @@
 "use client";
 
-import {
-  AlertTriangle,
-  Sparkles,
-} from "lucide-react";
+import { AlertTriangle, GitCompare } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { compareTraces, fetchDemoReport, fetchTraces, uploadTrace } from "@/lib/api";
 import type { Report, TraceEvent, TraceSummary } from "@/lib/types";
@@ -24,6 +21,7 @@ export function StudioDashboard() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [activeSide, setActiveSide] = useState<"baseline" | "candidate">("candidate");
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -118,18 +116,23 @@ export function StudioDashboard() {
       <div className="dashboard-frame">
         <Sidebar />
         <div className="dashboard-main">
-          <Topbar theme={theme} onThemeToggle={toggleTheme} />
+          <Topbar
+            searchValue={searchQuery}
+            theme={theme}
+            onSearchChange={setSearchQuery}
+            onThemeToggle={toggleTheme}
+          />
 
-          <section className="hero-band">
+          <section className="page-header">
             <div>
               <p className="eyebrow">Project / Refund Ops</p>
-              <h1 data-testid="studio-title">TraceBisect Studio</h1>
+              <h1 data-testid="studio-title">Trace runs</h1>
               <p>
-                Inspect agent runs from start to finish, compare a baseline against a candidate, and export the first meaningful regression as a CI test.
+                Compare baseline and candidate agent executions, inspect the event chain, and export the first regression as a test.
               </p>
             </div>
-            <div className="hero-status" data-testid="comparison-summary">
-              <Sparkles size={18} aria-hidden />
+            <div className="header-action" data-testid="comparison-summary">
+              <GitCompare size={15} aria-hidden />
               <span>{report ? `${report.baseline.display_name} → ${report.candidate.display_name}` : "Loading report"}</span>
             </div>
           </section>
@@ -149,29 +152,27 @@ export function StudioDashboard() {
           ) : null}
 
           <div className="observability-grid">
-            <RunList
-              activeSide={activeSide}
-              onSelectSide={setActiveSide}
-              report={report}
-              traces={traces}
-            />
-            <TraceWorkbench
-              events={activeEvents}
-              highlightedIds={highlightedIds}
-              onSelectEvent={handleSelectEvent}
-              selectedEventId={selectedEvent?.id ?? null}
-              side={activeSide}
-              trace={activeTrace}
-            />
-            <EventDetailsPanel divergence={first} event={selectedEvent} side={activeSide} />
-          </div>
-
-          <div className="operations-grid">
             <div className="primary-column">
+              <RunList
+                activeSide={activeSide}
+                first={first}
+                onSelectSide={setActiveSide}
+                report={report}
+                searchQuery={searchQuery}
+              />
               <CompareDrawer divergence={first} report={report} />
             </div>
 
-            <aside className="side-column">
+            <aside className="side-column" aria-label="Trace inspector">
+              <TraceWorkbench
+                events={activeEvents}
+                highlightedIds={highlightedIds}
+                onSelectEvent={handleSelectEvent}
+                selectedEventId={selectedEvent?.id ?? null}
+                side={activeSide}
+                trace={activeTrace}
+              />
+              <EventDetailsPanel divergence={first} event={selectedEvent} side={activeSide} />
               <UploadComparePanel
                 traces={traces}
                 baselineId={baselineId}

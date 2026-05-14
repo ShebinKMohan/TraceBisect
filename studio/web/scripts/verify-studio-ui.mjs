@@ -27,13 +27,22 @@ function assert(condition, message) {
 }
 
 async function expectOne(page, selector, label) {
-  const count = await page.locator(selector).count();
+  const locator = page.locator(selector);
+  await locator.first().waitFor({ state: "attached", timeout: 10000 });
+  const count = await locator.count();
   assert(count === 1, `Expected one ${label}, found ${count}`);
-  return page.locator(selector);
+  return locator;
 }
 
 async function expectText(page, selector, text, label) {
-  const content = await (await expectOne(page, selector, label)).textContent();
+  const locator = await expectOne(page, selector, label);
+  await page.waitForFunction(
+    ({ targetSelector, targetText }) =>
+      document.querySelector(targetSelector)?.textContent?.includes(targetText),
+    { targetSelector: selector, targetText: text },
+    { timeout: 10000 },
+  );
+  const content = await locator.textContent();
   assert(content?.includes(text), `${label} did not include "${text}". Actual: ${content}`);
 }
 
@@ -125,9 +134,15 @@ async function main() {
   });
   page.on("pageerror", (error) => consoleErrors.push(error.message));
 
-  await page.goto(baseUrl, { waitUntil: "networkidle" });
-  await expectText(page, '[data-testid="studio-title"]', "TraceBisect Studio", "product title");
+  await page.goto(baseUrl, { waitUntil: "load" });
+  await page.getByTestId("studio-title").waitFor({ state: "visible" });
+  await expectText(page, '[data-testid="studio-title"]', "Trace runs", "product title");
   await expectText(page, '[data-testid="runs-table"]', "Refund regression", "runs table");
+  await page.locator(".search-control input").fill("regression");
+  await expectText(page, '[data-testid="runs-table"]', "Refund regression", "filtered runs table");
+  const filteredRunsText = await page.getByTestId("runs-table").textContent();
+  assert(!filteredRunsText?.includes("Refund baseline"), "run search did not filter baseline row");
+  await page.locator(".search-control input").fill("");
   await expectText(page, '[data-testid="trace-tree"]', "TOOL_CALL", "trace tree event type");
   await expectText(page, '[data-testid="trace-tree"]', "search_database", "trace tree event name");
   await expectText(page, '[data-testid="details-panel"]', "search_database", "details panel");
@@ -141,6 +156,8 @@ async function main() {
   await expectText(page, '[data-testid="integration-otel"]', "OpenTelemetry", "OTel integration card");
   await assertContrast(page, '[data-testid="studio-title"]', "light title");
   await assertContrast(page, '[data-testid="first-divergence-card"] h2', "light divergence heading");
+  await assertContrast(page, ".payload-expected code", "light expected payload");
+  await assertContrast(page, ".payload-actual code", "light actual payload");
   await assertContrast(page, '[data-testid="metric-divergences"]', "light divergence metric");
   await assertNoHorizontalOverflow(page, "desktop light");
   await page.screenshot({ path: path.join(screenshotDir, "desktop-light.png"), fullPage: true });
@@ -150,6 +167,8 @@ async function main() {
   assert(theme === "dark", `Theme toggle did not set dark mode. Actual: ${theme}`);
   await assertContrast(page, '[data-testid="studio-title"]', "dark title");
   await assertContrast(page, '[data-testid="first-divergence-card"] h2', "dark divergence heading");
+  await assertContrast(page, ".payload-expected code", "dark expected payload");
+  await assertContrast(page, ".payload-actual code", "dark actual payload");
   await assertContrast(page, '[data-testid="metric-divergences"]', "dark divergence metric");
   await assertNoHorizontalOverflow(page, "desktop dark");
   await page.screenshot({ path: path.join(screenshotDir, "desktop-dark.png"), fullPage: true });
@@ -169,11 +188,20 @@ async function main() {
   await page.getByTestId("copy-pytest").filter({ hasText: "Copied" }).waitFor({ state: "visible" });
   await expectText(page, '[data-testid="copy-pytest"]', "Copied", "copy button");
 
+  await page.evaluate(() => {
+    window.localStorage.setItem("tracebisect-theme", "light");
+    document.documentElement.dataset.theme = "light";
+  });
   await page.setViewportSize({ width: 390, height: 900 });
-  await page.reload({ waitUntil: "networkidle" });
-  await expectText(page, '[data-testid="studio-title"]', "TraceBisect Studio", "mobile product title");
-  await assertNoHorizontalOverflow(page, "mobile");
-  await page.screenshot({ path: path.join(screenshotDir, "mobile.png"), fullPage: true });
+  await page.reload({ waitUntil: "load" });
+  await page.getByTestId("studio-title").waitFor({ state: "visible" });
+  await expectText(page, '[data-testid="studio-title"]', "Trace runs", "mobile product title");
+  await assertNoHorizontalOverflow(page, "mobile light");
+  await page.screenshot({ path: path.join(screenshotDir, "mobile-light.png"), fullPage: true });
+
+  await page.getByTestId("theme-toggle").click();
+  await assertNoHorizontalOverflow(page, "mobile dark");
+  await page.screenshot({ path: path.join(screenshotDir, "mobile-dark.png"), fullPage: true });
 
   assert(consoleErrors.length === 0, `Browser console errors:\n${consoleErrors.join("\n")}`);
   await browser.close();

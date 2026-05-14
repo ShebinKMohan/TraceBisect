@@ -1,6 +1,5 @@
 import {
   Activity,
-  Boxes,
   Braces,
   Cable,
   FileCode2,
@@ -25,18 +24,7 @@ export function Sidebar() {
         <span className="brand-mark" aria-hidden>
           <Braces size={19} />
         </span>
-        <div>
-          <strong>TraceBisect</strong>
-          <span>Studio</span>
-        </div>
-      </div>
-
-      <div className="workspace-switcher">
-        <Boxes size={16} aria-hidden />
-        <div>
-          <span>Agent workspace</span>
-          <strong>Refund Ops</strong>
-        </div>
+        <strong>tb.</strong>
       </div>
 
       <nav className="nav-stack">
@@ -47,18 +35,14 @@ export function Sidebar() {
               className={item.active ? "nav-item nav-item-active" : "nav-item"}
               href="#"
               key={item.label}
+              title={item.label}
             >
               <Icon size={17} aria-hidden />
-              <span>{item.label}</span>
+              <span className="sr-only">{item.label}</span>
             </a>
           );
         })}
       </nav>
-
-      <div className="sidebar-footer">
-        <span>V1 Engine</span>
-        <strong>Local + OTel ready</strong>
-      </div>
     </aside>
   );
 }

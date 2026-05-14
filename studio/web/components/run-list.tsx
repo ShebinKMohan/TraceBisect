@@ -1,10 +1,11 @@
-import { CheckCircle2, CircleAlert, Clock3, Database, GitCompare } from "lucide-react";
-import type { Report, TraceSummary } from "@/lib/types";
+import { CheckCircle2, CircleAlert, Clock3, Database, GitCompare, Search } from "lucide-react";
+import type { Divergence, Report, TraceSummary } from "@/lib/types";
 
 type RunListProps = {
   report: Report | null;
-  traces: TraceSummary[];
   activeSide: "baseline" | "candidate";
+  first: Divergence | null;
+  searchQuery: string;
   onSelectSide: (side: "baseline" | "candidate") => void;
 };
 
@@ -37,7 +38,7 @@ function summaryFor(trace?: TraceSummary, side?: "baseline" | "candidate") {
   };
 }
 
-export function RunList({ report, traces, activeSide, onSelectSide }: RunListProps) {
+export function RunList({ report, activeSide, first, searchQuery, onSelectSide }: RunListProps) {
   const rows = [
     {
       side: "baseline" as const,
@@ -52,54 +53,99 @@ export function RunList({ report, traces, activeSide, onSelectSide }: RunListPro
       trace: summaryFor(report?.candidate, "candidate"),
     },
   ];
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+  const visibleRows = normalizedQuery
+    ? rows.filter((row) =>
+        [
+          row.trace.display_name,
+          row.trace.root_event,
+          row.status,
+          row.trace.source_convention,
+        ].some((value) => value.toLowerCase().includes(normalizedQuery)),
+      )
+    : rows;
 
   return (
     <section className="panel run-list-panel" aria-label="Trace runs" data-testid="runs-table">
-      <div className="workbench-heading">
-        <div>
-          <p>Runs</p>
-          <h2>Refund search comparisons</h2>
-        </div>
-        <span>{traces.length} stored</span>
+      <div className="stat-strip" aria-label="Trace summary">
+        <article>
+          <span>Divergences</span>
+          <strong>{report?.divergence_count ?? 0}</strong>
+          <small>first break detected</small>
+        </article>
+        <article>
+          <span>Severity</span>
+          <strong>{first?.severity ?? "INFO"}</strong>
+          <small>{first?.type ?? "no drift"}</small>
+        </article>
+        <article>
+          <span>Cost ratio</span>
+          <strong>{first ? `${first.impact.cost_delta_ratio.toFixed(2)}x` : "1.00x"}</strong>
+          <small>fixed 20% severity</small>
+        </article>
+        <article>
+          <span>Compared runs</span>
+          <strong>{rows.length}</strong>
+          <small>baseline + candidate</small>
+        </article>
       </div>
 
       <div className="run-toolbar" aria-label="Run filters">
-        <button type="button" className="filter-chip filter-chip-active">
+        <span className="filter-chip filter-chip-active">
           <GitCompare size={14} aria-hidden />
           Compared
-        </button>
-        <button type="button" className="filter-chip">
+        </span>
+        <span className="filter-chip">
           <Clock3 size={14} aria-hidden />
           Last 7 days
-        </button>
-        <button type="button" className="filter-chip">
+        </span>
+        <span className="filter-chip">
           <Database size={14} aria-hidden />
           OTel + native
-        </button>
+        </span>
+        <div className="table-search" aria-hidden="true">
+          <Search size={14} aria-hidden />
+          <span>Search runs or events</span>
+        </div>
       </div>
 
-      <div className="run-table" role="list">
-        {rows.map((row) => (
+      <div className="run-table">
+        <div className="run-table-head" aria-hidden="true">
+          <span>Run</span>
+          <span>Input</span>
+          <span>Status</span>
+          <span>Events</span>
+          <span>Started</span>
+        </div>
+        {visibleRows.map((row) => (
           <button
             className={activeSide === row.side ? "run-row run-row-active" : "run-row"}
+            aria-label={`${row.status}: ${row.trace.display_name}. ${row.trace.root_event}. ${row.trace.event_count} events. Started ${formatRunDate(row.trace.created_at)}.`}
+            aria-pressed={activeSide === row.side}
             data-testid={`run-row-${row.side}`}
             key={row.side}
             onClick={() => onSelectSide(row.side)}
-            role="listitem"
             type="button"
           >
-            <span className={`run-status run-status-${row.health}`} aria-hidden>
-              {row.health === "stable" ? <CheckCircle2 size={16} /> : <CircleAlert size={16} />}
-            </span>
             <span className="run-content">
+              <span className={`run-status run-status-${row.health}`} aria-hidden>
+                {row.health === "stable" ? <CheckCircle2 size={15} /> : <CircleAlert size={15} />}
+              </span>
               <strong>{row.trace.display_name}</strong>
-              <small>{row.trace.root_event}</small>
-              <em>
-                {row.status} · {row.trace.event_count} events · {formatRunDate(row.trace.created_at)}
-              </em>
             </span>
+            <span>{row.trace.root_event}</span>
+            <span>
+              <em className={`tier-pill tier-${row.health}`}>{row.status}</em>
+            </span>
+            <span>{row.trace.event_count}</span>
+            <span>{formatRunDate(row.trace.created_at)}</span>
           </button>
         ))}
+        {visibleRows.length === 0 ? (
+          <div className="run-empty" role="status">
+            No trace runs match "{searchQuery}".
+          </div>
+        ) : null}
       </div>
     </section>
   );
