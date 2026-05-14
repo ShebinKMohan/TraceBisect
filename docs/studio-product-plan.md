@@ -126,6 +126,11 @@ notes. That research should guide the Studio roadmap, but TraceBisect should
 rebuild the relevant patterns around its comparison engine instead of copying
 Langfuse wholesale.
 
+See `docs/studio-production-hardening.md` for the current API, upload,
+throttling, and security boundary. The local MVP is hardened against obvious
+bad inputs, but auth, persistence, API keys, and distributed rate limiting are
+still separate SaaS milestones.
+
 ## Out Of Scope For This Slice
 
 Do not add these in the first Studio MVP:

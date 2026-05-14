@@ -1039,6 +1039,12 @@ html[data-theme="dark"] .payload-actual {
   line-height: 1.25;
 }
 
+.upload-card small {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.3;
+}
+
 .upload-card input,
 .upload-card select {
   width: 100%;

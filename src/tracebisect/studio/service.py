@@ -10,6 +10,7 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from threading import RLock
 from typing import cast
 
 from tracebisect.align import align
@@ -22,6 +23,12 @@ from tracebisect.schema import Event, EventPayload, JsonObject, JsonValue, Trace
 
 DEFAULT_SCENARIO_CMD = ["python", "examples/refund_agent.py", "--case", "refund_042"]
 DEFAULT_ASSERTIONS = ["tool_args", "final_output", "cost"]
+DEFAULT_MAX_STORED_TRACES = 100
+DEFAULT_MAX_STORED_REPORTS = 100
+
+
+class StudioStoreFullError(RuntimeError):
+    """Raised when the in-memory Studio store reaches its configured capacity."""
 
 
 @dataclass(slots=True)
@@ -31,33 +38,47 @@ class StudioStore:
     traces: dict[str, Trace] = field(default_factory=dict)
     trace_names: dict[str, str] = field(default_factory=dict)
     reports: dict[str, JsonObject] = field(default_factory=dict)
+    max_traces: int = DEFAULT_MAX_STORED_TRACES
+    max_reports: int = DEFAULT_MAX_STORED_REPORTS
+    _lock: RLock = field(default_factory=RLock, repr=False, compare=False)
 
     def add_trace(self, trace: Trace, *, name: str | None = None) -> str:
-        trace_key = trace.trace_id or f"trace-{uuid.uuid4().hex[:12]}"
-        if trace_key in self.traces:
+        with self._lock:
+            trace_key = trace.trace_id or f"trace-{uuid.uuid4().hex[:12]}"
+            if trace_key not in self.traces and len(self.traces) >= self.max_traces:
+                raise StudioStoreFullError("trace store is full; delete traces or restart Studio")
             self.traces[trace_key] = trace
             self.trace_names[trace_key] = name or trace.trace_id
             return trace_key
-        self.traces[trace_key] = trace
-        self.trace_names[trace_key] = name or trace.trace_id
-        return trace_key
 
     def get_trace(self, trace_key: str) -> Trace:
-        try:
-            return self.traces[trace_key]
-        except KeyError as exc:
-            raise KeyError(f"unknown trace id: {trace_key}") from exc
+        with self._lock:
+            try:
+                return self.traces[trace_key]
+            except KeyError as exc:
+                raise KeyError(f"unknown trace id: {trace_key}") from exc
 
     def add_report(self, report: JsonObject) -> str:
-        report_id = _string_value(report["report_id"])
-        self.reports[report_id] = report
-        return report_id
+        with self._lock:
+            report_id = _string_value(report["report_id"])
+            if report_id not in self.reports and len(self.reports) >= self.max_reports:
+                oldest_report_id = next(iter(self.reports))
+                del self.reports[oldest_report_id]
+            self.reports[report_id] = report
+            return report_id
 
     def list_traces(self) -> list[JsonObject]:
-        return [
-            _trace_summary(trace, trace_key=trace_key, display_name=self.trace_names[trace_key])
-            for trace_key, trace in sorted(self.traces.items())
-        ]
+        with self._lock:
+            return [
+                _trace_summary(trace, trace_key=trace_key, display_name=self.trace_names[trace_key])
+                for trace_key, trace in sorted(self.traces.items())
+            ]
+
+    def clear(self) -> None:
+        with self._lock:
+            self.traces.clear()
+            self.trace_names.clear()
+            self.reports.clear()
 
 
 def build_demo_report() -> JsonObject:

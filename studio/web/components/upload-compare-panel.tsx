@@ -80,6 +80,7 @@ function TraceUpload({ id, label, selectedId, traces, onSelect, onUpload }: Trac
       <label htmlFor={id}>
         <span>{label}</span>
         <strong>Drop `.tbtrace` or OTel JSON</strong>
+        <small>Max 5 MB. Files are parsed locally by the Studio API.</small>
       </label>
       <input
         id={id}
