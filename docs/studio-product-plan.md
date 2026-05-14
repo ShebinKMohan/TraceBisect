@@ -121,6 +121,11 @@ This means the public pitch can mention Langfuse/LangSmith compatibility through
 OpenTelemetry-style trace data, but the first implementation should not pretend
 to have direct SaaS API integrations until they are built.
 
+See `docs/studio-langfuse-research.md` for the Langfuse-derived architecture
+notes. That research should guide the Studio roadmap, but TraceBisect should
+rebuild the relevant patterns around its comparison engine instead of copying
+Langfuse wholesale.
+
 ## Out Of Scope For This Slice
 
 Do not add these in the first Studio MVP:

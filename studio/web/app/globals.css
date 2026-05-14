@@ -70,10 +70,11 @@ body {
   overflow-x: hidden;
   background: var(--bg);
   color: var(--text);
-  font-family: var(--font-geist-sans), Inter, ui-sans-serif, system-ui, sans-serif;
-  font-size: 13px;
+  font-family: var(--font-inter), ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 12.5px;
+  font-weight: 400;
   font-synthesis: none;
-  line-height: 1.35;
+  line-height: 1.4;
   text-rendering: optimizeLegibility;
 }
 
@@ -109,6 +110,10 @@ h2,
 h3,
 p {
   margin: 0;
+}
+
+strong {
+  font-weight: 600;
 }
 
 .sr-only {
@@ -163,9 +168,9 @@ p {
 
 .brand-lockup strong {
   color: var(--accent);
-  font-size: 22px;
-  font-weight: 800;
-  letter-spacing: -0.04em;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0;
 }
 
 .nav-stack {
@@ -271,13 +276,13 @@ p {
   background: #d9ff00;
   color: #284000;
   font-size: 11px;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .profile-chip strong,
 .profile-chip small {
   display: block;
-  line-height: 1.1;
+  line-height: 1.15;
 }
 
 .profile-chip strong {
@@ -304,23 +309,25 @@ p {
 .compare-summary-card p {
   margin-bottom: 5px;
   color: var(--accent);
-  font-size: 11px;
-  font-weight: 700;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.2;
 }
 
 .page-header h1 {
   color: var(--text);
-  font-size: 22px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0;
 }
 
 .page-header p:last-child {
   max-width: 620px;
   margin-top: 7px;
   color: var(--text-muted);
-  font-size: 13px;
-  line-height: 1.45;
+  font-size: 12.5px;
+  line-height: 1.4;
 }
 
 .header-action {
@@ -335,8 +342,9 @@ p {
   border-radius: 5px;
   background: var(--accent);
   color: #ffffff;
-  font-size: 12px;
-  font-weight: 700;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.2;
 }
 
 .header-action:hover {
@@ -363,8 +371,9 @@ p {
   position: relative;
   padding: 0 0 11px;
   color: var(--text);
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.2;
 }
 
 .project-tabs a:not([aria-current="page"]) {
@@ -451,9 +460,9 @@ p {
 .workbench-heading h2,
 .section-heading h2 {
   color: var(--text);
-  font-size: 14px;
-  font-weight: 700;
-  line-height: 1.25;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
   overflow-wrap: anywhere;
 }
 
@@ -463,8 +472,9 @@ p {
   border-radius: 999px;
   background: var(--surface-muted);
   color: var(--text-muted);
-  font-size: 11px;
-  font-weight: 700;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.15;
 }
 
 .stat-strip {
@@ -493,9 +503,10 @@ p {
   display: block;
   margin: 6px 0 3px;
   color: var(--text);
-  font-size: 21px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: 0;
 }
 
 .run-list-panel .stat-strip {
@@ -569,8 +580,9 @@ p {
   padding: 0 16px;
   background: var(--surface-muted);
   color: var(--text-muted);
-  font-size: 11px;
-  font-weight: 700;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.15;
 }
 
 .run-row {
@@ -621,7 +633,8 @@ p {
   min-width: 0;
   overflow: hidden;
   color: var(--text);
-  font-size: 13px;
+  font-size: 12.5px;
+  line-height: 1.3;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -637,8 +650,9 @@ p {
   padding: 0 8px;
   border-radius: 5px;
   font-style: normal;
-  font-size: 11px;
-  font-weight: 700;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.15;
 }
 
 .tier-stable {
@@ -732,13 +746,15 @@ p {
 .trace-event-main strong {
   color: var(--text);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
+  line-height: 1.25;
 }
 
 .trace-event-main small,
 .trace-event-meta {
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: 11.5px;
+  line-height: 1.35;
 }
 
 .trace-event-meta {
@@ -749,7 +765,7 @@ p {
   margin-top: 2px;
   color: var(--danger);
   font-style: normal;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .trace-help {
@@ -758,7 +774,8 @@ p {
   align-items: center;
   margin-top: 10px;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 11.5px;
+  line-height: 1.35;
 }
 
 .detail-stat-grid {
@@ -784,8 +801,9 @@ p {
 .detail-stat-grid span,
 .metadata-list dt {
   color: var(--text-muted);
-  font-size: 10px;
-  font-weight: 700;
+  font-size: 9.5px;
+  font-weight: 600;
+  line-height: 1.2;
   text-transform: uppercase;
 }
 
@@ -793,7 +811,8 @@ p {
 .metadata-list dd {
   min-width: 0;
   color: var(--text);
-  font-size: 13px;
+  font-size: 12.5px;
+  line-height: 1.3;
   overflow-wrap: anywhere;
 }
 
@@ -812,8 +831,9 @@ p {
   align-items: center;
   margin-bottom: 10px;
   color: var(--text);
-  font-size: 13px;
-  font-weight: 700;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.25;
 }
 
 .detail-section-title strong {
@@ -841,9 +861,9 @@ p {
   border-radius: 7px;
   background: var(--code-bg);
   color: var(--code-text);
-  font-family: var(--font-geist-mono), ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 11px;
-  line-height: 1.5;
+  font-family: var(--font-roboto-mono), ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 10.5px;
+  line-height: 1.45;
 }
 
 .payload-inspector {
@@ -863,8 +883,8 @@ p {
 .compare-summary-card h2 {
   margin: 5px 0 10px;
   color: var(--text);
-  font-size: 15px;
-  font-weight: 700;
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .summary-pills,
@@ -886,8 +906,9 @@ p {
   border-radius: 999px;
   background: var(--surface-muted);
   color: var(--text-muted);
-  font-size: 11px;
-  font-weight: 700;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.15;
 }
 
 .summary-pills span:first-child {
@@ -944,19 +965,20 @@ p {
   display: block;
   margin-bottom: 8px;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
+  line-height: 1.25;
 }
 
 .payload-card code,
 .pytest-panel code {
-  font-family: var(--font-geist-mono), ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-family: var(--font-roboto-mono), ui-monospace, SFMono-Regular, Consolas, monospace;
 }
 
 .payload-card code {
   display: block;
   color: inherit;
-  font-size: 11px;
-  line-height: 1.5;
+  font-size: 10.5px;
+  line-height: 1.45;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
@@ -1005,14 +1027,16 @@ html[data-theme="dark"] .payload-actual {
 
 .upload-card label span {
   color: var(--text-muted);
-  font-size: 10px;
-  font-weight: 700;
+  font-size: 9.5px;
+  font-weight: 600;
+  line-height: 1.2;
   text-transform: uppercase;
 }
 
 .upload-card strong {
   color: var(--text);
-  font-size: 13px;
+  font-size: 12px;
+  line-height: 1.25;
 }
 
 .upload-card input,
@@ -1044,8 +1068,9 @@ html[data-theme="dark"] .payload-actual {
   min-height: 34px;
   border: 0;
   border-radius: 6px;
-  font-size: 12px;
-  font-weight: 700;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.2;
 }
 
 .primary-action {
@@ -1087,21 +1112,23 @@ html[data-theme="dark"] .payload-actual {
 }
 
 .integration-card strong {
-  font-size: 13px;
+  font-size: 12px;
+  line-height: 1.25;
 }
 
 .integration-card span {
   margin: 2px 0;
   color: var(--accent);
-  font-size: 10px;
-  font-weight: 700;
+  font-size: 9.5px;
+  font-weight: 600;
+  line-height: 1.2;
   text-transform: uppercase;
 }
 
 .integration-card p {
   color: var(--text-muted);
-  font-size: 12px;
-  line-height: 1.42;
+  font-size: 11.5px;
+  line-height: 1.35;
 }
 
 .pytest-panel pre {
@@ -1120,7 +1147,8 @@ html[data-theme="dark"] .payload-actual {
   align-items: center;
   margin-top: 9px;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 11.5px;
+  line-height: 1.35;
 }
 
 @media (max-width: 1180px) {
@@ -1222,7 +1250,29 @@ html[data-theme="dark"] .payload-actual {
   }
 
   .topbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
     padding: 0 12px;
+  }
+
+  .search-control {
+    width: auto;
+    min-width: 0;
+  }
+
+  .search-control input {
+    font-size: 11.5px;
+  }
+
+  .topbar-actions {
+    flex-wrap: nowrap;
+    gap: 4px;
+    justify-self: end;
+  }
+
+  .icon-button {
+    width: 30px;
+    height: 30px;
   }
 
   .profile-chip {

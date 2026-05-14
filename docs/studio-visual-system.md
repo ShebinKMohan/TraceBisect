@@ -68,13 +68,15 @@ Green is reserved for selected navigation, active tabs, success state, and prima
 
 ## Type Scale
 
-- Body: `13px / 1.35`, weight `400`.
-- Search, filters, table cells: `12px-13px`.
-- Table headers and metadata labels: `11px-12px`, weight `600`.
-- Panel titles: `14px-15px`, weight `700`.
-- Page title: `22px`, weight `700`.
-- Stat values: `21px`, weight `700`.
-- Badges: `11px-12px`, weight `600`.
+- Primary UI font: `Inter`, with `ui-sans-serif`, `system-ui`, and `-apple-system` fallbacks.
+- Code and payload font: `Roboto Mono`, with platform monospace fallbacks.
+- Body: `12.5px / 1.4`, weight `400`.
+- Search, filters, table cells: `12px-12.5px`, weight `400-500`.
+- Table headers and metadata labels: `9.5px-10.5px`, weight `600`.
+- Panel titles: `12px-13px`, weight `600`.
+- Page title: `20px`, weight `600`.
+- Stat values: `18px`, weight `600`.
+- Badges: `10.5px-11.5px`, weight `600`.
 
 Avoid hero-sized text inside the product app. TraceBisect Studio is an engineer-facing workbench, not a marketing page.
 
