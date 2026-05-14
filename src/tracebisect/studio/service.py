@@ -25,6 +25,7 @@ DEFAULT_SCENARIO_CMD = ["python", "examples/refund_agent.py", "--case", "refund_
 DEFAULT_ASSERTIONS = ["tool_args", "final_output", "cost"]
 DEFAULT_MAX_STORED_TRACES = 100
 DEFAULT_MAX_STORED_REPORTS = 100
+DEFAULT_MAX_STORED_CASES = 100
 
 
 class StudioStoreFullError(RuntimeError):
@@ -38,8 +39,10 @@ class StudioStore:
     traces: dict[str, Trace] = field(default_factory=dict)
     trace_names: dict[str, str] = field(default_factory=dict)
     reports: dict[str, JsonObject] = field(default_factory=dict)
+    cases: dict[str, JsonObject] = field(default_factory=dict)
     max_traces: int = DEFAULT_MAX_STORED_TRACES
     max_reports: int = DEFAULT_MAX_STORED_REPORTS
+    max_cases: int = DEFAULT_MAX_STORED_CASES
     _lock: RLock = field(default_factory=RLock, repr=False, compare=False)
 
     def add_trace(self, trace: Trace, *, name: str | None = None) -> str:
@@ -67,6 +70,107 @@ class StudioStore:
             self.reports[report_id] = report
             return report_id
 
+    def add_case_from_report(
+        self,
+        *,
+        name: str,
+        description: str,
+        tags: list[str],
+        baseline_trace_id: str,
+        candidate_trace_id: str,
+        scenario_cmd: list[str],
+        assertions: list[str],
+        cost_threshold: float,
+    ) -> JsonObject:
+        with self._lock:
+            if len(self.cases) >= self.max_cases:
+                raise StudioStoreFullError(
+                    "regression case store is full; delete cases or restart Studio"
+                )
+            baseline = self.get_trace(baseline_trace_id)
+            candidate = self.get_trace(candidate_trace_id)
+            report = build_comparison_report(
+                baseline,
+                candidate,
+                baseline_name=self.trace_names[baseline_trace_id],
+                candidate_name=self.trace_names[candidate_trace_id],
+                scenario_cmd=scenario_cmd,
+                assertions=assertions,
+                cost_threshold=cost_threshold,
+            )
+            self.add_report(report)
+            case_id = f"case_{uuid.uuid4().hex[:12]}"
+            now = _format_datetime(datetime.now(timezone.utc))
+            case = _case_from_report(
+                case_id=case_id,
+                name=name,
+                description=description,
+                created_at=now,
+                updated_at=now,
+                tags=tags,
+                baseline_trace_id=baseline_trace_id,
+                candidate_trace_id=candidate_trace_id,
+                scenario_cmd=scenario_cmd,
+                assertions=assertions,
+                cost_threshold=cost_threshold,
+                report=report,
+            )
+            self.cases[case_id] = case
+            return case
+
+    def get_case(self, case_id: str) -> JsonObject:
+        with self._lock:
+            try:
+                return self.cases[case_id]
+            except KeyError as exc:
+                raise KeyError(f"unknown regression case id: {case_id}") from exc
+
+    def list_cases(self) -> list[JsonObject]:
+        with self._lock:
+            return list(self.cases.values())
+
+    def run_case(
+        self,
+        case_id: str,
+        *,
+        candidate_trace_id: str,
+        scenario_cmd: list[str],
+    ) -> tuple[JsonObject, JsonObject]:
+        with self._lock:
+            existing = self.get_case(case_id)
+            baseline_trace_id = _string_value(existing["baseline_trace_id"])
+            baseline = self.get_trace(baseline_trace_id)
+            candidate = self.get_trace(candidate_trace_id)
+            assertions = _string_list(existing["assertions"])
+            cost_threshold = _float_value(existing["cost_threshold"])
+            report = build_comparison_report(
+                baseline,
+                candidate,
+                baseline_name=self.trace_names[baseline_trace_id],
+                candidate_name=self.trace_names[candidate_trace_id],
+                scenario_cmd=scenario_cmd,
+                assertions=assertions,
+                cost_threshold=cost_threshold,
+            )
+            self.add_report(report)
+            updated_at = _format_datetime(datetime.now(timezone.utc))
+            updated = _case_from_report(
+                case_id=case_id,
+                name=_string_value(existing["name"]),
+                description=_string_value(existing["description"]),
+                created_at=_string_value(existing["created_at"]),
+                updated_at=updated_at,
+                tags=_string_list(existing["tags"]),
+                baseline_trace_id=baseline_trace_id,
+                candidate_trace_id=candidate_trace_id,
+                scenario_cmd=scenario_cmd,
+                assertions=assertions,
+                cost_threshold=cost_threshold,
+                report=report,
+            )
+            self.cases[case_id] = updated
+            return updated, report
+
     def list_traces(self) -> list[JsonObject]:
         with self._lock:
             return [
@@ -79,6 +183,7 @@ class StudioStore:
             self.traces.clear()
             self.trace_names.clear()
             self.reports.clear()
+            self.cases.clear()
 
 
 def build_demo_report() -> JsonObject:
@@ -90,6 +195,23 @@ def build_demo_report() -> JsonObject:
         candidate_name="Refund regression",
         scenario_cmd=DEFAULT_SCENARIO_CMD,
     )
+
+
+def seed_demo_report(store: StudioStore) -> JsonObject:
+    """Seed demo traces and report into the store idempotently."""
+    baseline = build_refund_baseline_trace()
+    candidate = build_refund_candidate_trace()
+    baseline_id = store.add_trace(baseline, name="Refund baseline")
+    candidate_id = store.add_trace(candidate, name="Refund regression")
+    report = build_comparison_report(
+        store.get_trace(baseline_id),
+        store.get_trace(candidate_id),
+        baseline_name=store.trace_names[baseline_id],
+        candidate_name=store.trace_names[candidate_id],
+        scenario_cmd=DEFAULT_SCENARIO_CMD,
+    )
+    store.add_report(report)
+    return report
 
 
 def load_trace_from_path(path: str | Path) -> Trace:
@@ -107,6 +229,8 @@ def build_comparison_report(
     baseline_name: str = "Baseline",
     candidate_name: str = "Candidate",
     scenario_cmd: list[str] | None = None,
+    assertions: list[str] | None = None,
+    cost_threshold: float = 1.5,
 ) -> JsonObject:
     """Compare two traces and return a JSON-ready Studio report."""
     matches = align(baseline, candidate)
@@ -114,11 +238,12 @@ def build_comparison_report(
     first = first_divergence(divergences)
     report_id = f"rpt_{uuid.uuid4().hex[:12]}"
     scenario = scenario_cmd or DEFAULT_SCENARIO_CMD
+    pytest_assertions = assertions or DEFAULT_ASSERTIONS
     pytest_source = _pytest_template(
         baseline_path=f"./baselines/{baseline.trace_id}.tbtrace",
         scenario_cmd=scenario,
-        assertions=DEFAULT_ASSERTIONS,
-        cost_threshold=1.5,
+        assertions=pytest_assertions,
+        cost_threshold=cost_threshold,
     )
     return {
         "report_id": report_id,
@@ -161,6 +286,53 @@ def build_comparison_report(
                 "description": "Direct API import is planned after the visual MVP.",
             },
         ],
+    }
+
+
+def _case_from_report(
+    *,
+    case_id: str,
+    name: str,
+    description: str,
+    created_at: str,
+    updated_at: str,
+    tags: list[str],
+    baseline_trace_id: str,
+    candidate_trace_id: str,
+    scenario_cmd: list[str],
+    assertions: list[str],
+    cost_threshold: float,
+    report: JsonObject,
+) -> JsonObject:
+    divergence_count = _int_value(report["divergence_count"])
+    first = report["first_divergence"]
+    severity = _divergence_severity(first)
+    report_id = _string_value(report["report_id"])
+    return {
+        "case_id": case_id,
+        "name": name,
+        "description": description,
+        "created_at": created_at,
+        "updated_at": updated_at,
+        "tags": cast(JsonValue, tags),
+        "source_report_id": report_id,
+        "baseline_trace_id": baseline_trace_id,
+        "candidate_trace_id": candidate_trace_id,
+        "baseline": report["baseline"],
+        "candidate": report["candidate"],
+        "first_divergence": first,
+        "divergence_count": divergence_count,
+        "assertions": cast(JsonValue, assertions),
+        "cost_threshold": cost_threshold,
+        "scenario_cmd": cast(JsonValue, scenario_cmd),
+        "pytest": report["pytest"],
+        "last_result": {
+            "status": "failing" if divergence_count > 0 else "passing",
+            "report_id": report_id,
+            "divergence_count": divergence_count,
+            "severity": severity,
+            "checked_at": updated_at,
+        },
     }
 
 
@@ -231,3 +403,32 @@ def _string_value(value: JsonValue) -> str:
     if not isinstance(value, str):
         raise TypeError("expected string JSON value")
     return value
+
+
+def _string_list(value: JsonValue) -> list[str]:
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise TypeError("expected string list JSON value")
+    return cast(list[str], value)
+
+
+def _int_value(value: JsonValue) -> int:
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise TypeError("expected integer JSON value")
+    return value
+
+
+def _float_value(value: JsonValue) -> float:
+    if not isinstance(value, int | float) or isinstance(value, bool):
+        raise TypeError("expected numeric JSON value")
+    return float(value)
+
+
+def _divergence_severity(value: JsonValue) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise TypeError("expected divergence JSON object")
+    severity = value.get("severity")
+    if severity is not None and not isinstance(severity, str):
+        raise TypeError("expected divergence severity string")
+    return severity

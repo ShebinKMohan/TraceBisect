@@ -3,6 +3,7 @@ import {
   Braces,
   Cable,
   FileCode2,
+  FlaskConical,
   GitCompare,
   LayoutDashboard,
   ShieldCheck,
@@ -13,6 +14,7 @@ const navItems = [
   { label: "Comparisons", icon: GitCompare },
   { label: "Trace Sources", icon: Cable },
   { label: "Divergences", icon: Activity },
+  { label: "Case Library", icon: FlaskConical },
   { label: "Pytest Export", icon: FileCode2 },
   { label: "CI Guardrails", icon: ShieldCheck },
 ];

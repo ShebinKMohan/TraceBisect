@@ -212,6 +212,21 @@ async function main() {
     "refund_search_candidate_changed_tool_args.tbtrace",
     "comparison summary",
   );
+  await page.getByTestId("save-regression-case").click();
+  await expectText(
+    page,
+    '[data-testid="regression-case-library"]',
+    "refund_search_candidate_changed_tool_args.tbtrace regression",
+    "saved regression case",
+  );
+  await expectText(
+    page,
+    '[data-testid="regression-case-library"]',
+    "changed_tool_args",
+    "regression case divergence",
+  );
+  await page.getByTestId("regression-case-library").getByRole("button", { name: "Rerun" }).click();
+  await expectText(page, '[data-testid="regression-case-library"]', "failing", "regression case run status");
 
   await page.getByTestId("copy-pytest").click();
   await page.getByTestId("copy-pytest").filter({ hasText: "Copied" }).waitFor({ state: "visible" });

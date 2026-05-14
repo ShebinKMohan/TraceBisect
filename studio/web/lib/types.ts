@@ -54,6 +54,38 @@ export type Divergence = {
   source_metadata: JsonObject;
 };
 
+export type RegressionCaseLastResult = {
+  status: "failing" | "passing" | "unknown";
+  report_id: string | null;
+  divergence_count: number;
+  severity: string | null;
+  checked_at: string | null;
+};
+
+export type RegressionCase = {
+  case_id: string;
+  name: string;
+  description: string;
+  created_at: string;
+  updated_at: string;
+  tags: string[];
+  source_report_id: string;
+  baseline_trace_id: string;
+  candidate_trace_id: string;
+  baseline: TraceSummary;
+  candidate: TraceSummary;
+  first_divergence: Divergence | null;
+  divergence_count: number;
+  assertions: string[];
+  cost_threshold: number;
+  scenario_cmd: string[];
+  pytest: {
+    filename: string;
+    source: string;
+  };
+  last_result: RegressionCaseLastResult;
+};
+
 export type Report = {
   report_id: string;
   created_at: string;
@@ -75,4 +107,9 @@ export type Report = {
     status: string;
     description: string;
   }[];
+  regression_case?: {
+    case_id: string;
+    name: string;
+    status: string;
+  } | null;
 };

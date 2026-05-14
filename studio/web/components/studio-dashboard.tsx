@@ -2,11 +2,20 @@
 
 import { AlertTriangle, GitCompare } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { compareTraces, fetchDemoReport, fetchTraces, uploadTrace } from "@/lib/api";
-import type { Report, TraceEvent, TraceSummary } from "@/lib/types";
+import {
+  compareTraces,
+  createRegressionCase,
+  fetchDemoReport,
+  fetchRegressionCases,
+  fetchTraces,
+  runRegressionCase,
+  uploadTrace,
+} from "@/lib/api";
+import type { RegressionCase, Report, TraceEvent, TraceSummary } from "@/lib/types";
 import { CompareDrawer } from "@/components/compare-drawer";
 import { EventDetailsPanel } from "@/components/event-details-panel";
 import { IntegrationPanel } from "@/components/integration-panel";
+import { RegressionCaseLibrary } from "@/components/regression-case-library";
 import { RunList } from "@/components/run-list";
 import { Sidebar } from "@/components/sidebar";
 import { Topbar } from "@/components/topbar";
@@ -16,6 +25,7 @@ import { UploadComparePanel } from "@/components/upload-compare-panel";
 export function StudioDashboard() {
   const [report, setReport] = useState<Report | null>(null);
   const [traces, setTraces] = useState<TraceSummary[]>([]);
+  const [cases, setCases] = useState<RegressionCase[]>([]);
   const [baselineId, setBaselineId] = useState("");
   const [candidateId, setCandidateId] = useState("");
   const [theme, setTheme] = useState<"light" | "dark">("light");
@@ -65,9 +75,11 @@ export function StudioDashboard() {
     setLoading(true);
     setError(null);
     try {
-      const [demoReport, traceList] = await Promise.all([fetchDemoReport(), fetchTraces()]);
+      const demoReport = await fetchDemoReport();
+      const [traceList, caseList] = await Promise.all([fetchTraces(), fetchRegressionCases()]);
       setReport(demoReport);
       setTraces(traceList);
+      setCases(caseList);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load the demo report.");
     } finally {
@@ -77,6 +89,10 @@ export function StudioDashboard() {
 
   async function refreshTraces() {
     setTraces(await fetchTraces());
+  }
+
+  async function refreshCases() {
+    setCases(await fetchRegressionCases());
   }
 
   async function handleUpload(file: File, role: "baseline" | "candidate") {
@@ -102,6 +118,40 @@ export function StudioDashboard() {
       setReport(await compareTraces(baselineId, candidateId));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Comparison failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleSaveCase() {
+    if (!report) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const savedCase = await createRegressionCase({
+        name: `${report.candidate.display_name} regression`,
+        description: report.first_divergence?.description ?? "Saved TraceBisect comparison.",
+        tags: [report.first_divergence?.type ?? "regression", "pytest-ready"],
+        baseline_trace_id: report.baseline.id,
+        candidate_trace_id: report.candidate.id,
+      });
+      setCases((items) => [savedCase, ...items.filter((item) => item.case_id !== savedCase.case_id)]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save regression case.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRunCase(item: RegressionCase) {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await runRegressionCase(item.case_id, item.candidate_trace_id);
+      setReport(result.report);
+      await refreshCases();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to rerun regression case.");
     } finally {
       setBusy(false);
     }
@@ -141,6 +191,7 @@ export function StudioDashboard() {
             <a href="#" aria-current="page">Runs</a>
             <a href="#">Threads</a>
             <a href="#">Divergences</a>
+            <a href="#">Cases</a>
             <a href="#">Setup</a>
           </nav>
 
@@ -159,6 +210,13 @@ export function StudioDashboard() {
                 onSelectSide={setActiveSide}
                 report={report}
                 searchQuery={searchQuery}
+              />
+              <RegressionCaseLibrary
+                busy={busy}
+                cases={cases}
+                onRunCase={(item) => void handleRunCase(item)}
+                onSaveCase={() => void handleSaveCase()}
+                report={report}
               />
               <CompareDrawer divergence={first} report={report} />
             </div>

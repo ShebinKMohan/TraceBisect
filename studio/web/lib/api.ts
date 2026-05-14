@@ -1,4 +1,4 @@
-import type { Report, TraceSummary } from "@/lib/types";
+import type { RegressionCase, Report, TraceSummary } from "@/lib/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_TRACEBISECT_API_URL ?? "http://127.0.0.1:8000";
 const MAX_TRACE_UPLOAD_BYTES = 5 * 1024 * 1024;
@@ -35,6 +35,13 @@ export async function fetchTraces(): Promise<TraceSummary[]> {
   return payload.traces;
 }
 
+export async function fetchRegressionCases(): Promise<RegressionCase[]> {
+  const payload = await parseResponse<{ cases: RegressionCase[] }>(
+    await fetch(`${API_BASE}/api/regression-cases`),
+  );
+  return payload.cases;
+}
+
 export async function uploadTrace(file: File): Promise<TraceSummary> {
   validateTraceUpload(file);
   const body = new FormData();
@@ -46,6 +53,40 @@ export async function uploadTrace(file: File): Promise<TraceSummary> {
     }),
   );
   return payload.trace;
+}
+
+export type CreateRegressionCasePayload = {
+  name: string;
+  description?: string;
+  tags?: string[];
+  baseline_trace_id: string;
+  candidate_trace_id: string;
+};
+
+export async function createRegressionCase(
+  payload: CreateRegressionCasePayload,
+): Promise<RegressionCase> {
+  const response = await parseResponse<{ case: RegressionCase }>(
+    await fetch(`${API_BASE}/api/regression-cases`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
+  );
+  return response.case;
+}
+
+export async function runRegressionCase(
+  caseId: string,
+  candidateTraceId: string,
+): Promise<{ case: RegressionCase; report: Report }> {
+  return parseResponse<{ case: RegressionCase; report: Report }>(
+    await fetch(`${API_BASE}/api/regression-cases/${caseId}/run`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ candidate_trace_id: candidateTraceId }),
+    }),
+  );
 }
 
 export async function compareTraces(

@@ -23,8 +23,8 @@ from tracebisect.studio.service import (
     StudioStore,
     StudioStoreFullError,
     build_comparison_report,
-    build_demo_report,
     load_trace_from_path,
+    seed_demo_report,
 )
 
 MAX_UPLOAD_BYTES = int(os.getenv("TRACEBISECT_STUDIO_MAX_UPLOAD_BYTES", str(5 * 1024 * 1024)))
@@ -61,6 +61,22 @@ STORE = StudioStore()
 
 class CompareRequest(BaseModel):
     baseline_trace_id: str = Field(min_length=1, max_length=256)
+    candidate_trace_id: str = Field(min_length=1, max_length=256)
+    scenario_cmd: list[str] | None = None
+
+
+class RegressionCaseCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=160)
+    description: str = Field(default="", max_length=2000)
+    tags: list[str] = Field(default_factory=list, max_length=24)
+    baseline_trace_id: str = Field(min_length=1, max_length=256)
+    candidate_trace_id: str = Field(min_length=1, max_length=256)
+    scenario_cmd: list[str] | None = None
+    assertions: list[str] = Field(default_factory=lambda: ["tool_args", "final_output", "cost"])
+    cost_threshold: float = Field(default=1.5, ge=0)
+
+
+class RegressionCaseRunRequest(BaseModel):
     candidate_trace_id: str = Field(min_length=1, max_length=256)
     scenario_cmd: list[str] | None = None
 
@@ -139,7 +155,7 @@ def health() -> JsonObject:
 
 @app.get("/api/demo-report", response_model=None)
 def demo_report() -> JsonObject:
-    return build_demo_report()
+    return seed_demo_report(STORE)
 
 
 @app.get("/api/traces", response_model=None)
@@ -193,7 +209,7 @@ def compare_traces(request: CompareRequest) -> JsonObject:
         baseline = STORE.get_trace(request.baseline_trace_id)
         candidate = STORE.get_trace(request.candidate_trace_id)
     except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=404, detail=_key_error_detail(exc)) from exc
 
     report = build_comparison_report(
         baseline,
@@ -204,6 +220,58 @@ def compare_traces(request: CompareRequest) -> JsonObject:
     )
     STORE.add_report(report)
     return report
+
+
+@app.get("/api/regression-cases", response_model=None)
+def list_regression_cases() -> JsonObject:
+    return {"cases": cast(JsonValue, STORE.list_cases())}
+
+
+@app.post("/api/regression-cases", response_model=None)
+def create_regression_case(request: RegressionCaseCreateRequest) -> JsonObject:
+    scenario = _validated_scenario_cmd(request.scenario_cmd)
+    _validate_distinct_trace_ids(request.baseline_trace_id, request.candidate_trace_id)
+    try:
+        case = STORE.add_case_from_report(
+            name=request.name,
+            description=request.description,
+            tags=_validated_string_items(request.tags, field_name="tags"),
+            baseline_trace_id=request.baseline_trace_id,
+            candidate_trace_id=request.candidate_trace_id,
+            scenario_cmd=scenario,
+            assertions=_validated_string_items(request.assertions, field_name="assertions"),
+            cost_threshold=request.cost_threshold,
+        )
+    except StudioStoreFullError as exc:
+        raise HTTPException(status_code=507, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=_key_error_detail(exc)) from exc
+    return {"case": case}
+
+
+@app.get("/api/regression-cases/{case_id}", response_model=None)
+def get_regression_case(case_id: str) -> JsonObject:
+    try:
+        return {"case": STORE.get_case(case_id)}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=_key_error_detail(exc)) from exc
+
+
+@app.post("/api/regression-cases/{case_id}/run", response_model=None)
+def run_regression_case(case_id: str, request: RegressionCaseRunRequest) -> JsonObject:
+    scenario = _validated_scenario_cmd(request.scenario_cmd)
+    try:
+        existing = STORE.get_case(case_id)
+        baseline_trace_id = _json_string(existing["baseline_trace_id"])
+        _validate_distinct_trace_ids(baseline_trace_id, request.candidate_trace_id)
+        case, report = STORE.run_case(
+            case_id,
+            candidate_trace_id=request.candidate_trace_id,
+            scenario_cmd=scenario,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=_key_error_detail(exc)) from exc
+    return {"case": case, "report": report}
 
 
 async def _read_limited_upload(file: UploadFile) -> bytes:
@@ -251,6 +319,33 @@ def _validated_scenario_cmd(scenario_cmd: list[str] | None) -> list[str]:
                 detail="scenario_cmd contains an invalid command item.",
             )
     return scenario_cmd
+
+
+def _validate_distinct_trace_ids(baseline_trace_id: str, candidate_trace_id: str) -> None:
+    if baseline_trace_id == candidate_trace_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Baseline and candidate traces must be different.",
+        )
+
+
+def _validated_string_items(values: list[str], *, field_name: str) -> list[str]:
+    for value in values:
+        if not value.strip():
+            raise HTTPException(status_code=400, detail=f"{field_name} contains an empty item.")
+    return values
+
+
+def _json_string(value: JsonValue) -> str:
+    if not isinstance(value, str):
+        raise HTTPException(status_code=500, detail="Stored regression case is invalid.")
+    return value
+
+
+def _key_error_detail(exc: KeyError) -> str:
+    if exc.args and isinstance(exc.args[0], str):
+        return exc.args[0]
+    return str(exc)
 
 
 def _rate_limit_key(request: Request) -> str:
