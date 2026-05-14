@@ -62,6 +62,21 @@ export type RegressionCaseLastResult = {
   checked_at: string | null;
 };
 
+export type RunStatus = "passing" | "failing";
+
+export type RunSummary = {
+  report_id: string;
+  created_at: string;
+  baseline: Pick<TraceSummary, "id" | "display_name" | "source_convention" | "event_count">;
+  candidate: Pick<TraceSummary, "id" | "display_name" | "source_convention" | "event_count">;
+  source_convention: string;
+  divergence_count: number;
+  status: RunStatus;
+  severity: string | null;
+  first_divergence_type: string | null;
+  event_count: number;
+};
+
 export type RegressionCase = {
   case_id: string;
   name: string;

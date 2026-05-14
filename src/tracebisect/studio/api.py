@@ -11,7 +11,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Annotated, cast
 
-from fastapi import FastAPI, File, HTTPException, Request, Response, UploadFile
+from fastapi import FastAPI, File, HTTPException, Query, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from starlette.responses import JSONResponse
@@ -36,6 +36,8 @@ RATE_LIMIT_REQUESTS = int(os.getenv("TRACEBISECT_STUDIO_RATE_LIMIT_REQUESTS", "1
 RATE_LIMIT_UPLOAD_REQUESTS = int(os.getenv("TRACEBISECT_STUDIO_UPLOAD_RATE_LIMIT_REQUESTS", "30"))
 ALLOWED_UPLOAD_SUFFIXES = frozenset({".tbtrace", ".json"})
 UPLOAD_CHUNK_BYTES = 1024 * 1024
+VALID_RUN_STATUSES = frozenset({"passing", "failing"})
+VALID_RUN_SEVERITIES = frozenset({"INFO", "LOW", "MEDIUM", "HIGH", "CRITICAL"})
 
 app = FastAPI(
     title="TraceBisect Studio API",
@@ -161,6 +163,41 @@ def demo_report() -> JsonObject:
 @app.get("/api/traces", response_model=None)
 def list_traces() -> JsonObject:
     return {"traces": cast(JsonValue, STORE.list_traces())}
+
+
+@app.get("/api/runs", response_model=None)
+def list_runs(
+    q: Annotated[str | None, Query(max_length=120)] = None,
+    status: Annotated[str | None, Query(max_length=32)] = None,
+    severity: Annotated[str | None, Query(max_length=32)] = None,
+    source_convention: Annotated[str | None, Query(max_length=32)] = None,
+    divergence_type: Annotated[str | None, Query(max_length=80)] = None,
+    limit: Annotated[int, Query()] = 50,
+) -> JsonObject:
+    _validate_run_filter("status", status, VALID_RUN_STATUSES)
+    _validate_run_filter("severity", severity, VALID_RUN_SEVERITIES)
+    if limit < 1 or limit > 100:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 100.")
+    runs = _filtered_run_summaries(
+        STORE.list_report_summaries(),
+        q=q,
+        status=status,
+        severity=severity,
+        source_convention=source_convention,
+        divergence_type=divergence_type,
+    )
+    return {
+        "runs": cast(JsonValue, runs[:limit]),
+        "page": {"limit": limit, "next_cursor": None},
+    }
+
+
+@app.get("/api/runs/{report_id}", response_model=None)
+def get_run_report(report_id: str) -> JsonObject:
+    try:
+        return STORE.get_report(report_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=_key_error_detail(exc)) from exc
 
 
 @app.post("/api/traces/upload", response_model=None)
@@ -336,9 +373,81 @@ def _validated_string_items(values: list[str], *, field_name: str) -> list[str]:
     return values
 
 
+def _filtered_run_summaries(
+    runs: list[JsonObject],
+    *,
+    q: str | None,
+    status: str | None,
+    severity: str | None,
+    source_convention: str | None,
+    divergence_type: str | None,
+) -> list[JsonObject]:
+    normalized_query = q.strip().lower() if q is not None else ""
+    filtered: list[JsonObject] = []
+    for run in runs:
+        if status is not None and _json_string(run["status"]) != status:
+            continue
+        if severity is not None and _optional_json_string(run["severity"]) != severity:
+            continue
+        if (
+            source_convention is not None
+            and _json_string(run["source_convention"]) != source_convention
+        ):
+            continue
+        if (
+            divergence_type is not None
+            and _optional_json_string(run["first_divergence_type"]) != divergence_type
+        ):
+            continue
+        if normalized_query and normalized_query not in _run_search_blob(run):
+            continue
+        filtered.append(run)
+    return filtered
+
+
+def _validate_run_filter(name: str, value: str | None, allowed: frozenset[str]) -> None:
+    if value is not None and value not in allowed:
+        allowed_values = ", ".join(sorted(allowed))
+        raise HTTPException(status_code=400, detail=f"{name} must be one of: {allowed_values}.")
+
+
+def _run_search_blob(run: JsonObject) -> str:
+    baseline = _json_object(run["baseline"])
+    candidate = _json_object(run["candidate"])
+    values = [
+        _json_string(run["report_id"]),
+        _json_string(run["created_at"]),
+        _json_string(run["status"]),
+        _json_string(run["source_convention"]),
+        _json_string(baseline["display_name"]),
+        _json_string(baseline["id"]),
+        _json_string(baseline["source_convention"]),
+        _json_string(candidate["display_name"]),
+        _json_string(candidate["id"]),
+        _json_string(candidate["source_convention"]),
+        _optional_json_string(run["severity"]) or "",
+        _optional_json_string(run["first_divergence_type"]) or "",
+    ]
+    return " ".join(values).lower()
+
+
+def _json_object(value: JsonValue) -> JsonObject:
+    if not isinstance(value, dict):
+        raise HTTPException(status_code=500, detail="Stored run history is invalid.")
+    return value
+
+
 def _json_string(value: JsonValue) -> str:
     if not isinstance(value, str):
-        raise HTTPException(status_code=500, detail="Stored regression case is invalid.")
+        raise HTTPException(status_code=500, detail="Stored Studio data is invalid.")
+    return value
+
+
+def _optional_json_string(value: JsonValue) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise HTTPException(status_code=500, detail="Stored Studio data is invalid.")
     return value
 
 

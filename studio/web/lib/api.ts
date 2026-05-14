@@ -1,4 +1,4 @@
-import type { RegressionCase, Report, TraceSummary } from "@/lib/types";
+import type { RegressionCase, Report, RunSummary, TraceSummary } from "@/lib/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_TRACEBISECT_API_URL ?? "http://127.0.0.1:8000";
 const MAX_TRACE_UPLOAD_BYTES = 5 * 1024 * 1024;
@@ -40,6 +40,30 @@ export async function fetchRegressionCases(): Promise<RegressionCase[]> {
     await fetch(`${API_BASE}/api/regression-cases`),
   );
   return payload.cases;
+}
+
+export type RunHistoryFilters = {
+  q?: string;
+  status?: string;
+  severity?: string;
+  source_convention?: string;
+  divergence_type?: string;
+};
+
+export async function fetchRuns(filters: RunHistoryFilters = {}): Promise<RunSummary[]> {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value?.trim()) query.set(key, value.trim());
+  }
+  const suffix = query.size > 0 ? `?${query.toString()}` : "";
+  const payload = await parseResponse<{ runs: RunSummary[] }>(
+    await fetch(`${API_BASE}/api/runs${suffix}`),
+  );
+  return payload.runs;
+}
+
+export async function fetchRunReport(reportId: string): Promise<Report> {
+  return parseResponse<Report>(await fetch(`${API_BASE}/api/runs/${encodeURIComponent(reportId)}`));
 }
 
 export async function uploadTrace(file: File): Promise<TraceSummary> {

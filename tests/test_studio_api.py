@@ -54,6 +54,56 @@ def test_studio_api_serves_demo_report() -> None:
 
     assert second_response.status_code == 200
     assert len(STORE.list_traces()) == 2
+    assert len(STORE.list_report_summaries()) == 1
+
+
+def test_studio_api_lists_demo_run_history_without_duplicates() -> None:
+    reset_studio_state()
+    client = TestClient(app)
+
+    demo = client.get("/api/demo-report").json()
+    second_demo = client.get("/api/demo-report").json()
+    response = client.get("/api/runs")
+
+    assert demo["report_id"] == second_demo["report_id"]
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["page"] == {"limit": 50, "next_cursor": None}
+    assert payload["runs"] == [
+        {
+            "report_id": demo["report_id"],
+            "created_at": demo["created_at"],
+            "baseline": {
+                "id": demo["baseline"]["id"],
+                "display_name": "Refund baseline",
+                "source_convention": "native",
+                "event_count": 4,
+            },
+            "candidate": {
+                "id": demo["candidate"]["id"],
+                "display_name": "Refund regression",
+                "source_convention": "native",
+                "event_count": 4,
+            },
+            "source_convention": "native",
+            "divergence_count": 3,
+            "status": "failing",
+            "severity": "CRITICAL",
+            "first_divergence_type": "changed_tool_args",
+            "event_count": 8,
+        }
+    ]
+
+
+def test_studio_api_gets_full_run_report() -> None:
+    reset_studio_state()
+    client = TestClient(app)
+
+    demo = client.get("/api/demo-report").json()
+    response = client.get(f"/api/runs/{demo['report_id']}")
+
+    assert response.status_code == 200
+    assert response.json() == demo
 
 
 def test_studio_api_uploads_and_compares_tbtrace_files() -> None:
@@ -90,6 +140,70 @@ def test_studio_api_uploads_and_compares_tbtrace_files() -> None:
     assert report["first_divergence"]["type"] == "changed_tool_args"
     assert report["baseline"]["display_name"] == "baseline.tbtrace"
     assert report["candidate"]["display_name"] == "candidate.tbtrace"
+
+    runs_response = client.get("/api/runs")
+
+    assert runs_response.status_code == 200
+    runs = runs_response.json()["runs"]
+    assert len(runs) == 1
+    assert runs[0]["report_id"] == report["report_id"]
+    assert runs[0]["status"] == "failing"
+    assert runs[0]["first_divergence_type"] == "changed_tool_args"
+
+
+def test_studio_api_filters_run_history() -> None:
+    reset_studio_state()
+    client = TestClient(app)
+
+    demo = client.get("/api/demo-report").json()
+    passing_candidate_id = STORE.add_trace(
+        replace(load_trace_from_path(BASELINE), trace_id="trc_refund_baseline_copy"),
+        name="Passing candidate",
+    )
+    passing_response = client.post(
+        "/api/compare",
+        json={
+            "baseline_trace_id": demo["baseline"]["id"],
+            "candidate_trace_id": passing_candidate_id,
+        },
+    )
+    passing_report = passing_response.json()
+
+    passing_runs = client.get("/api/runs?status=passing").json()["runs"]
+    failing_runs = client.get("/api/runs?status=failing").json()["runs"]
+    query_runs = client.get("/api/runs?q=passing%20candidate").json()["runs"]
+    severity_runs = client.get("/api/runs?severity=CRITICAL").json()["runs"]
+    source_runs = client.get("/api/runs?source_convention=native").json()["runs"]
+    type_runs = client.get("/api/runs?divergence_type=changed_tool_args").json()["runs"]
+
+    assert [item["report_id"] for item in passing_runs] == [passing_report["report_id"]]
+    assert [item["report_id"] for item in failing_runs] == [demo["report_id"]]
+    assert [item["report_id"] for item in query_runs] == [passing_report["report_id"]]
+    assert [item["report_id"] for item in severity_runs] == [demo["report_id"]]
+    assert {item["report_id"] for item in source_runs} == {
+        demo["report_id"],
+        passing_report["report_id"],
+    }
+    assert [item["report_id"] for item in type_runs] == [demo["report_id"]]
+
+
+def test_studio_api_run_history_rejects_invalid_filters() -> None:
+    reset_studio_state()
+    client = TestClient(app)
+
+    assert client.get("/api/runs?status=unknown").status_code == 400
+    assert client.get("/api/runs?severity=URGENT").status_code == 400
+    assert client.get("/api/runs?limit=0").status_code == 400
+
+
+def test_studio_api_get_run_history_rejects_unknown_report() -> None:
+    reset_studio_state()
+    client = TestClient(app)
+
+    response = client.get("/api/runs/rpt_missing")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "unknown run id: rpt_missing"
 
 
 def test_studio_api_replaces_duplicate_trace_uploads() -> None:

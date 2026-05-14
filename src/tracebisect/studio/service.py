@@ -40,6 +40,7 @@ class StudioStore:
     trace_names: dict[str, str] = field(default_factory=dict)
     reports: dict[str, JsonObject] = field(default_factory=dict)
     cases: dict[str, JsonObject] = field(default_factory=dict)
+    demo_report_id: str | None = None
     max_traces: int = DEFAULT_MAX_STORED_TRACES
     max_reports: int = DEFAULT_MAX_STORED_REPORTS
     max_cases: int = DEFAULT_MAX_STORED_CASES
@@ -69,6 +70,24 @@ class StudioStore:
                 del self.reports[oldest_report_id]
             self.reports[report_id] = report
             return report_id
+
+    def get_report(self, report_id: str) -> JsonObject:
+        with self._lock:
+            try:
+                return self.reports[report_id]
+            except KeyError as exc:
+                raise KeyError(f"unknown run id: {report_id}") from exc
+
+    def list_report_summaries(self) -> list[JsonObject]:
+        with self._lock:
+            return [
+                _report_summary(report)
+                for report in sorted(
+                    self.reports.values(),
+                    key=lambda item: _string_value(item["created_at"]),
+                    reverse=True,
+                )
+            ]
 
     def add_case_from_report(
         self,
@@ -184,6 +203,7 @@ class StudioStore:
             self.trace_names.clear()
             self.reports.clear()
             self.cases.clear()
+            self.demo_report_id = None
 
 
 def build_demo_report() -> JsonObject:
@@ -199,6 +219,12 @@ def build_demo_report() -> JsonObject:
 
 def seed_demo_report(store: StudioStore) -> JsonObject:
     """Seed demo traces and report into the store idempotently."""
+    if store.demo_report_id is not None:
+        try:
+            return store.get_report(store.demo_report_id)
+        except KeyError:
+            store.demo_report_id = None
+
     baseline = build_refund_baseline_trace()
     candidate = build_refund_candidate_trace()
     baseline_id = store.add_trace(baseline, name="Refund baseline")
@@ -210,7 +236,7 @@ def seed_demo_report(store: StudioStore) -> JsonObject:
         candidate_name=store.trace_names[candidate_id],
         scenario_cmd=DEFAULT_SCENARIO_CMD,
     )
-    store.add_report(report)
+    store.demo_report_id = store.add_report(report)
     return report
 
 
@@ -336,6 +362,40 @@ def _case_from_report(
     }
 
 
+def _report_summary(report: JsonObject) -> JsonObject:
+    baseline = _json_object(report["baseline"])
+    candidate = _json_object(report["candidate"])
+    first = report["first_divergence"]
+    divergence_count = _int_value(report["divergence_count"])
+    severity = _divergence_severity(first)
+    first_type = _divergence_type(first)
+    return {
+        "report_id": report["report_id"],
+        "created_at": report["created_at"],
+        "baseline": {
+            "id": baseline["id"],
+            "display_name": baseline["display_name"],
+            "source_convention": baseline["source_convention"],
+            "event_count": baseline["event_count"],
+        },
+        "candidate": {
+            "id": candidate["id"],
+            "display_name": candidate["display_name"],
+            "source_convention": candidate["source_convention"],
+            "event_count": candidate["event_count"],
+        },
+        "source_convention": _combined_source_convention(
+            _string_value(baseline["source_convention"]),
+            _string_value(candidate["source_convention"]),
+        ),
+        "divergence_count": divergence_count,
+        "status": "failing" if divergence_count > 0 else "passing",
+        "severity": severity,
+        "first_divergence_type": first_type,
+        "event_count": _int_value(baseline["event_count"]) + _int_value(candidate["event_count"]),
+    }
+
+
 def _trace_summary(trace: Trace, *, trace_key: str, display_name: str) -> JsonObject:
     return {
         "id": trace_key,
@@ -405,6 +465,12 @@ def _string_value(value: JsonValue) -> str:
     return value
 
 
+def _json_object(value: JsonValue) -> JsonObject:
+    if not isinstance(value, dict):
+        raise TypeError("expected JSON object")
+    return value
+
+
 def _string_list(value: JsonValue) -> list[str]:
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
         raise TypeError("expected string list JSON value")
@@ -432,3 +498,18 @@ def _divergence_severity(value: JsonValue) -> str | None:
     if severity is not None and not isinstance(severity, str):
         raise TypeError("expected divergence severity string")
     return severity
+
+
+def _divergence_type(value: JsonValue) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise TypeError("expected divergence JSON object")
+    divergence_type = value.get("type")
+    if divergence_type is not None and not isinstance(divergence_type, str):
+        raise TypeError("expected divergence type string")
+    return divergence_type
+
+
+def _combined_source_convention(baseline: str, candidate: str) -> str:
+    return baseline if baseline == candidate else "mixed"

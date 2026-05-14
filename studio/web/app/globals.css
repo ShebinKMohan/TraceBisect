@@ -524,6 +524,7 @@ strong {
 }
 
 .filter-chip,
+.filter-select,
 .table-search {
   display: inline-flex;
   gap: 7px;
@@ -538,12 +539,29 @@ strong {
 
 .filter-chip {
   padding: 0 10px;
+  cursor: pointer;
 }
 
 .filter-chip-active {
   border-color: var(--accent-line);
   background: var(--accent-soft);
   color: var(--accent);
+}
+
+.filter-chip-static {
+  cursor: default;
+}
+
+.filter-select {
+  padding: 0 8px;
+}
+
+.filter-select select {
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
 }
 
 .table-search {
@@ -570,8 +588,8 @@ strong {
 .run-table-head,
 .run-row {
   display: grid;
-  grid-template-columns: minmax(180px, 1.2fr) minmax(230px, 1.6fr) 110px 70px 120px;
-  gap: 14px;
+  grid-template-columns: minmax(220px, 1.5fr) minmax(140px, 1fr) 88px 96px 64px 112px;
+  gap: 12px;
   align-items: center;
 }
 
@@ -602,6 +620,10 @@ strong {
 }
 
 .run-empty {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
   padding: 18px 16px;
   border-top: 1px solid var(--border);
   color: var(--text-muted);
@@ -643,6 +665,23 @@ strong {
   color: var(--text-muted);
 }
 
+.run-row small {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-subtle);
+  font-size: 10.5px;
+  line-height: 1.15;
+}
+
+.run-signal {
+  display: block;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-transform: capitalize;
+}
+
 .tier-pill {
   display: inline-flex;
   min-height: 22px;
@@ -655,14 +694,27 @@ strong {
   line-height: 1.15;
 }
 
-.tier-stable {
+.tier-stable,
+.tier-passing {
   background: var(--success-soft);
   color: var(--success);
 }
 
-.tier-warning {
+.tier-warning,
+.tier-failing {
   background: var(--danger-soft);
   color: var(--danger);
+}
+
+.inline-action {
+  min-height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
 }
 
 .trace-workbench,
@@ -1613,11 +1665,25 @@ html[data-theme="dark"] .payload-actual {
 
   .run-row > span:nth-child(4)::before {
     color: var(--text-subtle);
-    content: "Events ";
+    content: "Source ";
   }
 
   .run-row > span:nth-child(5) {
+    justify-self: start;
+  }
+
+  .run-row > span:nth-child(5)::before {
+    color: var(--text-subtle);
+    content: "Events ";
+  }
+
+  .run-row > span:nth-child(6) {
     justify-self: end;
+  }
+
+  .run-empty {
+    display: grid;
+    justify-content: stretch;
   }
 
   .case-row {

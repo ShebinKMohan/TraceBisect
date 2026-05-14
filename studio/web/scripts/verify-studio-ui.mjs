@@ -143,11 +143,11 @@ async function main() {
   await page.getByTestId("studio-title").waitFor({ state: "visible" });
   await expectText(page, '[data-testid="studio-title"]', "Trace runs", "product title");
   await expectText(page, '[data-testid="runs-table"]', "Refund regression", "runs table");
-  await page.locator(".search-control input").fill("regression");
-  await expectText(page, '[data-testid="runs-table"]', "Refund regression", "filtered runs table");
-  const filteredRunsText = await page.getByTestId("runs-table").textContent();
-  assert(!filteredRunsText?.includes("Refund baseline"), "run search did not filter baseline row");
-  await page.locator(".search-control input").fill("");
+  await expectText(page, '[data-testid="runs-table"]', "changed tool args", "run divergence signal");
+  await page.locator(".search-control input").fill("does-not-exist");
+  await expectText(page, '[data-testid="runs-table"]', "No comparison runs match", "empty run filter");
+  await page.getByTestId("clear-run-filters").click();
+  await expectText(page, '[data-testid="runs-table"]', "Refund regression", "cleared run filters");
   await expectText(page, '[data-testid="trace-tree"]', "TOOL_CALL", "trace tree event type");
   await expectText(page, '[data-testid="trace-tree"]', "search_database", "trace tree event name");
   await expectText(page, '[data-testid="details-panel"]', "search_database", "details panel");
@@ -211,6 +211,19 @@ async function main() {
     '[data-testid="comparison-summary"]',
     "refund_search_candidate_changed_tool_args.tbtrace",
     "comparison summary",
+  );
+  await expectText(
+    page,
+    '[data-testid="runs-table"]',
+    "refund_search_candidate_changed_tool_args.tbtrace",
+    "uploaded comparison in run history",
+  );
+  await page.getByTestId("run-filter-failing").click();
+  await expectText(
+    page,
+    '[data-testid="runs-table"]',
+    "refund_search_candidate_changed_tool_args.tbtrace",
+    "failing run filter",
   );
   await page.getByTestId("save-regression-case").click();
   await expectText(
