@@ -19,6 +19,8 @@ export type TraceSummary = {
   status?: string | null;
 };
 
+export type StudioSection = "runs" | "sources" | "divergences" | "cases" | "setup";
+
 export type TraceEvent = {
   id: string;
   parent_id: string | null;

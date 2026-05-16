@@ -183,8 +183,11 @@ strong {
   width: 34px;
   height: 34px;
   place-items: center;
+  border: 0;
   border-radius: 7px;
+  background: transparent;
   color: var(--text-muted);
+  cursor: pointer;
 }
 
 .nav-item-active,
@@ -367,24 +370,28 @@ strong {
   background: var(--shell);
 }
 
-.project-tabs a {
+.project-tabs button {
   position: relative;
   padding: 0 0 11px;
+  border: 0;
+  background: transparent;
   color: var(--text);
   font-size: 13px;
   font-weight: 500;
   line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
 }
 
-.project-tabs a:not([aria-current="page"]) {
+.project-tabs button:not([aria-current="page"]) {
   color: var(--text-muted);
 }
 
-.project-tabs a[aria-current="page"] {
+.project-tabs button[aria-current="page"] {
   color: var(--accent);
 }
 
-.project-tabs a[aria-current="page"]::after {
+.project-tabs button[aria-current="page"]::after {
   position: absolute;
   right: 0;
   bottom: -1px;
@@ -413,6 +420,149 @@ strong {
   align-items: start;
   min-width: 0;
   padding: 14px 20px 20px;
+}
+
+.section-detail-grid {
+  padding-top: 0;
+}
+
+.section-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 14px;
+  align-items: start;
+  min-width: 0;
+  padding: 14px 20px;
+}
+
+.section-panel {
+  padding: 14px;
+}
+
+.section-panel-wide {
+  min-width: 0;
+}
+
+.source-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.source-card {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-muted);
+}
+
+.source-card svg,
+.setup-steps svg {
+  color: var(--accent);
+}
+
+.source-card strong,
+.mini-list strong,
+.setup-steps span {
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.source-card span,
+.source-card p,
+.mini-list span,
+.section-note {
+  color: var(--text-muted);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
+.source-card span {
+  color: var(--accent);
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.mini-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.mini-list div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-muted);
+}
+
+.mini-list strong,
+.mini-list span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.divergence-review {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.divergence-review div {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-muted);
+}
+
+.divergence-review span {
+  display: block;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.divergence-review strong {
+  display: block;
+  margin-top: 5px;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.setup-steps {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.setup-steps div {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-muted);
+}
+
+.section-note {
+  margin-top: 12px;
 }
 
 .primary-column,
@@ -1627,8 +1777,19 @@ html[data-theme="dark"] .payload-actual {
   }
 
   .stat-strip,
+  .section-grid,
   .side-column,
   .diff-lane {
+    grid-template-columns: 1fr;
+  }
+
+  .section-grid {
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+
+  .source-grid,
+  .divergence-review {
     grid-template-columns: 1fr;
   }
 

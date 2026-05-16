@@ -17,12 +17,22 @@ import type { RegressionCase, Report, RunSummary, TraceEvent, TraceSummary } fro
 import { CompareDrawer } from "@/components/compare-drawer";
 import { EventDetailsPanel } from "@/components/event-details-panel";
 import { IntegrationPanel } from "@/components/integration-panel";
+import { ProjectTabs, type StudioSectionConfig } from "@/components/project-tabs";
 import { RegressionCaseLibrary } from "@/components/regression-case-library";
 import { RunList } from "@/components/run-list";
+import { SectionOverview, sectionContent } from "@/components/section-overview";
 import { Sidebar } from "@/components/sidebar";
 import { Topbar } from "@/components/topbar";
 import { TraceWorkbench } from "@/components/trace-workbench";
 import { UploadComparePanel } from "@/components/upload-compare-panel";
+
+const studioSections: StudioSectionConfig[] = [
+  { id: "runs", label: "Runs" },
+  { id: "sources", label: "Sources" },
+  { id: "divergences", label: "Divergences" },
+  { id: "cases", label: "Cases" },
+  { id: "setup", label: "Setup" },
+];
 
 export function StudioDashboard() {
   const [report, setReport] = useState<Report | null>(null);
@@ -35,6 +45,7 @@ export function StudioDashboard() {
   const [activeSide, setActiveSide] = useState<"baseline" | "candidate">("candidate");
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
+  const [activeSection, setActiveSection] = useState<StudioSectionConfig["id"]>("runs");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "passing" | "failing">("all");
   const [severityFilter, setSeverityFilter] = useState<
@@ -63,6 +74,7 @@ export function StudioDashboard() {
     activeEvents.find((event) => highlightedIds.has(event.id)) ??
     activeEvents[0] ??
     null;
+  const content = sectionContent(activeSection);
 
   useEffect(() => {
     const preferred =
@@ -215,7 +227,7 @@ export function StudioDashboard() {
   return (
     <main className="studio-shell">
       <div className="dashboard-frame">
-        <Sidebar />
+        <Sidebar activeSection={activeSection} onSectionChange={setActiveSection} />
         <div className="dashboard-main">
           <Topbar
             searchValue={searchQuery}
@@ -226,11 +238,9 @@ export function StudioDashboard() {
 
           <section className="page-header">
             <div>
-              <p className="eyebrow">Project / Refund Ops</p>
-              <h1 data-testid="studio-title">Trace runs</h1>
-              <p>
-                Compare baseline and candidate agent executions, inspect the event chain, and export the first regression as a test.
-              </p>
+              <p className="eyebrow">{content.eyebrow}</p>
+              <h1 data-testid="studio-title">{content.title}</h1>
+              <p>{content.description}</p>
             </div>
             <div className="header-action" data-testid="comparison-summary">
               <GitCompare size={15} aria-hidden />
@@ -238,13 +248,11 @@ export function StudioDashboard() {
             </div>
           </section>
 
-          <nav className="project-tabs" aria-label="Project sections">
-            <a href="#" aria-current="page">Runs</a>
-            <a href="#">Threads</a>
-            <a href="#">Divergences</a>
-            <a href="#">Cases</a>
-            <a href="#">Setup</a>
-          </nav>
+          <ProjectTabs
+            activeSection={activeSection}
+            onSectionChange={setActiveSection}
+            sections={studioSections}
+          />
 
           {error ? (
             <section className="error-band" role="alert">
@@ -253,59 +261,93 @@ export function StudioDashboard() {
             </section>
           ) : null}
 
-          <div className="observability-grid">
+          <SectionOverview
+            cases={cases}
+            first={first}
+            onSectionChange={setActiveSection}
+            report={report}
+            runs={runs}
+            section={activeSection}
+            traces={traces}
+          />
+
+          <div className={activeSection === "runs" ? "observability-grid" : "observability-grid section-detail-grid"}>
             <div className="primary-column">
-              <RunList
-                first={first}
-                onSearchReset={() => setSearchQuery("")}
-                onSelectRun={(reportId) => void handleSelectRun(reportId)}
-                onSeverityFilterChange={setSeverityFilter}
-                onStatusFilterChange={setStatusFilter}
-                report={report}
-                runs={runs}
-                searchQuery={searchQuery}
-                selectedReportId={selectedReportId}
-                severityFilter={severityFilter}
-                statusFilter={statusFilter}
-              />
-              <RegressionCaseLibrary
-                busy={busy}
-                cases={cases}
-                onRunCase={(item) => void handleRunCase(item)}
-                onSaveCase={() => void handleSaveCase()}
-                report={report}
-              />
-              <CompareDrawer divergence={first} report={report} />
+              {activeSection === "runs" ? (
+                <RunList
+                  first={first}
+                  onSearchReset={() => setSearchQuery("")}
+                  onSelectRun={(reportId) => void handleSelectRun(reportId)}
+                  onSeverityFilterChange={setSeverityFilter}
+                  onStatusFilterChange={setStatusFilter}
+                  report={report}
+                  runs={runs}
+                  searchQuery={searchQuery}
+                  selectedReportId={selectedReportId}
+                  severityFilter={severityFilter}
+                  statusFilter={statusFilter}
+                />
+              ) : null}
+              {(activeSection === "runs" || activeSection === "cases") ? (
+                <RegressionCaseLibrary
+                  busy={busy}
+                  cases={cases}
+                  onRunCase={(item) => void handleRunCase(item)}
+                  onSaveCase={() => void handleSaveCase()}
+                  report={report}
+                />
+              ) : null}
+              {(activeSection === "runs" || activeSection === "divergences" || activeSection === "setup") ? (
+                <CompareDrawer divergence={first} report={report} />
+              ) : null}
+              {activeSection === "sources" ? (
+                <UploadComparePanel
+                  traces={traces}
+                  baselineId={baselineId}
+                  candidateId={candidateId}
+                  busy={busy}
+                  onBaselineChange={setBaselineId}
+                  onCandidateChange={setCandidateId}
+                  onUpload={(file, role) => void handleUpload(file, role)}
+                  onCompare={() => void handleCompare()}
+                />
+              ) : null}
             </div>
 
             <aside className="side-column" aria-label="Trace inspector">
-              <TraceWorkbench
-                events={activeEvents}
-                highlightedIds={highlightedIds}
-                onSelectEvent={handleSelectEvent}
-                selectedEventId={selectedEvent?.id ?? null}
-                side={activeSide}
-                trace={activeTrace}
-              />
-              <EventDetailsPanel
-                divergence={first}
-                event={selectedEvent}
-                events={activeEvents}
-                highlightedIds={highlightedIds}
-                onSelectEvent={handleSelectEvent}
-                side={activeSide}
-                trace={activeTrace}
-              />
-              <UploadComparePanel
-                traces={traces}
-                baselineId={baselineId}
-                candidateId={candidateId}
-                busy={busy}
-                onBaselineChange={setBaselineId}
-                onCandidateChange={setCandidateId}
-                onUpload={(file, role) => void handleUpload(file, role)}
-                onCompare={() => void handleCompare()}
-              />
+              {(activeSection === "runs" || activeSection === "divergences") ? (
+                <>
+                  <TraceWorkbench
+                    events={activeEvents}
+                    highlightedIds={highlightedIds}
+                    onSelectEvent={handleSelectEvent}
+                    selectedEventId={selectedEvent?.id ?? null}
+                    side={activeSide}
+                    trace={activeTrace}
+                  />
+                  <EventDetailsPanel
+                    divergence={first}
+                    event={selectedEvent}
+                    events={activeEvents}
+                    highlightedIds={highlightedIds}
+                    onSelectEvent={handleSelectEvent}
+                    side={activeSide}
+                    trace={activeTrace}
+                  />
+                </>
+              ) : null}
+              {activeSection !== "sources" ? (
+                <UploadComparePanel
+                  traces={traces}
+                  baselineId={baselineId}
+                  candidateId={candidateId}
+                  busy={busy}
+                  onBaselineChange={setBaselineId}
+                  onCandidateChange={setCandidateId}
+                  onUpload={(file, role) => void handleUpload(file, role)}
+                  onCompare={() => void handleCompare()}
+                />
+              ) : null}
               <IntegrationPanel integrations={report?.integrations ?? []} />
             </aside>
           </div>
