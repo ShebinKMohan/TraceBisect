@@ -58,6 +58,45 @@ async function assertNoHorizontalOverflow(page, label) {
   );
 }
 
+async function assertFullScreenAppShell(page, label) {
+  const shell = await page.evaluate(() => {
+    const frame = document.querySelector(".dashboard-frame");
+    const bodyStyle = getComputedStyle(document.body);
+    if (!frame) return { found: false };
+    const frameStyle = getComputedStyle(frame);
+    const rect = frame.getBoundingClientRect();
+    return {
+      found: true,
+      bodyBackground: bodyStyle.backgroundColor,
+      frameBackground: frameStyle.backgroundColor,
+      borderRadius: frameStyle.borderRadius,
+      boxShadow: frameStyle.boxShadow,
+      height: Math.round(rect.height),
+      left: Math.round(rect.left),
+      top: Math.round(rect.top),
+      width: Math.round(rect.width),
+      windowHeight: window.innerHeight,
+      windowWidth: window.innerWidth,
+    };
+  });
+  assert(shell.found, `${label} app shell was not rendered`);
+  assert(shell.top === 0 && shell.left === 0, `${label} app shell is offset: ${JSON.stringify(shell)}`);
+  assert(
+    shell.width === shell.windowWidth,
+    `${label} app shell is not full width: ${JSON.stringify(shell)}`,
+  );
+  assert(
+    shell.height >= shell.windowHeight,
+    `${label} app shell is shorter than the viewport: ${JSON.stringify(shell)}`,
+  );
+  assert(shell.borderRadius === "0px", `${label} app shell still has card radius: ${JSON.stringify(shell)}`);
+  assert(shell.boxShadow === "none", `${label} app shell still has card shadow: ${JSON.stringify(shell)}`);
+  assert(
+    shell.bodyBackground === shell.frameBackground,
+    `${label} body and app shell backgrounds differ: ${JSON.stringify(shell)}`,
+  );
+}
+
 async function assertWorkbenchLayout(page, testId, label) {
   const layout = await page.evaluate((id) => {
     const grid = document.querySelector(`[data-testid="${id}"]`);
@@ -187,6 +226,7 @@ async function main() {
 
   await page.goto(baseUrl, { waitUntil: "load" });
   await page.getByTestId("studio-title").waitFor({ state: "visible" });
+  await assertFullScreenAppShell(page, "desktop light");
   await expectText(page, '[data-testid="studio-title"]', "Comparison history", "product title");
   const placeholder = await page.locator(".search-control input").getAttribute("placeholder");
   assert(
@@ -272,6 +312,7 @@ async function main() {
   await page.getByTestId("theme-toggle").click();
   const theme = await page.locator("html").getAttribute("data-theme");
   assert(theme === "dark", `Theme toggle did not set dark mode. Actual: ${theme}`);
+  await assertFullScreenAppShell(page, "desktop dark");
   await assertContrast(page, '[data-testid="studio-title"]', "dark title");
   await assertContrast(page, '[data-testid="first-divergence-card"] h2', "dark divergence heading");
   await assertContrast(page, ".payload-expected code", "dark expected payload");
@@ -335,6 +376,7 @@ async function main() {
   await page.setViewportSize({ width: 390, height: 900 });
   await page.reload({ waitUntil: "load" });
   await page.getByTestId("studio-title").waitFor({ state: "visible" });
+  await assertFullScreenAppShell(page, "mobile light");
   await expectText(page, '[data-testid="studio-title"]', "Comparison history", "mobile product title");
   await assertNoHorizontalOverflow(page, "mobile light");
   await page.screenshot({ path: path.join(screenshotDir, "mobile-light.png"), fullPage: true });

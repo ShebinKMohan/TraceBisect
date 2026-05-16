@@ -1,5 +1,5 @@
 :root {
-  --bg: #c8c8c6;
+  --bg: #ffffff;
   --app-bg: #f8f9f7;
   --shell: #ffffff;
   --sidebar: #fbfcfa;
@@ -27,7 +27,7 @@
 }
 
 html[data-theme="dark"] {
-  --bg: #161918;
+  --bg: #171d1b;
   --app-bg: #101413;
   --shell: #171d1b;
   --sidebar: #121715;
@@ -129,20 +129,21 @@ strong {
 
 .studio-shell {
   min-height: 100vh;
-  padding: 36px 40px;
+  padding: 0;
+  background: var(--shell);
 }
 
 .dashboard-frame {
   display: grid;
   grid-template-columns: 176px minmax(0, 1fr);
-  width: min(1320px, 100%);
-  min-height: calc(100vh - 132px);
-  margin: 0 auto;
+  width: 100%;
+  min-height: 100vh;
+  margin: 0;
   overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border: 0;
+  border-radius: 0;
   background: var(--shell);
-  box-shadow: var(--shadow);
+  box-shadow: none;
 }
 
 .sidebar {
@@ -1821,10 +1822,6 @@ html[data-theme="dark"] .payload-actual {
 }
 
 @media (max-width: 1180px) {
-  .studio-shell {
-    padding: 24px;
-  }
-
   .comparison-workbench,
   .review-workbench {
     grid-template-columns: 1fr;
