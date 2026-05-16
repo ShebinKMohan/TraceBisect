@@ -209,6 +209,12 @@ export function RunList({
             </button>
           );
         })}
+        {displayRuns.length > 0 ? (
+          <div className="run-table-note">
+            <strong>Read this page left to right.</strong>
+            <span>Select a comparison, inspect the trace step that changed, then save the guardrail from Review.</span>
+          </div>
+        ) : null}
         {runs.length === 0 ? (
           <div className="run-empty" role="status">
             <span>{emptyCopy}</span>

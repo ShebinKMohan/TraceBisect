@@ -58,6 +58,46 @@ async function assertNoHorizontalOverflow(page, label) {
   );
 }
 
+async function assertWorkbenchLayout(page, testId, label) {
+  const layout = await page.evaluate((id) => {
+    const grid = document.querySelector(`[data-testid="${id}"]`);
+    if (!grid) return { found: false };
+    const children = Array.from(grid.children).map((element) => {
+      const rect = element.getBoundingClientRect();
+      return {
+        bottom: Math.round(rect.bottom),
+        height: Math.round(rect.height),
+        left: Math.round(rect.left),
+        top: Math.round(rect.top),
+        width: Math.round(rect.width),
+      };
+    });
+    return {
+      found: true,
+      children,
+      columns: getComputedStyle(grid).gridTemplateColumns.split(" ").length,
+      innerWidth: window.innerWidth,
+      scrollWidth: document.documentElement.scrollWidth,
+    };
+  }, testId);
+  assert(layout.found, `${label} was not rendered`);
+  assert(layout.columns === 3, `${label} should use three workbench columns. Actual: ${layout.columns}`);
+  assert(layout.children.length === 3, `${label} should have three panes. Actual: ${layout.children.length}`);
+  const [first, second, third] = layout.children;
+  assert(
+    Math.max(first.top, second.top, third.top) - Math.min(first.top, second.top, third.top) <= 1,
+    `${label} panes are not top-aligned: ${JSON.stringify(layout.children)}`,
+  );
+  assert(
+    Math.max(first.bottom, second.bottom, third.bottom) - Math.min(first.bottom, second.bottom, third.bottom) <= 1,
+    `${label} panes are not height-aligned: ${JSON.stringify(layout.children)}`,
+  );
+  assert(
+    layout.scrollWidth <= layout.innerWidth,
+    `${label} introduced horizontal overflow: ${JSON.stringify(layout)}`,
+  );
+}
+
 async function expectTraceDetailTab(page, tabName, selector, expectedText) {
   await page.getByTestId("trace-detail-tabs").getByRole("tab", { name: tabName }).click();
   await expectText(page, selector, expectedText, `${tabName} trace detail tab`);
@@ -158,6 +198,7 @@ async function main() {
   await expectText(page, '[data-testid="runs-table"]', "Tool arguments changed", "run divergence signal");
   await expectNotText(page, '[data-testid="runs-table"]', ".tbtrace", "runs table primary labels");
   await expectNotText(page, '[data-testid="runs-table"]', "changed_tool_args", "runs table primary labels");
+  await assertWorkbenchLayout(page, "comparison-workbench", "comparison history workbench");
   await page.locator(".search-control input").fill("does-not-exist");
   await expectText(page, '[data-testid="runs-table"]', "No comparison runs match", "empty run filter");
   await page.getByTestId("clear-run-filters").click();
@@ -172,6 +213,7 @@ async function main() {
   await page.getByTestId("sidebar-section-divergences").click();
   await expectText(page, '[data-testid="studio-title"]', "Review behavior changes", "divergences title");
   await expectText(page, '[data-testid="first-divergence-card"]', "search database", "divergences section");
+  await assertWorkbenchLayout(page, "review-workbench", "regression review workbench");
   await assertNoHorizontalOverflow(page, "divergences section");
   await page.getByTestId("sidebar-section-cases").click();
   await expectText(page, '[data-testid="studio-title"]', "Regression guardrails", "cases title");

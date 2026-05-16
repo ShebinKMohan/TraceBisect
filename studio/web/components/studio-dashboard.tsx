@@ -70,7 +70,7 @@ export function StudioDashboard() {
   }, [first]);
   const activeTrace = activeSide === "baseline" ? report?.baseline : report?.candidate;
   const activeEvents = activeSide === "baseline" ? (report?.events.baseline ?? []) : (report?.events.candidate ?? []);
-  const hasSideRail = activeSection === "runs" || activeSection === "divergences" || activeSection === "sources";
+  const hasSideRail = activeSection === "sources";
   const selectedEvent =
     activeEvents.find((event) => event.id === selectedEventId) ??
     activeEvents.find((event) => highlightedIds.has(event.id)) ??
@@ -272,30 +272,74 @@ export function StudioDashboard() {
             section={activeSection}
           />
 
-          <div
-            className={[
-              "observability-grid",
-              hasSideRail ? "" : "observability-grid-single",
-            ]
-              .filter(Boolean)
-              .join(" ")}
-          >
+          {activeSection === "runs" ? (
+            <div className="comparison-workbench" data-testid="comparison-workbench">
+              <RunList
+                first={first}
+                onSearchReset={() => setSearchQuery("")}
+                onSelectRun={(reportId) => void handleSelectRun(reportId)}
+                onSeverityFilterChange={setSeverityFilter}
+                onStatusFilterChange={setStatusFilter}
+                report={report}
+                runs={runs}
+                searchQuery={searchQuery}
+                selectedReportId={selectedReportId}
+                severityFilter={severityFilter}
+                statusFilter={statusFilter}
+              />
+              <TraceWorkbench
+                events={activeEvents}
+                highlightedIds={highlightedIds}
+                onSelectEvent={handleSelectEvent}
+                selectedEventId={selectedEvent?.id ?? null}
+                side={activeSide}
+                trace={activeTrace}
+              />
+              <EventDetailsPanel
+                divergence={first}
+                event={selectedEvent}
+                events={activeEvents}
+                highlightedIds={highlightedIds}
+                onSelectEvent={handleSelectEvent}
+                side={activeSide}
+                trace={activeTrace}
+              />
+            </div>
+          ) : null}
+
+          {activeSection === "divergences" ? (
+            <div className="review-workbench" data-testid="review-workbench">
+              <CompareDrawer divergence={first} report={report} />
+              <TraceWorkbench
+                events={activeEvents}
+                highlightedIds={highlightedIds}
+                onSelectEvent={handleSelectEvent}
+                selectedEventId={selectedEvent?.id ?? null}
+                side={activeSide}
+                trace={activeTrace}
+              />
+              <EventDetailsPanel
+                divergence={first}
+                event={selectedEvent}
+                events={activeEvents}
+                highlightedIds={highlightedIds}
+                onSelectEvent={handleSelectEvent}
+                side={activeSide}
+                trace={activeTrace}
+              />
+            </div>
+          ) : null}
+
+          {activeSection !== "runs" && activeSection !== "divergences" ? (
+            <div
+              className={[
+                "observability-grid",
+                hasSideRail ? "" : "observability-grid-single",
+              ]
+                .filter(Boolean)
+                .join(" ")}
+            >
             <div className="primary-column">
-              {activeSection === "runs" ? (
-                <RunList
-                  first={first}
-                  onSearchReset={() => setSearchQuery("")}
-                  onSelectRun={(reportId) => void handleSelectRun(reportId)}
-                  onSeverityFilterChange={setSeverityFilter}
-                  onStatusFilterChange={setStatusFilter}
-                  report={report}
-                  runs={runs}
-                  searchQuery={searchQuery}
-                  selectedReportId={selectedReportId}
-                  severityFilter={severityFilter}
-                  statusFilter={statusFilter}
-                />
-              ) : null}
               {activeSection === "cases" ? (
                 <RegressionCaseLibrary
                   busy={busy}
@@ -305,7 +349,7 @@ export function StudioDashboard() {
                   report={report}
                 />
               ) : null}
-              {(activeSection === "divergences" || activeSection === "setup") ? (
+              {activeSection === "setup" ? (
                 <CompareDrawer divergence={first} report={report} />
               ) : null}
               {activeSection === "sources" ? (
@@ -324,31 +368,11 @@ export function StudioDashboard() {
 
             {hasSideRail ? (
             <aside className="side-column" aria-label="Trace inspector">
-              {(activeSection === "runs" || activeSection === "divergences") ? (
-                <>
-                  <TraceWorkbench
-                    events={activeEvents}
-                    highlightedIds={highlightedIds}
-                    onSelectEvent={handleSelectEvent}
-                    selectedEventId={selectedEvent?.id ?? null}
-                    side={activeSide}
-                    trace={activeTrace}
-                  />
-                  <EventDetailsPanel
-                    divergence={first}
-                    event={selectedEvent}
-                    events={activeEvents}
-                    highlightedIds={highlightedIds}
-                    onSelectEvent={handleSelectEvent}
-                    side={activeSide}
-                    trace={activeTrace}
-                  />
-                </>
-              ) : null}
               {activeSection === "sources" ? <IntegrationPanel integrations={report?.integrations ?? []} /> : null}
             </aside>
             ) : null}
           </div>
+          ) : null}
         </div>
       </div>
     </main>

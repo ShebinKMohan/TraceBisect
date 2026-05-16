@@ -443,6 +443,50 @@ strong {
   padding: 14px 20px 20px;
 }
 
+.comparison-workbench,
+.review-workbench {
+  display: grid;
+  gap: 12px;
+  align-items: stretch;
+  min-width: 0;
+  padding: 14px 20px 20px;
+}
+
+.comparison-workbench {
+  grid-template-columns: minmax(300px, 1.05fr) minmax(230px, 0.78fr) minmax(250px, 0.9fr);
+}
+
+.review-workbench {
+  grid-template-columns: minmax(360px, 1.08fr) minmax(230px, 0.74fr) minmax(250px, 0.86fr);
+}
+
+.comparison-workbench > *,
+.review-workbench > * {
+  min-width: 0;
+}
+
+.comparison-workbench .run-list-panel,
+.comparison-workbench .trace-workbench,
+.comparison-workbench .event-details-panel,
+.review-workbench .compare-drawer,
+.review-workbench .trace-workbench,
+.review-workbench .event-details-panel {
+  height: min(690px, calc(100vh - 206px));
+  min-height: 470px;
+}
+
+.comparison-workbench .run-list-panel,
+.comparison-workbench .event-details-panel,
+.review-workbench .compare-drawer,
+.review-workbench .event-details-panel {
+  overflow: auto;
+}
+
+.comparison-workbench .trace-workbench,
+.review-workbench .trace-workbench {
+  overflow: hidden;
+}
+
 .observability-grid-single {
   grid-template-columns: minmax(0, 1fr);
 }
@@ -601,6 +645,23 @@ strong {
   background: var(--app-bg);
 }
 
+.comparison-workbench .run-list-panel .stat-strip {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 12px 12px 10px;
+  margin: 0;
+  background: transparent;
+}
+
+.comparison-workbench .run-list-panel .stat-strip article {
+  padding: 10px 11px;
+}
+
+.comparison-workbench .run-list-panel .stat-strip strong {
+  margin: 4px 0 2px;
+  font-size: 15px;
+}
+
 .run-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -700,6 +761,60 @@ strong {
   text-align: left;
 }
 
+.comparison-workbench .run-toolbar {
+  gap: 6px;
+  padding: 0 12px 10px;
+}
+
+.comparison-workbench .filter-chip,
+.comparison-workbench .filter-select,
+.comparison-workbench .table-search {
+  min-height: 28px;
+  font-size: 11.5px;
+}
+
+.comparison-workbench .table-search {
+  flex-basis: 100%;
+  margin-left: 0;
+}
+
+.comparison-workbench .run-table {
+  overflow: visible;
+}
+
+.comparison-workbench .run-table-head {
+  display: none;
+}
+
+.comparison-workbench .run-row {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  min-height: 0;
+  padding: 12px;
+}
+
+.comparison-workbench .run-row > span:nth-child(2) {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+}
+
+.comparison-workbench .run-row > span:nth-child(3) {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.comparison-workbench .run-row > span:nth-child(n + 4) {
+  display: none;
+}
+
+.comparison-workbench .run-signal {
+  font-size: 12px;
+}
+
 .run-row:hover,
 .run-row-active {
   background: var(--accent-soft);
@@ -714,6 +829,27 @@ strong {
   border-top: 1px solid var(--border);
   color: var(--text-muted);
   font-size: 13px;
+}
+
+.run-table-note {
+  display: grid;
+  gap: 4px;
+  padding: 14px 16px;
+  border-top: 1px solid var(--border);
+  background: linear-gradient(180deg, var(--surface-muted), transparent);
+  color: var(--text-muted);
+  font-size: 11.5px;
+  line-height: 1.35;
+}
+
+.run-table-note strong {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.comparison-workbench .run-table-note {
+  padding: 12px;
 }
 
 .run-content {
@@ -1689,6 +1825,21 @@ html[data-theme="dark"] .payload-actual {
     padding: 24px;
   }
 
+  .comparison-workbench,
+  .review-workbench {
+    grid-template-columns: 1fr;
+  }
+
+  .comparison-workbench .run-list-panel,
+  .comparison-workbench .trace-workbench,
+  .comparison-workbench .event-details-panel,
+  .review-workbench .compare-drawer,
+  .review-workbench .trace-workbench,
+  .review-workbench .event-details-panel {
+    height: auto;
+    min-height: 0;
+  }
+
   .observability-grid {
     grid-template-columns: 1fr;
   }
@@ -1815,7 +1966,9 @@ html[data-theme="dark"] .payload-actual {
 
 @media (max-width: 520px) {
   .page-header,
-  .observability-grid {
+  .observability-grid,
+  .comparison-workbench,
+  .review-workbench {
     padding-right: 12px;
     padding-left: 12px;
   }
