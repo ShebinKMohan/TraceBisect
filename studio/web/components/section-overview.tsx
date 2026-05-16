@@ -8,7 +8,15 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import type { Divergence, RegressionCase, Report, RunSummary, StudioSection, TraceSummary } from "@/lib/types";
-import { formatShortDate } from "@/lib/format";
+import {
+  formatShortDate,
+  friendlyDivergenceDescription,
+  friendlyDivergenceType,
+  friendlySeverity,
+  friendlySourceConvention,
+  friendlyStatus,
+  friendlyTraceName,
+} from "@/lib/format";
 
 type SectionOverviewProps = {
   section: StudioSection;
@@ -22,34 +30,34 @@ type SectionOverviewProps = {
 
 const sectionCopy: Record<StudioSection, { eyebrow: string; title: string; description: string }> = {
   runs: {
-    eyebrow: "Project / Refund Ops",
-    title: "Trace runs",
+    eyebrow: "Workspace / Refund Ops",
+    title: "Comparison history",
     description:
-      "Compare baseline and candidate agent executions, inspect the event chain, and export the first regression as a test.",
+      "Pick a known-good trace, compare a new run, inspect the first behavior change, and save a guardrail test.",
   },
   sources: {
-    eyebrow: "Sources",
-    title: "Trace ingestion",
+    eyebrow: "Trace Sources",
+    title: "Add trace sources",
     description:
-      "Upload native .tbtrace files or OTel/OpenInference JSON exports, then compare them against known-good baselines.",
+      "Upload native TraceBisect files or OpenTelemetry exports, then compare them against known-good baselines.",
   },
   divergences: {
-    eyebrow: "Analysis",
-    title: "Divergence review",
+    eyebrow: "Regression Review",
+    title: "Review behavior changes",
     description:
-      "Review the first meaningful regression, inspect expected versus actual payloads, and decide whether to save a guardrail.",
+      "Start from the first meaningful change, inspect baseline versus candidate values, and decide whether to save a guardrail.",
   },
   cases: {
     eyebrow: "Regression testing",
-    title: "Case library",
+    title: "Regression guardrails",
     description:
-      "Persist important comparisons as rerunnable regression cases and copy generated pytest checks into your repository.",
+      "Save important comparisons as rerunnable guardrails and copy generated pytest checks into your repository.",
   },
   setup: {
-    eyebrow: "Setup",
-    title: "CI guardrails",
+    eyebrow: "CI Setup",
+    title: "Ship CI protection",
     description:
-      "Use the generated pytest export with the TraceBisect Python package to catch agent regressions before deployment.",
+      "Commit baseline traces and generated tests so agent regressions fail before deployment.",
   },
 };
 
@@ -84,7 +92,7 @@ export function SectionOverview({
               {
                 name: "Native .tbtrace",
                 status: "Available",
-                copy: "Canonical TraceBisect JSONL fixtures and recorder output.",
+                copy: "Canonical TraceBisect files from fixtures, the CLI recorder, or Studio exports.",
               },
               {
                 name: "OpenTelemetry / OpenInference",
@@ -94,7 +102,7 @@ export function SectionOverview({
               {
                 name: "Langfuse",
                 status: "Via OpenTelemetry",
-                copy: "Use OTel-compatible export paths for the current Studio MVP.",
+                copy: "Import OTel-compatible exports while direct API import is being built.",
               },
               {
                 name: "LangSmith",
@@ -121,8 +129,8 @@ export function SectionOverview({
           <div className="mini-list">
             {traces.map((trace) => (
               <div key={trace.id}>
-                <strong>{trace.display_name}</strong>
-                <span>{trace.source_convention} · {trace.event_count} events</span>
+                <strong>{friendlyTraceName(trace.display_name)}</strong>
+                <span>{friendlySourceConvention(trace.source_convention)} · {trace.event_count} events</span>
               </div>
             ))}
           </div>
@@ -137,32 +145,36 @@ export function SectionOverview({
         <article className="panel section-panel section-panel-wide">
           <div className="section-heading">
             <div>
-              <p>First divergence</p>
-              <h2>{first?.description ?? "No divergence detected"}</h2>
+              <p>First behavior change</p>
+              <h2>
+                {first
+                  ? friendlyDivergenceDescription(first.type, first.description)
+                  : "No behavior change detected"}
+              </h2>
             </div>
             {first ? <AlertTriangle size={18} aria-hidden /> : <CheckCircle2 size={18} aria-hidden />}
           </div>
           <div className="divergence-review">
             <div>
-              <span>Type</span>
-              <strong>{first?.type ?? "none"}</strong>
+              <span>Change</span>
+              <strong>{friendlyDivergenceType(first?.type)}</strong>
             </div>
             <div>
-              <span>Severity</span>
-              <strong>{first?.severity ?? "INFO"}</strong>
+              <span>Risk</span>
+              <strong>{friendlySeverity(first?.severity)}</strong>
             </div>
             <div>
               <span>Token delta</span>
               <strong>{first?.impact.tokens_delta ?? 0}</strong>
             </div>
             <div>
-              <span>Cost ratio</span>
+              <span>Cost change</span>
               <strong>{first ? `${first.impact.cost_delta_ratio.toFixed(2)}x` : "1.00x"}</strong>
             </div>
           </div>
           <button className="secondary-action" onClick={() => onSectionChange("runs")} type="button">
             <GitCompare size={14} aria-hidden />
-            Inspect in run workbench
+            Inspect comparison
           </button>
         </article>
         <article className="panel section-panel">
@@ -175,8 +187,8 @@ export function SectionOverview({
           <div className="mini-list">
             {runs.map((run) => (
               <div key={run.report_id}>
-                <strong>{run.first_divergence_type?.replaceAll("_", " ") ?? "No drift"}</strong>
-                <span>{run.severity ?? "INFO"} · {run.divergence_count} divergences</span>
+                <strong>{friendlyDivergenceType(run.first_divergence_type)}</strong>
+                <span>{friendlySeverity(run.severity)} · {run.divergence_count} changes</span>
               </div>
             ))}
           </div>
@@ -192,14 +204,14 @@ export function SectionOverview({
           <div className="section-heading compact">
             <div>
               <p>Summary</p>
-              <h2>Case readiness</h2>
+              <h2>Guardrail readiness</h2>
             </div>
             <ShieldCheck size={18} aria-hidden />
           </div>
           <div className="setup-steps">
             <div>
               <CheckCircle2 size={16} aria-hidden />
-              <span>{cases.length} saved cases</span>
+              <span>{cases.length} saved guardrails</span>
             </div>
             <div>
               <AlertTriangle size={16} aria-hidden />
@@ -207,7 +219,7 @@ export function SectionOverview({
             </div>
             <div>
               <FileCode2 size={16} aria-hidden />
-              <span>{cases.length} pytest exports ready</span>
+              <span>{cases.length} generated tests ready</span>
             </div>
           </div>
         </article>
@@ -215,20 +227,20 @@ export function SectionOverview({
           <div className="section-heading compact">
             <div>
               <p>Latest</p>
-              <h2>Saved regression cases</h2>
+              <h2>Saved guardrails</h2>
             </div>
           </div>
           <div className="mini-list">
             {cases.length === 0 ? (
               <div>
                 <strong>No saved cases yet</strong>
-                <span>Save the current comparison from the case library panel.</span>
+                <span>Save the current comparison from the guardrail panel.</span>
               </div>
             ) : (
               cases.map((item) => (
                 <div key={item.case_id}>
                   <strong>{item.name}</strong>
-                  <span>{item.last_result.status} · {formatShortDate(item.updated_at)}</span>
+                  <span>{friendlyStatus(item.last_result.status)} · {formatShortDate(item.updated_at)}</span>
                 </div>
               ))
             )}
@@ -271,12 +283,12 @@ export function SectionOverview({
         <div className="section-heading compact">
           <div>
             <p>Active export</p>
-            <h2>{report?.pytest.filename ?? "No export yet"}</h2>
+            <h2>{report ? "Generated pytest guardrail" : "No export yet"}</h2>
           </div>
         </div>
         <p className="section-note">
           {report
-            ? `${report.divergence_count} divergences are represented in the current generated test.`
+            ? `${report.divergence_count} behavior changes are represented in the current generated test.`
             : "Load or compare traces to generate a pytest export."}
         </p>
       </article>

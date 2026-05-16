@@ -1,5 +1,6 @@
 import { UploadCloud } from "lucide-react";
 import type { TraceSummary } from "@/lib/types";
+import { friendlyTraceName } from "@/lib/format";
 
 type UploadComparePanelProps = {
   traces: TraceSummary[];
@@ -27,8 +28,8 @@ export function UploadComparePanel({
     <section className="panel upload-panel">
       <div className="section-heading compact">
         <div>
-          <p>Trace inputs</p>
-          <h2>Upload and compare</h2>
+          <p>Trace sources</p>
+          <h2>Add traces</h2>
         </div>
         <UploadCloud size={19} aria-hidden />
       </div>
@@ -36,7 +37,7 @@ export function UploadComparePanel({
       <div className="upload-grid">
         <TraceUpload
           id="baseline-upload"
-          label="Baseline"
+          label="Known-good baseline"
           selectedId={baselineId}
           traces={traces}
           onSelect={onBaselineChange}
@@ -44,7 +45,7 @@ export function UploadComparePanel({
         />
         <TraceUpload
           id="candidate-upload"
-          label="Candidate"
+          label="New run to check"
           selectedId={candidateId}
           traces={traces}
           onSelect={onCandidateChange}
@@ -59,7 +60,7 @@ export function UploadComparePanel({
         disabled={disabled}
         onClick={onCompare}
       >
-        {busy ? "Comparing..." : "Compare traces"}
+        {busy ? "Comparing..." : "Find first behavior change"}
       </button>
     </section>
   );
@@ -79,8 +80,8 @@ function TraceUpload({ id, label, selectedId, traces, onSelect, onUpload }: Trac
     <div className="upload-card">
       <label htmlFor={id}>
         <span>{label}</span>
-        <strong>Drop `.tbtrace` or OTel JSON</strong>
-        <small>Max 5 MB. Files are parsed locally by the Studio API.</small>
+        <strong>Upload .tbtrace or JSON</strong>
+        <small>Max 5 MB. Parsed locally by TraceBisect Studio.</small>
       </label>
       <input
         id={id}
@@ -100,7 +101,7 @@ function TraceUpload({ id, label, selectedId, traces, onSelect, onUpload }: Trac
         <option value="">Select uploaded trace</option>
         {traces.map((trace) => (
           <option key={trace.id} value={trace.id}>
-            {trace.display_name}
+            {friendlyTraceName(trace.display_name)}
           </option>
         ))}
       </select>

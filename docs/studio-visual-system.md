@@ -9,7 +9,7 @@ This palette and type scale are derived from the compact SaaS reference screen u
   --bg: #c8c8c6;             /* outside canvas */
   --app-bg: #f8f9f7;         /* main application area */
   --shell: #ffffff;          /* topbar, header, cards, tables */
-  --sidebar: #fbfcfa;        /* slim icon rail */
+  --sidebar: #fbfcfa;        /* navigation rail */
   --surface-muted: #f5f7f4;
   --surface-soft: #f9faf8;
   --border: #e2e6e0;
@@ -66,10 +66,23 @@ html[data-theme="dark"] {
 
 Green is reserved for selected navigation, active tabs, success state, and primary actions. Most of the UI stays white, grey, black text, and thin borders.
 
+## Product Language
+
+TraceBisect Studio should present the user's workflow, not internal schema names.
+
+- Primary object: `Comparison`.
+- Primary question: "Did the new trace regress from the known-good trace?"
+- Primary workflow: choose a known-good baseline, compare a new run, inspect the first behavior change, save a guardrail test.
+- Default page: `Comparison history`.
+- Top-level navigation: `Comparisons`, `Sources`, `Review`, `Tests`, `Setup`.
+- Avoid raw labels in primary UI: `.tbtrace` filenames, `changed_tool_args`, `RUN_START`, `TOOL_CALL`, raw trace IDs, source event IDs, parent IDs, and JSON payloads.
+- Keep raw filenames, IDs, and payload JSON in detail or raw-payload surfaces only.
+- Use human labels such as `Tool arguments changed`, `Model call`, `Run completed`, `Regression found`, and `Generated pytest guardrail`.
+
 ## Type Scale
 
-- Primary UI font: `Inter`, with `ui-sans-serif`, `system-ui`, and `-apple-system` fallbacks.
-- Code and payload font: `Roboto Mono`, with platform monospace fallbacks.
+- Primary UI font: `Geist`, with `ui-sans-serif`, `system-ui`, and `-apple-system` fallbacks.
+- Code and payload font: `Geist Mono`, with platform monospace fallbacks.
 - Body: `12.5px / 1.4`, weight `400`.
 - Search, filters, table cells: `12px-12.5px`, weight `400-500`.
 - Table headers and metadata labels: `9.5px-10.5px`, weight `600`.
@@ -83,8 +96,9 @@ Avoid hero-sized text inside the product app. TraceBisect Studio is an engineer-
 ## Layout Rules
 
 - Outer canvas: neutral grey.
-- App shell: centered white surface with a slim icon rail.
-- Primary content: filters, small stat cards, dense runs table.
-- Secondary content: trace tree, event details, pytest export, and upload flow.
+- App shell: centered white surface with a labelled navigation rail on desktop and compact tabs on mobile.
+- Primary content: comparison filters, small stat cards, and dense comparison history table.
+- Secondary content: trace tree and event inspector for comparison/review pages.
+- Upload/import content belongs under `Sources`; pytest export and guardrail copy belong under `Review`, `Tests`, or `Setup`.
 - Border radius: `6px-8px` for controls and panels, `12px-14px` only for the outer app shell.
 - Avoid blur-heavy glass, decorative gradients, large shadows, and chart-first dashboard layouts.

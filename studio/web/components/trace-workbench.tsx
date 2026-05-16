@@ -10,7 +10,7 @@ import {
   Wrench,
 } from "lucide-react";
 import type { TraceEvent, TraceSummary } from "@/lib/types";
-import { formatEventLabel } from "@/lib/format";
+import { formatEventLabel, friendlySourceConvention, friendlyTraceName } from "@/lib/format";
 
 type TraceWorkbenchProps = {
   side: "baseline" | "candidate";
@@ -72,10 +72,10 @@ export function TraceWorkbench({
     <section className="panel trace-workbench" aria-label={`${side} execution trace`} data-testid="trace-tree">
       <div className="workbench-heading">
         <div>
-          <p>Trace</p>
-          <h2>{trace?.display_name ?? "Selected run"}</h2>
+          <p>Execution trace</p>
+          <h2>{friendlyTraceName(trace?.display_name)}</h2>
         </div>
-        <span>{trace?.source_convention ?? "native"}</span>
+        <span>{friendlySourceConvention(trace?.source_convention)}</span>
       </div>
 
       <ol className="trace-tree-list">
@@ -107,7 +107,7 @@ export function TraceWorkbench({
                 </span>
                 <span className="trace-event-meta">
                   <small>{durationLabel(event)}</small>
-                  {highlighted ? <em>first drift</em> : null}
+                  {highlighted ? <em>First change</em> : null}
                 </span>
               </button>
             </li>
@@ -117,7 +117,7 @@ export function TraceWorkbench({
 
       <div className="trace-help">
         <MousePointer2 size={15} aria-hidden />
-        Select an event to inspect its payload, metadata, and regression impact.
+        Select an event to inspect timing, model inputs, outputs, and the regression impact.
       </div>
     </section>
   );

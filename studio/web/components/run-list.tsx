@@ -1,5 +1,13 @@
-import { CheckCircle2, CircleAlert, Clock3, Database, GitCompare, Search } from "lucide-react";
+import { CheckCircle2, CircleAlert, Clock3, GitCompare, Search } from "lucide-react";
 import type { Divergence, Report, RunSummary, RunStatus } from "@/lib/types";
+import {
+  friendlyDivergenceType,
+  friendlySeverity,
+  friendlySourceConvention,
+  friendlyStatus,
+  friendlyTraceName,
+  scenarioNameFromRun,
+} from "@/lib/format";
 
 type RunFilterStatus = "all" | RunStatus;
 type RunFilterSeverity = "all" | "INFO" | "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
@@ -19,9 +27,9 @@ type RunListProps = {
 };
 
 const statusFilters: { label: string; value: RunFilterStatus }[] = [
-  { label: "All", value: "all" },
-  { label: "Failing", value: "failing" },
-  { label: "Passing", value: "passing" },
+  { label: "All results", value: "all" },
+  { label: "Regressions", value: "failing" },
+  { label: "Clean", value: "passing" },
 ];
 
 const severityFilters: RunFilterSeverity[] = ["all", "INFO", "LOW", "MEDIUM", "HIGH", "CRITICAL"];
@@ -36,17 +44,33 @@ function formatRunDate(value?: string): string {
   }).format(new Date(value));
 }
 
-function formatDivergenceType(value: string | null): string {
-  if (!value) return "No drift";
-  return value.replaceAll("_", " ");
+type DisplayRun = RunSummary & {
+  checkCount: number;
+};
+
+function groupRuns(runs: RunSummary[]): DisplayRun[] {
+  const grouped = new Map<string, DisplayRun>();
+  for (const run of runs) {
+    const key = [
+      scenarioNameFromRun(run),
+      run.baseline.id,
+      run.candidate.id,
+      run.first_divergence_type ?? "none",
+      run.status,
+      run.severity ?? "INFO",
+    ].join("::");
+    const existing = grouped.get(key);
+    if (existing) {
+      existing.checkCount += 1;
+    } else {
+      grouped.set(key, { ...run, checkCount: 1 });
+    }
+  }
+  return Array.from(grouped.values());
 }
 
-function sourceLabel(value: string): string {
-  if (value === "openinference") return "OpenInference";
-  if (value === "genai") return "GenAI";
-  if (value === "native") return "Native";
-  if (value === "mixed") return "Mixed";
-  return value || "Unknown";
+function pluralize(count: number, singular: string, plural = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : plural}`;
 }
 
 export function RunList({
@@ -63,35 +87,36 @@ export function RunList({
   onSelectRun,
 }: RunListProps) {
   const activeReportId = selectedReportId ?? report?.report_id ?? null;
+  const displayRuns = groupRuns(runs);
   const totalDivergences = runs.reduce((total, run) => total + run.divergence_count, 0);
   const failingCount = runs.filter((run) => run.status === "failing").length;
   const emptyCopy =
     searchQuery.trim() || statusFilter !== "all" || severityFilter !== "all"
       ? "No comparison runs match the current filters."
-      : "Run history will appear after the first comparison.";
+      : "Comparison history will appear after the first check.";
 
   return (
-    <section className="panel run-list-panel" aria-label="Trace runs" data-testid="runs-table">
-      <div className="stat-strip" aria-label="Trace summary">
+    <section className="panel run-list-panel" aria-label="Comparison history" data-testid="runs-table">
+      <div className="stat-strip" aria-label="Comparison summary">
         <article>
-          <span>Run history</span>
+          <span>Comparisons</span>
           <strong>{runs.length}</strong>
-          <small>{failingCount} failing comparisons</small>
+          <small>{pluralize(failingCount, "regression")} need review</small>
         </article>
         <article>
-          <span>Divergences</span>
+          <span>Behavior changes</span>
           <strong>{report?.divergence_count ?? totalDivergences}</strong>
-          <small>{first?.type ?? "no active drift"}</small>
+          <small>{friendlyDivergenceType(first?.type)}</small>
         </article>
         <article>
-          <span>Severity</span>
-          <strong>{first?.severity ?? "INFO"}</strong>
-          <small>current selected run</small>
+          <span>Risk</span>
+          <strong>{friendlySeverity(first?.severity)}</strong>
+          <small>Selected comparison</small>
         </article>
         <article>
-          <span>Cost ratio</span>
+          <span>Cost change</span>
           <strong>{first ? `${first.impact.cost_delta_ratio.toFixed(2)}x` : "1.00x"}</strong>
-          <small>current selected run</small>
+          <small>Selected comparison</small>
         </article>
       </div>
 
@@ -119,35 +144,38 @@ export function RunList({
           >
             {severityFilters.map((severity) => (
               <option key={severity} value={severity}>
-                {severity === "all" ? "All severities" : severity}
+                {severity === "all" ? "All severities" : friendlySeverity(severity)}
               </option>
             ))}
           </select>
         </label>
-        <span className="filter-chip filter-chip-static">
-          <Database size={14} aria-hidden />
-          Report history
-        </span>
         <div className="table-search" aria-hidden="true">
           <Search size={14} aria-hidden />
-          <span>{searchQuery.trim() ? `Searching "${searchQuery.trim()}"` : "Search runs from the top bar"}</span>
+          <span>
+            {searchQuery.trim() ? `Searching "${searchQuery.trim()}"` : "Search comparisons from the top bar"}
+          </span>
         </div>
       </div>
 
       <div className="run-table">
         <div className="run-table-head" aria-hidden="true">
-          <span>Comparison</span>
-          <span>Signal</span>
-          <span>Status</span>
-          <span>Source</span>
-          <span>Events</span>
-          <span>Created</span>
+          <span>Scenario</span>
+          <span>Result</span>
+          <span>First change</span>
+          <span>Impact</span>
+          <span>Steps</span>
+          <span>Last checked</span>
         </div>
-        {runs.map((run) => {
+        {displayRuns.map((run) => {
           const active = activeReportId === run.report_id;
+          const scenarioName = scenarioNameFromRun(run);
+          const baselineName = friendlyTraceName(run.baseline.display_name);
+          const candidateName = friendlyTraceName(run.candidate.display_name);
+          const statusLabel = friendlyStatus(run.status);
+          const divergenceLabel = friendlyDivergenceType(run.first_divergence_type);
           return (
             <button
-              aria-label={`${run.baseline.display_name} compared with ${run.candidate.display_name}. ${run.status}. ${run.divergence_count} divergences.`}
+              aria-label={`${scenarioName}. ${statusLabel}. ${pluralize(run.divergence_count, "behavior change")}.`}
               aria-pressed={active}
               className={active ? "run-row run-row-active" : "run-row"}
               data-testid={`run-row-${run.report_id}`}
@@ -159,18 +187,23 @@ export function RunList({
                 <span className={`run-status run-status-${run.status}`} aria-hidden>
                   {run.status === "passing" ? <CheckCircle2 size={15} /> : <CircleAlert size={15} />}
                 </span>
-                <strong>
-                  {run.baseline.display_name} → {run.candidate.display_name}
-                </strong>
+                <span className="run-title-group">
+                  <strong>{scenarioName}</strong>
+                  <small>
+                    {baselineName} vs {candidateName}
+                    {run.checkCount > 1 ? ` · ${pluralize(run.checkCount, "check")}` : ""}
+                  </small>
+                </span>
               </span>
               <span>
-                <strong className="run-signal">{formatDivergenceType(run.first_divergence_type)}</strong>
-                <small>{run.severity ?? "INFO"}</small>
+                <em className={`tier-pill tier-${run.status}`}>{statusLabel}</em>
+                <small>{friendlySourceConvention(run.source_convention)}</small>
               </span>
               <span>
-                <em className={`tier-pill tier-${run.status}`}>{run.status}</em>
+                <strong className="run-signal">{divergenceLabel}</strong>
+                <small>{friendlySeverity(run.severity)}</small>
               </span>
-              <span>{sourceLabel(run.source_convention)}</span>
+              <span>{pluralize(run.divergence_count, "change")}</span>
               <span>{run.event_count}</span>
               <span>{formatRunDate(run.created_at)}</span>
             </button>

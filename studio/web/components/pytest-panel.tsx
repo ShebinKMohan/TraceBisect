@@ -35,7 +35,7 @@ export function PytestPanel({ filename, source }: PytestPanelProps) {
       <div className="section-heading compact">
         <div>
           <p>CI guardrail</p>
-          <h2>{filename ?? "test_tracebisect_regression.py"}</h2>
+          <h2>Generated pytest guardrail</h2>
         </div>
         <button
           type="button"
@@ -45,7 +45,7 @@ export function PytestPanel({ filename, source }: PytestPanelProps) {
           onClick={() => void copySource()}
         >
           {copied ? <Check size={15} aria-hidden /> : <Copy size={15} aria-hidden />}
-          {copied ? "Copied" : "Copy"}
+          {copied ? "Copied" : "Copy test"}
         </button>
       </div>
       <pre>
@@ -53,7 +53,7 @@ export function PytestPanel({ filename, source }: PytestPanelProps) {
       </pre>
       <div className="pytest-footer">
         <FileCode2 size={15} aria-hidden />
-        Ready for repository tests once the baseline trace is committed.
+        {filename ?? "test_tracebisect_regression.py"} is ready once the baseline trace is committed.
       </div>
     </section>
   );

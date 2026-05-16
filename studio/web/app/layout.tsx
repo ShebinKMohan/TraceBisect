@@ -1,13 +1,13 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, Roboto_Mono } from "next/font/google";
+import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
-const inter = Inter({
+const geist = Geist({
   variable: "--font-inter",
   subsets: ["latin"],
 });
 
-const robotoMono = Roboto_Mono({
+const geistMono = Geist_Mono({
   variable: "--font-roboto-mono",
   subsets: ["latin"],
 });
@@ -29,7 +29,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${inter.variable} ${robotoMono.variable}`} data-theme="light">
+    <html lang="en" className={`${geist.variable} ${geistMono.variable}`} data-theme="light">
       <body>{children}</body>
     </html>
   );

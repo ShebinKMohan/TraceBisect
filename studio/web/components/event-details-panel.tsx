@@ -3,7 +3,18 @@
 import { CalendarClock, CheckCircle2, Copy, GitBranch, Hash, Timer } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { Divergence, JsonObject, JsonValue, TraceEvent, TraceSummary } from "@/lib/types";
-import { formatDuration, formatEventLabel, formatJson, formatShortDate, formatTime } from "@/lib/format";
+import {
+  formatDuration,
+  formatEventLabel,
+  formatJson,
+  formatShortDate,
+  formatTime,
+  friendlyEventType,
+  friendlySeverity,
+  friendlySourceConvention,
+  friendlyStatus,
+  friendlyTraceName,
+} from "@/lib/format";
 
 type InspectorTab = "metadata" | "observations" | "timeline" | "payload";
 
@@ -18,10 +29,10 @@ type EventDetailsPanelProps = {
 };
 
 const tabs: { id: InspectorTab; label: string }[] = [
-  { id: "metadata", label: "Metadata" },
-  { id: "observations", label: "Observations" },
-  { id: "timeline", label: "Timeline" },
-  { id: "payload", label: "Payload" },
+  { id: "metadata", label: "Summary" },
+  { id: "observations", label: "Event list" },
+  { id: "timeline", label: "Timing" },
+  { id: "payload", label: "Raw payload" },
 ];
 
 function stringifyValue(value: JsonValue | undefined): string | null {
@@ -50,9 +61,9 @@ function eventStatus(event: TraceEvent | null): string {
 }
 
 function traceStatus(trace: TraceSummary | undefined, divergence: Divergence | null): string {
-  if (trace?.status) return trace.status;
-  if (divergence) return divergence.severity;
-  return "No divergence";
+  if (trace?.status) return friendlyStatus(trace.status);
+  if (divergence) return friendlySeverity(divergence.severity);
+  return "No behavior change";
 }
 
 function modelLabel(event: TraceEvent | null): string {
@@ -62,7 +73,9 @@ function modelLabel(event: TraceEvent | null): string {
 
 function sourceLabel(event: TraceEvent | null): string {
   if (!event) return "--";
-  return event.source_event_id ?? event.source_format ?? "native";
+  if (event.source_format === "otel") return "OpenTelemetry";
+  if (event.source_format === "native") return "TraceBisect";
+  return event.source_format || "Unknown";
 }
 
 function eventDepth(event: TraceEvent, byId: Map<string, TraceEvent>): number {
@@ -127,7 +140,7 @@ export function EventDetailsPanel({
           <p>Inspector</p>
           <h2>{event ? event.semantic_name : "Select an event"}</h2>
         </div>
-        <span>{side}</span>
+        <span>{side === "baseline" ? "Baseline" : "Candidate"}</span>
       </div>
 
       <div className="trace-detail-tabs" data-testid="trace-detail-tabs" role="tablist" aria-label="Trace detail sections">
@@ -168,7 +181,7 @@ export function EventDetailsPanel({
             <div>
               <Hash size={15} aria-hidden />
               <span>Type</span>
-              <strong>{event?.type ?? "--"}</strong>
+              <strong>{friendlyEventType(event?.type)}</strong>
             </div>
             <div>
               <CheckCircle2 size={15} aria-hidden />
@@ -179,21 +192,21 @@ export function EventDetailsPanel({
 
           <div className="detail-section detail-section-compact">
             <div className="detail-section-title">
-              <span>Trace context</span>
-              {isFirstDrift ? <strong>First drift</strong> : null}
+              <span>Run context</span>
+              {isFirstDrift ? <strong>First change</strong> : null}
             </div>
             <dl className="metadata-list metadata-list-grid">
               <div>
-                <dt>Trace id</dt>
-                <dd>{trace?.trace_id ?? "--"}</dd>
+                <dt>Trace</dt>
+                <dd>{friendlyTraceName(trace?.display_name)}</dd>
               </div>
               <div>
-                <dt>Name</dt>
-                <dd>{trace?.display_name ?? "--"}</dd>
+                <dt>Trace format</dt>
+                <dd>{friendlySourceConvention(trace?.source_convention)}</dd>
               </div>
               <div>
-                <dt>Source convention</dt>
-                <dd>{trace?.source_convention ?? event?.source_format ?? "--"}</dd>
+                <dt>Source</dt>
+                <dd>{sourceLabel(event)}</dd>
               </div>
               <div>
                 <dt>Event count</dt>
@@ -217,11 +230,11 @@ export function EventDetailsPanel({
             </div>
             <dl className="metadata-list metadata-list-grid">
               <div>
-                <dt>Event id</dt>
-                <dd>{event?.id ?? "--"}</dd>
+                <dt>Step</dt>
+                <dd>{event ? event.sequence_index + 1 : "--"}</dd>
               </div>
               <div>
-                <dt>Source id</dt>
+                <dt>Source</dt>
                 <dd>{sourceLabel(event)}</dd>
               </div>
               <div>
@@ -233,11 +246,11 @@ export function EventDetailsPanel({
                 <dd>{event?.prompt_version ?? payloadValue(event?.payload, ["prompt_version", "prompt"]) ?? "--"}</dd>
               </div>
               <div>
-                <dt>Code sha</dt>
+                <dt>Commit</dt>
                 <dd>{event?.code_sha ?? payloadValue(event?.payload, ["code_sha", "commit"]) ?? "--"}</dd>
               </div>
               <div>
-                <dt>Sampling</dt>
+                <dt>Model settings</dt>
                 <dd>{samplingSummary(event)}</dd>
               </div>
             </dl>
@@ -270,11 +283,11 @@ export function EventDetailsPanel({
                     onClick={() => onSelectEvent(item)}
                     type="button"
                   >
-                    <span className="observation-type">{item.type}</span>
+                    <span className="observation-type">{friendlyEventType(item.type)}</span>
                     <span className="observation-name">{item.semantic_name}</span>
                     <span>{formatDuration(item.duration_ms)}</span>
-                    <span>{item.source_format}</span>
-                    {highlighted ? <em>first drift</em> : <i aria-hidden />}
+                    <span>{sourceLabel(item)}</span>
+                    {highlighted ? <em>First change</em> : <i aria-hidden />}
                   </button>
                 </li>
               );
@@ -337,7 +350,7 @@ export function EventDetailsPanel({
         >
           <div className="detail-section payload-section">
             <div className="detail-section-title">
-              <span>Payload</span>
+              <span>Raw payload</span>
               <Copy size={15} aria-hidden />
             </div>
             <pre className="payload-inspector">

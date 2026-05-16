@@ -63,6 +63,12 @@ async function expectTraceDetailTab(page, tabName, selector, expectedText) {
   await expectText(page, selector, expectedText, `${tabName} trace detail tab`);
 }
 
+async function expectNotText(page, selector, text, label) {
+  const locator = await expectOne(page, selector, label);
+  const content = await locator.textContent();
+  assert(!content?.includes(text), `${label} unexpectedly included "${text}". Actual: ${content}`);
+}
+
 async function assertContrast(page, selector, label, minimum = 4.5) {
   const ratio = await page.locator(selector).evaluate((node) => {
     function parseColor(value) {
@@ -141,67 +147,80 @@ async function main() {
 
   await page.goto(baseUrl, { waitUntil: "load" });
   await page.getByTestId("studio-title").waitFor({ state: "visible" });
-  await expectText(page, '[data-testid="studio-title"]', "Trace runs", "product title");
-  await expectText(page, '[data-testid="runs-table"]', "Refund regression", "runs table");
-  await expectText(page, '[data-testid="runs-table"]', "changed tool args", "run divergence signal");
+  await expectText(page, '[data-testid="studio-title"]', "Comparison history", "product title");
+  const placeholder = await page.locator(".search-control input").getAttribute("placeholder");
+  assert(
+    placeholder === "Search comparisons, traces, events",
+    `Search placeholder was not product-scoped. Actual: ${placeholder}`,
+  );
+  await expectText(page, ".sidebar", "Comparisons", "desktop sidebar labels");
+  await expectText(page, '[data-testid="runs-table"]', "Refund search", "runs table");
+  await expectText(page, '[data-testid="runs-table"]', "Tool arguments changed", "run divergence signal");
+  await expectNotText(page, '[data-testid="runs-table"]', ".tbtrace", "runs table primary labels");
+  await expectNotText(page, '[data-testid="runs-table"]', "changed_tool_args", "runs table primary labels");
   await page.locator(".search-control input").fill("does-not-exist");
   await expectText(page, '[data-testid="runs-table"]', "No comparison runs match", "empty run filter");
   await page.getByTestId("clear-run-filters").click();
-  await expectText(page, '[data-testid="runs-table"]', "Refund regression", "cleared run filters");
-  await page.getByTestId("section-tab-sources").click();
-  await expectText(page, '[data-testid="studio-title"]', "Trace ingestion", "sources title");
+  await expectText(page, '[data-testid="runs-table"]', "Refund search", "cleared run filters");
+  await page.getByTestId("sidebar-section-sources").click();
+  await expectText(page, '[data-testid="studio-title"]', "Add trace sources", "sources title");
   await expectText(page, '[data-testid="sources-section"]', "OpenTelemetry", "sources section");
   await expectText(page, '[data-testid="sources-section"]', "Langfuse", "sources Langfuse card");
+  await expectText(page, ".upload-panel", "Known-good baseline", "baseline upload label");
+  await expectText(page, ".upload-panel", "New run to check", "candidate upload label");
+  await expectText(page, ".upload-panel", "Find first behavior change", "compare action label");
+  await expectText(page, '[data-testid="integration-otel"]', "OpenTelemetry", "OTel integration card");
   await assertNoHorizontalOverflow(page, "sources section");
-  await page.getByTestId("section-tab-divergences").click();
-  await expectText(page, '[data-testid="studio-title"]', "Divergence review", "divergences title");
-  await expectText(page, '[data-testid="divergences-section"]', "changed_tool_args", "divergences section");
+  await page.getByTestId("sidebar-section-divergences").click();
+  await expectText(page, '[data-testid="studio-title"]', "Review behavior changes", "divergences title");
+  await expectText(page, '[data-testid="divergences-section"]', "Tool arguments changed", "divergences section");
   await assertNoHorizontalOverflow(page, "divergences section");
-  await page.getByTestId("section-tab-cases").click();
-  await expectText(page, '[data-testid="studio-title"]', "Case library", "cases title");
-  await expectText(page, '[data-testid="cases-section"]', "Case readiness", "cases section");
+  await page.getByTestId("sidebar-section-cases").click();
+  await expectText(page, '[data-testid="studio-title"]', "Regression guardrails", "cases title");
+  await expectText(page, '[data-testid="cases-section"]', "Guardrail readiness", "cases section");
   await assertNoHorizontalOverflow(page, "cases section");
-  await page.getByTestId("section-tab-setup").click();
-  await expectText(page, '[data-testid="studio-title"]', "CI guardrails", "setup title");
+  await page.getByTestId("sidebar-section-setup").click();
+  await expectText(page, '[data-testid="studio-title"]', "Ship CI protection", "setup title");
   await expectText(page, '[data-testid="setup-section"]', "Operational checklist", "setup section");
+  await expectText(page, '[data-testid="setup-section"]', "baseline trace", "setup baseline guidance");
   await assertNoHorizontalOverflow(page, "setup section");
-  await page.getByTestId("section-tab-runs").click();
-  await expectText(page, '[data-testid="studio-title"]', "Trace runs", "runs title after section navigation");
-  await expectText(page, '[data-testid="trace-tree"]', "TOOL_CALL", "trace tree event type");
+  await page.getByTestId("sidebar-section-runs").click();
+  await expectText(page, '[data-testid="studio-title"]', "Comparison history", "runs title after section navigation");
+  await expectText(page, '[data-testid="trace-tree"]', "Tool call", "trace tree event type");
   await expectText(page, '[data-testid="trace-tree"]', "search_database", "trace tree event name");
   await expectText(page, '[data-testid="details-panel"]', "search_database", "details panel");
   await expectTraceDetailTab(
     page,
-    "Metadata",
+    "Summary",
     '[data-testid="trace-detail-metadata"]',
-    "Trace id",
+    "Run context",
   );
   await expectTraceDetailTab(
     page,
-    "Observations",
+    "Event list",
     '[data-testid="trace-detail-observations"]',
     "search_database",
   );
   await expectTraceDetailTab(
     page,
-    "Timeline",
+    "Timing",
     '[data-testid="trace-detail-timeline"]',
     "search_database",
   );
   await expectTraceDetailTab(
     page,
-    "Payload",
+    "Raw payload",
     '[data-testid="trace-detail-payload"]',
     "query",
   );
+  await page.getByTestId("sidebar-section-divergences").click();
   await expectText(
     page,
     '[data-testid="first-divergence-card"]',
-    "TOOL_CALL search_database arguments differ",
+    "search database used different tool arguments",
     "first divergence card",
   );
   await expectText(page, '[data-testid="metric-divergences"]', "3", "divergence metric");
-  await expectText(page, '[data-testid="integration-otel"]', "OpenTelemetry", "OTel integration card");
   await assertContrast(page, '[data-testid="studio-title"]', "light title");
   await assertContrast(page, '[data-testid="first-divergence-card"] h2', "light divergence heading");
   await assertContrast(page, ".payload-expected code", "light expected payload");
@@ -221,45 +240,50 @@ async function main() {
   await assertNoHorizontalOverflow(page, "desktop dark");
   await page.screenshot({ path: path.join(screenshotDir, "desktop-dark.png"), fullPage: true });
 
+  await page.getByTestId("sidebar-section-sources").click();
   await page.getByTestId("baseline-upload").setInputFiles(fixtures.baseline);
   await page.getByTestId("candidate-upload").setInputFiles(fixtures.candidate);
   await page.getByTestId("compare-button").click();
+  await page.getByTestId("sidebar-section-divergences").click();
   await page.getByTestId("first-divergence-card").waitFor({ state: "visible" });
   await expectText(
     page,
     '[data-testid="comparison-summary"]',
-    "refund_search_candidate_changed_tool_args.tbtrace",
+    "Refund baseline → Refund regression",
     "comparison summary",
   );
+  await page.getByTestId("sidebar-section-runs").click();
   await expectText(
     page,
     '[data-testid="runs-table"]',
-    "refund_search_candidate_changed_tool_args.tbtrace",
+    "Refund search",
     "uploaded comparison in run history",
   );
   await page.getByTestId("run-filter-failing").click();
   await expectText(
     page,
     '[data-testid="runs-table"]',
-    "refund_search_candidate_changed_tool_args.tbtrace",
+    "Regression found",
     "failing run filter",
   );
+  await page.getByTestId("sidebar-section-cases").click();
   await page.getByTestId("save-regression-case").click();
   await expectText(
     page,
     '[data-testid="regression-case-library"]',
-    "refund_search_candidate_changed_tool_args.tbtrace regression",
+    "Refund Regression Guardrail",
     "saved regression case",
   );
   await expectText(
     page,
     '[data-testid="regression-case-library"]',
-    "changed_tool_args",
+    "Tool arguments changed",
     "regression case divergence",
   );
-  await page.getByTestId("regression-case-library").getByRole("button", { name: "Rerun" }).click();
-  await expectText(page, '[data-testid="regression-case-library"]', "failing", "regression case run status");
+  await page.getByTestId("regression-case-library").getByRole("button", { name: "Rerun" }).first().click();
+  await expectText(page, '[data-testid="regression-case-library"]', "Needs review", "regression case run status");
 
+  await page.getByTestId("sidebar-section-setup").click();
   await page.getByTestId("copy-pytest").click();
   await page.getByTestId("copy-pytest").filter({ hasText: "Copied" }).waitFor({ state: "visible" });
   await expectText(page, '[data-testid="copy-pytest"]', "Copied", "copy button");
@@ -271,7 +295,7 @@ async function main() {
   await page.setViewportSize({ width: 390, height: 900 });
   await page.reload({ waitUntil: "load" });
   await page.getByTestId("studio-title").waitFor({ state: "visible" });
-  await expectText(page, '[data-testid="studio-title"]', "Trace runs", "mobile product title");
+  await expectText(page, '[data-testid="studio-title"]', "Comparison history", "mobile product title");
   await assertNoHorizontalOverflow(page, "mobile light");
   await page.screenshot({ path: path.join(screenshotDir, "mobile-light.png"), fullPage: true });
 

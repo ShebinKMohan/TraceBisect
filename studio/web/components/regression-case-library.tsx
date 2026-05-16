@@ -3,7 +3,13 @@
 import { Archive, CheckCircle2, FileCode2, FlaskConical, Play, Save, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 import type { RegressionCase, Report } from "@/lib/types";
-import { formatShortDate } from "@/lib/format";
+import {
+  formatShortDate,
+  friendlyDivergenceDescription,
+  friendlyDivergenceType,
+  friendlySeverity,
+  friendlyTraceName,
+} from "@/lib/format";
 
 type RegressionCaseLibraryProps = {
   cases: RegressionCase[];
@@ -14,9 +20,9 @@ type RegressionCaseLibraryProps = {
 };
 
 function caseStatusLabel(item: RegressionCase): string {
-  if (item.last_result.status === "passing") return "passing";
-  if (item.last_result.status === "failing") return "failing";
-  return "unknown";
+  if (item.last_result.status === "passing") return "Passed";
+  if (item.last_result.status === "failing") return "Needs review";
+  return "Not checked";
 }
 
 function severityLabel(item: RegressionCase): string {
@@ -59,8 +65,8 @@ export function RegressionCaseLibrary({
     <section className="panel regression-case-panel" data-testid="regression-case-library">
       <div className="section-heading">
         <div>
-          <p>Case Library</p>
-          <h2>Regression cases</h2>
+          <p>Guardrail tests</p>
+          <h2>Saved guardrails</h2>
         </div>
         <button
           className="secondary-action"
@@ -70,13 +76,13 @@ export function RegressionCaseLibrary({
           type="button"
         >
           <Save size={14} aria-hidden />
-          Save case
+          Save guardrail
         </button>
       </div>
 
       <div className="case-library-summary">
         <article>
-          <span>Saved cases</span>
+          <span>Saved guardrails</span>
           <strong>{cases.length}</strong>
         </article>
         <article>
@@ -84,7 +90,7 @@ export function RegressionCaseLibrary({
           <strong>{cases.filter((item) => item.last_result.status === "failing").length}</strong>
         </article>
         <article>
-          <span>Pytest exports</span>
+          <span>Generated tests</span>
           <strong>{cases.length}</strong>
         </article>
       </div>
@@ -93,34 +99,38 @@ export function RegressionCaseLibrary({
         <div className="case-empty" role="status">
           <FlaskConical size={18} aria-hidden />
           <div>
-            <strong>No saved regression cases yet.</strong>
+            <strong>No saved guardrails yet.</strong>
             <p>Save the current comparison to preserve the failing behavior and generated pytest guardrail.</p>
           </div>
         </div>
       ) : (
         <div className="case-table" role="table" aria-label="Saved regression cases">
           <div className="case-table-head" role="row">
-            <span>Case</span>
-            <span>Signal</span>
+            <span>Guardrail</span>
+            <span>First change</span>
             <span>Last run</span>
             <span>Actions</span>
           </div>
           {cases.map((item) => (
             <article className="case-row" data-testid={`regression-case-${item.case_id}`} key={item.case_id} role="row">
               <div className="case-main">
-                <strong>{item.name}</strong>
-                <span>{item.description || item.first_divergence?.description || "Saved TraceBisect regression."}</span>
+                <strong>{friendlyTraceName(item.name.replace(/ regression$/u, ""))}</strong>
+                <span>
+                  {item.first_divergence
+                    ? friendlyDivergenceDescription(item.first_divergence.type, item.first_divergence.description)
+                    : item.description || "Saved TraceBisect regression."}
+                </span>
                 <div className="case-tags">
                   {item.tags.map((tag) => (
-                    <em key={tag}>{tag}</em>
+                    <em key={tag}>{friendlyDivergenceType(tag)}</em>
                   ))}
                 </div>
               </div>
               <div className="case-signal">
                 <span className={`severity-pill severity-${severityLabel(item).toLowerCase()}`}>
-                  {severityLabel(item)}
+                  {friendlySeverity(severityLabel(item))}
                 </span>
-                <small>{item.first_divergence?.type ?? "no_divergence"}</small>
+                <small>{friendlyDivergenceType(item.first_divergence?.type)}</small>
               </div>
               <div className="case-result">
                 {item.last_result.status === "passing" ? (
@@ -140,7 +150,7 @@ export function RegressionCaseLibrary({
                 </button>
                 <button disabled={!item.pytest.source} onClick={() => void handleCopy(item)} type="button">
                   <FileCode2 size={13} aria-hidden />
-                  {copiedCaseId === item.case_id ? "Copied" : "Pytest"}
+                  {copiedCaseId === item.case_id ? "Copied" : "Copy test"}
                 </button>
               </div>
             </article>

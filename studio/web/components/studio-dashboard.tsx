@@ -25,13 +25,14 @@ import { Sidebar } from "@/components/sidebar";
 import { Topbar } from "@/components/topbar";
 import { TraceWorkbench } from "@/components/trace-workbench";
 import { UploadComparePanel } from "@/components/upload-compare-panel";
+import { friendlyTraceName } from "@/lib/format";
 
 const studioSections: StudioSectionConfig[] = [
-  { id: "runs", label: "Runs" },
-  { id: "sources", label: "Sources" },
-  { id: "divergences", label: "Divergences" },
-  { id: "cases", label: "Cases" },
-  { id: "setup", label: "Setup" },
+  { id: "runs", label: "Comparisons" },
+  { id: "sources", label: "Trace Sources" },
+  { id: "divergences", label: "Regression Review" },
+  { id: "cases", label: "Guardrail Tests" },
+  { id: "setup", label: "CI Setup" },
 ];
 
 export function StudioDashboard() {
@@ -69,6 +70,7 @@ export function StudioDashboard() {
   }, [first]);
   const activeTrace = activeSide === "baseline" ? report?.baseline : report?.candidate;
   const activeEvents = activeSide === "baseline" ? (report?.events.baseline ?? []) : (report?.events.candidate ?? []);
+  const hasSideRail = activeSection === "runs" || activeSection === "divergences" || activeSection === "sources";
   const selectedEvent =
     activeEvents.find((event) => event.id === selectedEventId) ??
     activeEvents.find((event) => highlightedIds.has(event.id)) ??
@@ -174,7 +176,7 @@ export function StudioDashboard() {
     setError(null);
     try {
       const savedCase = await createRegressionCase({
-        name: `${report.candidate.display_name} regression`,
+        name: `${friendlyTraceName(report.candidate.display_name)} guardrail`,
         description: report.first_divergence?.description ?? "Saved TraceBisect comparison.",
         tags: [report.first_divergence?.type ?? "regression", "pytest-ready"],
         baseline_trace_id: report.baseline.id,
@@ -244,7 +246,11 @@ export function StudioDashboard() {
             </div>
             <div className="header-action" data-testid="comparison-summary">
               <GitCompare size={15} aria-hidden />
-              <span>{report ? `${report.baseline.display_name} → ${report.candidate.display_name}` : "Loading report"}</span>
+              <span>
+                {report
+                  ? `${friendlyTraceName(report.baseline.display_name)} → ${friendlyTraceName(report.candidate.display_name)}`
+                  : "Loading report"}
+              </span>
             </div>
           </section>
 
@@ -271,7 +277,15 @@ export function StudioDashboard() {
             traces={traces}
           />
 
-          <div className={activeSection === "runs" ? "observability-grid" : "observability-grid section-detail-grid"}>
+          <div
+            className={[
+              "observability-grid",
+              activeSection === "runs" ? "" : "section-detail-grid",
+              hasSideRail ? "" : "observability-grid-single",
+            ]
+              .filter(Boolean)
+              .join(" ")}
+          >
             <div className="primary-column">
               {activeSection === "runs" ? (
                 <RunList
@@ -288,7 +302,7 @@ export function StudioDashboard() {
                   statusFilter={statusFilter}
                 />
               ) : null}
-              {(activeSection === "runs" || activeSection === "cases") ? (
+              {activeSection === "cases" ? (
                 <RegressionCaseLibrary
                   busy={busy}
                   cases={cases}
@@ -297,7 +311,7 @@ export function StudioDashboard() {
                   report={report}
                 />
               ) : null}
-              {(activeSection === "runs" || activeSection === "divergences" || activeSection === "setup") ? (
+              {(activeSection === "divergences" || activeSection === "setup") ? (
                 <CompareDrawer divergence={first} report={report} />
               ) : null}
               {activeSection === "sources" ? (
@@ -314,6 +328,7 @@ export function StudioDashboard() {
               ) : null}
             </div>
 
+            {hasSideRail ? (
             <aside className="side-column" aria-label="Trace inspector">
               {(activeSection === "runs" || activeSection === "divergences") ? (
                 <>
@@ -336,20 +351,9 @@ export function StudioDashboard() {
                   />
                 </>
               ) : null}
-              {activeSection !== "sources" ? (
-                <UploadComparePanel
-                  traces={traces}
-                  baselineId={baselineId}
-                  candidateId={candidateId}
-                  busy={busy}
-                  onBaselineChange={setBaselineId}
-                  onCandidateChange={setCandidateId}
-                  onUpload={(file, role) => void handleUpload(file, role)}
-                  onCompare={() => void handleCompare()}
-                />
-              ) : null}
-              <IntegrationPanel integrations={report?.integrations ?? []} />
+              {activeSection === "sources" ? <IntegrationPanel integrations={report?.integrations ?? []} /> : null}
             </aside>
+            ) : null}
           </div>
         </div>
       </div>

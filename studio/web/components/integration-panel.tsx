@@ -10,8 +10,8 @@ export function IntegrationPanel({ integrations }: IntegrationPanelProps) {
     <section className="panel integrations-panel">
       <div className="section-heading compact">
         <div>
-          <p>Sources</p>
-          <h2>Integration readiness</h2>
+          <p>Import options</p>
+          <h2>Available imports</h2>
         </div>
         <Cable size={19} aria-hidden />
       </div>

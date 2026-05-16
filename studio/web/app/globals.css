@@ -129,12 +129,12 @@ strong {
 
 .studio-shell {
   min-height: 100vh;
-  padding: 66px 60px;
+  padding: 36px 40px;
 }
 
 .dashboard-frame {
   display: grid;
-  grid-template-columns: 56px minmax(0, 1fr);
+  grid-template-columns: 176px minmax(0, 1fr);
   width: min(1320px, 100%);
   min-height: calc(100vh - 132px);
   margin: 0 auto;
@@ -148,46 +148,67 @@ strong {
 .sidebar {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 26px;
-  padding: 14px 8px;
+  align-items: stretch;
+  gap: 22px;
+  padding: 16px 12px;
   border-right: 1px solid var(--border);
   background: var(--sidebar);
 }
 
 .brand-lockup {
-  display: grid;
-  gap: 4px;
-  place-items: center;
-  min-height: 34px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 4px;
 }
 
 .brand-mark {
-  display: none;
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border-radius: 7px;
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 .brand-lockup strong {
   color: var(--accent);
-  font-size: 20px;
-  font-weight: 700;
+  font-size: 14px;
+  font-weight: 650;
   letter-spacing: 0;
 }
 
 .nav-stack {
   display: grid;
-  gap: 12px;
+  gap: 6px;
 }
 
 .nav-item {
   display: grid;
-  width: 34px;
+  grid-template-columns: 18px minmax(0, 1fr);
+  width: 100%;
   height: 34px;
-  place-items: center;
+  gap: 8px;
+  align-items: center;
+  justify-items: start;
+  padding: 0 10px;
   border: 0;
   border-radius: 7px;
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
+}
+
+.nav-item-label {
+  overflow: hidden;
+  color: inherit;
+  font-size: 12px;
+  font-weight: 550;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .nav-item-active,
@@ -276,8 +297,8 @@ strong {
   height: 27px;
   place-items: center;
   border-radius: 50%;
-  background: #d9ff00;
-  color: #284000;
+  background: var(--accent-soft);
+  color: var(--accent);
   font-size: 11px;
   font-weight: 700;
 }
@@ -302,7 +323,7 @@ strong {
   justify-content: space-between;
   gap: 18px;
   align-items: flex-start;
-  padding: 24px 20px 22px;
+  padding: 18px 20px 16px;
   background: var(--shell);
 }
 
@@ -362,7 +383,7 @@ strong {
 }
 
 .project-tabs {
-  display: flex;
+  display: none;
   gap: 28px;
   align-items: center;
   padding: 0 20px;
@@ -415,11 +436,15 @@ strong {
 
 .observability-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 340px;
+  grid-template-columns: minmax(0, 1fr) 390px;
   gap: 14px;
   align-items: start;
   min-width: 0;
   padding: 14px 20px 20px;
+}
+
+.observability-grid-single {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .section-detail-grid {
@@ -738,7 +763,7 @@ strong {
 .run-table-head,
 .run-row {
   display: grid;
-  grid-template-columns: minmax(220px, 1.5fr) minmax(140px, 1fr) 88px 96px 64px 112px;
+  grid-template-columns: minmax(220px, 1.35fr) minmax(128px, 0.82fr) minmax(144px, 0.95fr) minmax(98px, 0.65fr) 58px 112px;
   gap: 12px;
   align-items: center;
 }
@@ -755,7 +780,7 @@ strong {
 
 .run-row {
   width: 100%;
-  min-height: 52px;
+  min-height: 48px;
   padding: 0 16px;
   border: 0;
   border-top: 1px solid var(--border);
@@ -800,6 +825,10 @@ strong {
   color: var(--danger);
 }
 
+.run-status-failing {
+  color: var(--danger);
+}
+
 .run-content strong,
 .run-row > span {
   min-width: 0;
@@ -809,6 +838,12 @@ strong {
   line-height: 1.3;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.run-title-group {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
 }
 
 .run-row > span:not(.run-content) {
@@ -829,7 +864,7 @@ strong {
   font-size: 12px;
   font-weight: 600;
   line-height: 1.2;
-  text-transform: capitalize;
+  text-transform: none;
 }
 
 .tier-pill {
@@ -1118,7 +1153,7 @@ strong {
 
 .observation-row {
   display: grid;
-  grid-template-columns: 74px minmax(0, 1fr) 48px 58px 58px;
+  grid-template-columns: 88px minmax(0, 1fr) 48px 78px 72px;
   gap: 7px;
   align-items: center;
   min-height: 32px;
@@ -1773,6 +1808,7 @@ html[data-theme="dark"] .payload-actual {
   }
 
   .project-tabs {
+    display: flex;
     overflow-x: auto;
   }
 
@@ -1826,7 +1862,7 @@ html[data-theme="dark"] .payload-actual {
 
   .run-row > span:nth-child(4)::before {
     color: var(--text-subtle);
-    content: "Source ";
+    content: "Changes ";
   }
 
   .run-row > span:nth-child(5) {
@@ -1835,7 +1871,7 @@ html[data-theme="dark"] .payload-actual {
 
   .run-row > span:nth-child(5)::before {
     color: var(--text-subtle);
-    content: "Events ";
+    content: "Steps ";
   }
 
   .run-row > span:nth-child(6) {
