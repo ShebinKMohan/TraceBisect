@@ -133,7 +133,9 @@ function EventTreeGutter({
               .filter(Boolean)
               .join(" ")}
             key={index}
-          />
+          >
+            {isCurrentLevel ? <span className="tree-arrow" /> : null}
+          </span>
         );
       })}
     </span>

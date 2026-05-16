@@ -101,7 +101,9 @@ function TreeGutter({
               .filter(Boolean)
               .join(" ")}
             key={index}
-          />
+          >
+            {isCurrentLevel ? <span className="tree-arrow" /> : null}
+          </span>
         );
       })}
     </span>

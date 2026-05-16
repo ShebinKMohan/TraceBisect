@@ -148,15 +148,24 @@ async function assertTreeConnectors(page, label) {
     eventContinuations: document.querySelectorAll(
       ".observation-row .event-tree-guide-continue, .observation-row .event-tree-guide-branch-open",
     ).length,
+    eventArrows: document.querySelectorAll(".observation-row .tree-arrow").length,
     traceBranches: document.querySelectorAll(".trace-tree-row .tree-guide-branch").length,
     traceContinuations: document.querySelectorAll(
       ".trace-tree-row .tree-guide-continue, .trace-tree-row .tree-guide-branch-open",
     ).length,
+    traceArrows: document.querySelectorAll(".trace-tree-row .tree-arrow").length,
+    traceRowTransition: getComputedStyle(document.querySelector(".trace-tree-row")).transitionDuration,
   }));
   assert(counts.traceBranches >= 3, `${label} trace tree connectors missing: ${JSON.stringify(counts)}`);
   assert(counts.traceContinuations >= 2, `${label} trace continuation lines missing: ${JSON.stringify(counts)}`);
+  assert(counts.traceArrows >= 3, `${label} trace arrowheads missing: ${JSON.stringify(counts)}`);
   assert(counts.eventBranches >= 3, `${label} event-list connectors missing: ${JSON.stringify(counts)}`);
   assert(counts.eventContinuations >= 2, `${label} event-list continuation lines missing: ${JSON.stringify(counts)}`);
+  assert(counts.eventArrows >= 3, `${label} event-list arrowheads missing: ${JSON.stringify(counts)}`);
+  assert(
+    counts.traceRowTransition !== "0s",
+    `${label} trace interaction animation missing: ${JSON.stringify(counts)}`,
+  );
 }
 
 async function expectNotText(page, selector, text, label) {
