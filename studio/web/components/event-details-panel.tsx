@@ -90,6 +90,56 @@ function eventDepth(event: TraceEvent, byId: Map<string, TraceEvent>): number {
   return Math.min(depth, 3);
 }
 
+function eventParentChain(event: TraceEvent, byId: Map<string, TraceEvent>): TraceEvent[] {
+  const chain: TraceEvent[] = [];
+  let parentId = event.parent_id;
+  while (parentId) {
+    const parent = byId.get(parentId);
+    if (!parent) break;
+    chain.unshift(parent);
+    parentId = parent.parent_id;
+  }
+  return chain.slice(-3);
+}
+
+function hasLaterSibling(event: TraceEvent, events: TraceEvent[]): boolean {
+  const index = events.findIndex((item) => item.id === event.id);
+  if (index < 0) return false;
+  return events.slice(index + 1).some((item) => item.parent_id === event.parent_id);
+}
+
+function EventTreeGutter({
+  ancestorContinuation,
+  depth,
+  hasNextSibling,
+}: {
+  ancestorContinuation: boolean[];
+  depth: number;
+  hasNextSibling: boolean;
+}) {
+  return (
+    <span className="event-tree-gutter" aria-hidden data-depth={depth}>
+      {Array.from({ length: 3 }).map((_, index) => {
+        const isCurrentLevel = depth > 0 && index === depth - 1;
+        const shouldContinue = ancestorContinuation[index] ?? false;
+        return (
+          <span
+            className={[
+              "event-tree-guide",
+              shouldContinue ? "event-tree-guide-continue" : "",
+              isCurrentLevel ? "event-tree-guide-branch" : "",
+              isCurrentLevel && hasNextSibling ? "event-tree-guide-branch-open" : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
+            key={index}
+          />
+        );
+      })}
+    </span>
+  );
+}
+
 function selectedHasDivergence(event: TraceEvent | null, divergence: Divergence | null): boolean {
   return Boolean(
     event &&
@@ -269,6 +319,8 @@ export function EventDetailsPanel({
             {events.map((item) => {
               const highlighted = highlightedIds.has(item.id);
               const active = event?.id === item.id;
+              const chain = eventParentChain(item, byId);
+              const depth = eventDepth(item, byId);
               return (
                 <li key={item.id}>
                   <button
@@ -279,14 +331,20 @@ export function EventDetailsPanel({
                     ]
                       .filter(Boolean)
                       .join(" ")}
-                    data-depth={eventDepth(item, byId)}
+                    data-depth={depth}
                     onClick={() => onSelectEvent(item)}
                     type="button"
-                  >
-                    <span className="observation-type">{friendlyEventType(item.type)}</span>
-                    <span className="observation-name">{item.semantic_name}</span>
-                    <span>{formatDuration(item.duration_ms)}</span>
-                    <span>{sourceLabel(item)}</span>
+                    >
+                    <EventTreeGutter
+                      ancestorContinuation={chain.slice(1).map((ancestorChild) => hasLaterSibling(ancestorChild, events))}
+                      depth={depth}
+                      hasNextSibling={hasLaterSibling(item, events)}
+                    />
+                    <span className="observation-main">
+                      <span className="observation-type">{friendlyEventType(item.type)}</span>
+                      <span className="observation-name">{item.semantic_name}</span>
+                    </span>
+                    <span className="observation-duration">{formatDuration(item.duration_ms)}</span>
                     {highlighted ? <em>First change</em> : <i aria-hidden />}
                   </button>
                 </li>

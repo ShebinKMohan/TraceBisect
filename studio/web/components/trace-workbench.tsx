@@ -54,8 +54,58 @@ function eventDepth(event: TraceEvent, byId: Map<string, TraceEvent>): number {
   return Math.min(depth, 3);
 }
 
+function eventParentChain(event: TraceEvent, byId: Map<string, TraceEvent>): TraceEvent[] {
+  const chain: TraceEvent[] = [];
+  let parentId = event.parent_id;
+  while (parentId) {
+    const parent = byId.get(parentId);
+    if (!parent) break;
+    chain.unshift(parent);
+    parentId = parent.parent_id;
+  }
+  return chain.slice(-3);
+}
+
+function hasLaterSibling(event: TraceEvent, events: TraceEvent[]): boolean {
+  const index = events.findIndex((item) => item.id === event.id);
+  if (index < 0) return false;
+  return events.slice(index + 1).some((item) => item.parent_id === event.parent_id);
+}
+
 function durationLabel(event: TraceEvent): string {
   return event.duration_ms === null ? "0.00s" : `${(event.duration_ms / 1000).toFixed(2)}s`;
+}
+
+function TreeGutter({
+  ancestorContinuation,
+  depth,
+  hasNextSibling,
+}: {
+  ancestorContinuation: boolean[];
+  depth: number;
+  hasNextSibling: boolean;
+}) {
+  return (
+    <span className="tree-gutter" aria-hidden data-depth={depth}>
+      {Array.from({ length: 3 }).map((_, index) => {
+        const isCurrentLevel = depth > 0 && index === depth - 1;
+        const shouldContinue = ancestorContinuation[index] ?? false;
+        return (
+          <span
+            className={[
+              "tree-guide",
+              shouldContinue ? "tree-guide-continue" : "",
+              isCurrentLevel ? "tree-guide-branch" : "",
+              isCurrentLevel && hasNextSibling ? "tree-guide-branch-open" : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
+            key={index}
+          />
+        );
+      })}
+    </span>
+  );
 }
 
 export function TraceWorkbench({
@@ -83,6 +133,8 @@ export function TraceWorkbench({
           const Icon = iconFor(event.type);
           const highlighted = highlightedIds.has(event.id);
           const active = selectedEventId === event.id;
+          const chain = eventParentChain(event, byId);
+          const depth = eventDepth(event, byId);
           return (
             <li key={event.id}>
               <button
@@ -93,11 +145,16 @@ export function TraceWorkbench({
                 ]
                   .filter(Boolean)
                   .join(" ")}
-                data-depth={eventDepth(event, byId)}
+                data-depth={depth}
                 data-testid={`trace-event-${event.id}`}
                 onClick={() => onSelectEvent(event)}
                 type="button"
               >
+                <TreeGutter
+                  ancestorContinuation={chain.slice(1).map((ancestorChild) => hasLaterSibling(ancestorChild, events))}
+                  depth={depth}
+                  hasNextSibling={hasLaterSibling(event, events)}
+                />
                 <span className="trace-event-icon" aria-hidden>
                   <Icon size={15} />
                 </span>

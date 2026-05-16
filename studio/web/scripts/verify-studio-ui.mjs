@@ -142,6 +142,23 @@ async function expectTraceDetailTab(page, tabName, selector, expectedText) {
   await expectText(page, selector, expectedText, `${tabName} trace detail tab`);
 }
 
+async function assertTreeConnectors(page, label) {
+  const counts = await page.evaluate(() => ({
+    eventBranches: document.querySelectorAll(".observation-row .event-tree-guide-branch").length,
+    eventContinuations: document.querySelectorAll(
+      ".observation-row .event-tree-guide-continue, .observation-row .event-tree-guide-branch-open",
+    ).length,
+    traceBranches: document.querySelectorAll(".trace-tree-row .tree-guide-branch").length,
+    traceContinuations: document.querySelectorAll(
+      ".trace-tree-row .tree-guide-continue, .trace-tree-row .tree-guide-branch-open",
+    ).length,
+  }));
+  assert(counts.traceBranches >= 3, `${label} trace tree connectors missing: ${JSON.stringify(counts)}`);
+  assert(counts.traceContinuations >= 2, `${label} trace continuation lines missing: ${JSON.stringify(counts)}`);
+  assert(counts.eventBranches >= 3, `${label} event-list connectors missing: ${JSON.stringify(counts)}`);
+  assert(counts.eventContinuations >= 2, `${label} event-list continuation lines missing: ${JSON.stringify(counts)}`);
+}
+
 async function expectNotText(page, selector, text, label) {
   const locator = await expectOne(page, selector, label);
   const content = await locator.textContent();
@@ -281,6 +298,7 @@ async function main() {
     '[data-testid="trace-detail-observations"]',
     "search_database",
   );
+  await assertTreeConnectors(page, "event hierarchy");
   await expectTraceDetailTab(
     page,
     "Timing",
