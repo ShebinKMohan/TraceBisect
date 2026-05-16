@@ -100,5 +100,6 @@ Avoid hero-sized text inside the product app. TraceBisect Studio is an engineer-
 - Primary content: comparison filters, small stat cards, and dense comparison history table.
 - Secondary content: trace tree and event inspector for comparison/review pages.
 - Upload/import content belongs under `Sources`; pytest export and guardrail copy belong under `Review`, `Tests`, or `Setup`.
+- Do not place a generic overview card above a section that already has a purpose-built panel. One section should have one main layout, with side panels only when they directly support the task.
 - Border radius: `6px-8px` for controls and panels, `12px-14px` only for the outer app shell.
 - Avoid blur-heavy glass, decorative gradients, large shadows, and chart-first dashboard layouts.

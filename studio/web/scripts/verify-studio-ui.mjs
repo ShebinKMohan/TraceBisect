@@ -164,8 +164,6 @@ async function main() {
   await expectText(page, '[data-testid="runs-table"]', "Refund search", "cleared run filters");
   await page.getByTestId("sidebar-section-sources").click();
   await expectText(page, '[data-testid="studio-title"]', "Add trace sources", "sources title");
-  await expectText(page, '[data-testid="sources-section"]', "OpenTelemetry", "sources section");
-  await expectText(page, '[data-testid="sources-section"]', "Langfuse", "sources Langfuse card");
   await expectText(page, ".upload-panel", "Known-good baseline", "baseline upload label");
   await expectText(page, ".upload-panel", "New run to check", "candidate upload label");
   await expectText(page, ".upload-panel", "Find first behavior change", "compare action label");
@@ -173,11 +171,11 @@ async function main() {
   await assertNoHorizontalOverflow(page, "sources section");
   await page.getByTestId("sidebar-section-divergences").click();
   await expectText(page, '[data-testid="studio-title"]', "Review behavior changes", "divergences title");
-  await expectText(page, '[data-testid="divergences-section"]', "Tool arguments changed", "divergences section");
+  await expectText(page, '[data-testid="first-divergence-card"]', "search database", "divergences section");
   await assertNoHorizontalOverflow(page, "divergences section");
   await page.getByTestId("sidebar-section-cases").click();
   await expectText(page, '[data-testid="studio-title"]', "Regression guardrails", "cases title");
-  await expectText(page, '[data-testid="cases-section"]', "Guardrail readiness", "cases section");
+  await expectText(page, '[data-testid="regression-case-library"]', "Saved guardrails", "cases section");
   await assertNoHorizontalOverflow(page, "cases section");
   await page.getByTestId("sidebar-section-setup").click();
   await expectText(page, '[data-testid="studio-title"]', "Ship CI protection", "setup title");

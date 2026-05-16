@@ -268,19 +268,13 @@ export function StudioDashboard() {
           ) : null}
 
           <SectionOverview
-            cases={cases}
-            first={first}
-            onSectionChange={setActiveSection}
             report={report}
-            runs={runs}
             section={activeSection}
-            traces={traces}
           />
 
           <div
             className={[
               "observability-grid",
-              activeSection === "runs" ? "" : "section-detail-grid",
               hasSideRail ? "" : "observability-grid-single",
             ]
               .filter(Boolean)
