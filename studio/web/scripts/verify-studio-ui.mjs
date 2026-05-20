@@ -363,7 +363,16 @@ async function main() {
   await page.getByTestId("sidebar-section-divergences").click();
   await expectText(page, '[data-testid="studio-title"]', "Regression issues", "issues title");
   await expectText(page, '[data-testid="issues-table"]', "Tool arguments changed", "issues table");
+  await expectText(page, '[data-testid="issues-table"]', "Open issues", "issues summary");
+  await expectText(page, '[data-testid="issues-table"]', "Failing comparisons", "issues failing comparisons");
+  await expectText(page, '[data-testid="issues-table"]', "Behavior changes", "issues behavior changes");
   await expectText(page, '[data-testid="issues-table"]', "Frequency", "issues metric");
+  await page.getByTestId("issue-sort").selectOption("frequency");
+  await expectText(page, '[data-testid="issues-table"]', "Frequency", "issues sorted by frequency");
+  await page.getByRole("button", { exact: true, name: "Critical" }).click();
+  await expectText(page, '[data-testid="issues-table"]', "Tool arguments changed", "critical issue filter");
+  const selectedIssueCards = await page.locator(".issue-card-active").count();
+  assert(selectedIssueCards === 1, `Expected one selected issue card, found ${selectedIssueCards}`);
   await expectText(page, '[data-testid="review-workbench"]', "Tool arguments changed", "issues frame");
   await assertNoHorizontalOverflow(page, "divergences section");
   await page.getByTestId("sidebar-section-cases").click();
