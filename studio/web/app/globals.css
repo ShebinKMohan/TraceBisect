@@ -2486,13 +2486,13 @@ strong {
 
 .regression-case-panel {
   display: grid;
-  gap: 12px;
-  padding: 14px;
+  gap: 14px;
+  padding: 18px;
 }
 
 .case-library-summary {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -2551,49 +2551,74 @@ strong {
   line-height: 1.4;
 }
 
-.case-table {
+.case-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 0 10px;
+}
+
+.guardrail-workbench {
+  display: grid;
+  grid-template-columns: 390px minmax(0, 1fr);
+  gap: 16px;
   min-width: 0;
-  overflow: hidden;
+}
+
+.guardrail-list-pane,
+.guardrail-detail-pane {
+  min-width: 0;
   border: 1px solid var(--border);
   border-radius: 7px;
-}
-
-.case-table-head,
-.case-row {
-  display: grid;
-  grid-template-columns: minmax(210px, 1.5fr) minmax(130px, 0.8fr) minmax(110px, 0.7fr) minmax(150px, 0.8fr);
-  gap: 12px;
-  align-items: center;
-}
-
-.case-table-head {
-  min-height: 34px;
-  padding: 0 12px;
-  background: var(--surface-muted);
-  color: var(--text-muted);
-  font-size: 10.5px;
-  font-weight: 600;
-}
-
-.case-row {
-  min-height: 74px;
-  padding: 11px 12px;
-  border-top: 1px solid var(--border);
   background: var(--shell);
 }
 
-.case-main,
-.case-signal,
-.case-result,
-.case-actions {
-  min-width: 0;
+.guardrail-list-pane {
+  padding: 12px;
 }
 
-.case-main strong,
-.case-main span,
-.case-signal small,
-.case-result span,
-.case-result small {
+.guardrail-list {
+  display: grid;
+  gap: 8px;
+}
+
+.guardrail-list-item {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+  width: 100%;
+  min-height: 92px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-muted);
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+.guardrail-list-item:hover,
+.guardrail-list-item-active {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  box-shadow: inset 3px 0 0 var(--accent);
+  transform: translateX(2px);
+}
+
+.guardrail-list-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.guardrail-list-item strong,
+.guardrail-list-item small {
   display: block;
   min-width: 0;
   overflow: hidden;
@@ -2601,19 +2626,34 @@ strong {
   white-space: nowrap;
 }
 
-.case-main strong {
+.guardrail-list-item strong {
   color: var(--text);
-  font-size: 12.5px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 620;
   line-height: 1.25;
 }
 
-.case-main span,
-.case-signal small,
-.case-result small {
+.guardrail-list-item small {
+  margin-top: 3px;
   color: var(--text-muted);
   font-size: 11px;
   line-height: 1.35;
+}
+
+.case-state-dot {
+  width: 9px;
+  height: 9px;
+  margin-top: 4px;
+  border-radius: 999px;
+  background: var(--text-subtle);
+}
+
+.case-state-dot.status-passing {
+  background: var(--success);
+}
+
+.case-state-dot.status-failing {
+  background: var(--danger);
 }
 
 .case-tags {
@@ -2634,37 +2674,77 @@ strong {
   line-height: 1.2;
 }
 
-.case-signal,
-.case-result {
-  display: grid;
-  gap: 5px;
-  align-content: center;
+.case-status-badge {
+  padding: 3px 7px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--shell);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  text-transform: uppercase;
 }
 
-.case-result {
-  grid-template-columns: 16px minmax(0, 1fr);
+.case-status-badge.status-passing {
+  border-color: var(--success);
+  background: var(--accent-soft);
+  color: var(--success);
+}
+
+.case-status-badge.status-failing {
+  border-color: var(--danger-line);
+  background: var(--danger-soft);
   color: var(--danger);
 }
 
-.case-result span {
+.guardrail-detail-pane {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  padding: 18px;
+}
+
+.guardrail-detail-header {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.guardrail-detail-header p {
+  margin: 0 0 5px;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.guardrail-detail-header h3 {
+  margin: 0;
   color: var(--text);
-  font-size: 11.5px;
-  font-weight: 600;
-  line-height: 1.25;
+  font-size: 18px;
+  font-weight: 650;
+  line-height: 1.2;
 }
 
-.case-result small {
-  grid-column: 2;
+.guardrail-detail-header span {
+  display: block;
+  max-width: 680px;
+  margin-top: 6px;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.45;
 }
 
-.case-actions {
+.guardrail-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
   justify-content: flex-end;
 }
 
-.case-actions button {
+.guardrail-actions button,
+.guardrail-code-card button {
   display: inline-flex;
   gap: 5px;
   align-items: center;
@@ -2679,12 +2759,159 @@ strong {
   line-height: 1.15;
 }
 
-.case-actions button:hover,
+.guardrail-actions button:hover,
+.guardrail-code-card button:hover,
 .inline-action:hover {
   border-color: var(--accent-line);
   background: var(--accent-soft);
   color: var(--accent);
   transform: translateY(-1px);
+}
+
+.guardrail-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.guardrail-meta-grid div {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-muted);
+}
+
+.guardrail-meta-grid dt {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.guardrail-meta-grid dd {
+  min-width: 0;
+  margin: 5px 0 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.guardrail-meta-grid dd.status-passing {
+  color: var(--success);
+}
+
+.guardrail-meta-grid dd.status-failing {
+  color: var(--danger);
+}
+
+.guardrail-run-command,
+.guardrail-code-card,
+.guardrail-failure-card {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-muted);
+}
+
+.guardrail-run-command {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+}
+
+.guardrail-run-command span,
+.guardrail-code-card header span,
+.guardrail-failure-card header span,
+.guardrail-failure-card section span {
+  color: var(--text-muted);
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.guardrail-run-command code,
+.guardrail-code-card pre,
+.guardrail-failure-card pre {
+  overflow: auto;
+  color: var(--mono-text);
+  font-family: var(--font-roboto-mono), ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.guardrail-code-card header,
+.guardrail-failure-card header {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.guardrail-code-card header span,
+.guardrail-failure-card header span {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  color: var(--text);
+}
+
+.guardrail-code-card pre {
+  max-height: 260px;
+  margin: 0;
+  padding: 14px;
+  background: #101820;
+  color: #e6f0ed;
+}
+
+.guardrail-failure-card {
+  overflow: hidden;
+}
+
+.guardrail-failure-card header em {
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.guardrail-failure-card p {
+  margin: 0;
+  padding: 12px;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.guardrail-failure-card > div {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 0 12px 12px;
+}
+
+.guardrail-failure-card section {
+  min-width: 0;
+}
+
+.guardrail-failure-card pre {
+  max-height: 150px;
+  margin: 6px 0 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--shell);
 }
 
 .compare-summary-card {
@@ -3962,40 +4189,6 @@ html[data-theme="dark"] .payload-actual {
   line-height: 1.55;
 }
 
-.regression-case-panel {
-  grid-template-columns: 390px minmax(0, 1fr);
-  gap: 0;
-  padding: 0;
-}
-
-.regression-case-panel > .section-heading,
-.regression-case-panel > .case-library-summary {
-  grid-column: 1 / -1;
-  padding: 18px 22px;
-}
-
-.regression-case-panel > .case-library-summary {
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-}
-
-.case-table {
-  border-width: 0 1px 0 0;
-  border-radius: 0;
-}
-
-.case-row {
-  grid-template-columns: minmax(0, 1fr);
-  min-height: 104px;
-  border-left: 3px solid transparent;
-}
-
-.case-row:first-of-type,
-.case-row:hover {
-  border-left-color: var(--accent);
-  background: #eef1f2;
-}
-
 @media (max-width: 1180px) {
   .comparison-workbench,
   .review-workbench {
@@ -4021,6 +4214,10 @@ html[data-theme="dark"] .payload-actual {
   }
 
   .trace-inventory-workbench {
+    grid-template-columns: 1fr;
+  }
+
+  .guardrail-workbench {
     grid-template-columns: 1fr;
   }
 
@@ -4065,6 +4262,7 @@ html[data-theme="dark"] .payload-actual {
   }
 
   .stat-strip,
+  .case-library-summary,
   .section-grid,
   .side-column,
   .issue-summary-strip,
@@ -4127,10 +4325,6 @@ html[data-theme="dark"] .payload-actual {
     display: none;
   }
 
-  .case-table-head {
-    display: none;
-  }
-
   .run-row {
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 8px 12px;
@@ -4187,13 +4381,26 @@ html[data-theme="dark"] .payload-actual {
     justify-content: stretch;
   }
 
-  .case-row {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 10px;
+  .guardrail-list-item,
+  .guardrail-detail-header,
+  .guardrail-failure-card > div {
+    grid-template-columns: 1fr;
   }
 
-  .case-actions {
+  .guardrail-actions {
     justify-content: flex-start;
+  }
+
+  .guardrail-list-item {
+    display: grid;
+  }
+
+  .guardrail-detail-header {
+    display: grid;
+  }
+
+  .guardrail-meta-grid {
+    grid-template-columns: 1fr;
   }
 
   .diff-connector {

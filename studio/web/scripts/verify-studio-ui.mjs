@@ -378,6 +378,17 @@ async function main() {
   await page.getByTestId("sidebar-section-cases").click();
   await expectText(page, '[data-testid="studio-title"]', "Guardrail datasets", "cases title");
   await expectText(page, '[data-testid="regression-case-library"]', "Saved guardrails", "cases section");
+  const guardrailItems = await page.locator(".guardrail-list-item").count();
+  if (guardrailItems > 0) {
+    await expectText(page, '[data-testid="guardrail-detail-panel"]', "Selected guardrail", "guardrail selected detail");
+    await expectText(page, '[data-testid="guardrail-detail-panel"]', "Saved runs", "guardrail saved run count");
+    await expectText(page, '[data-testid="guardrail-detail-panel"]', "Pytest integration", "guardrail pytest integration");
+    await expectText(page, '[data-testid="guardrail-detail-panel"]', "Recent failure", "guardrail failure detail");
+    await page.getByTestId("guardrail-sort").selectOption("severity");
+    await expectText(page, '[data-testid="regression-case-library"]', "Highest risk", "guardrail sort control");
+  } else {
+    await expectText(page, '[data-testid="regression-case-library"]', "No saved guardrails yet", "guardrail empty state");
+  }
   await assertNoHorizontalOverflow(page, "cases section");
   await page.getByTestId("sidebar-settings-link").click();
   await expectText(page, '[data-testid="studio-title"]', "Workspace settings", "setup title");
