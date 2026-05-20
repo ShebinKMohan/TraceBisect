@@ -328,6 +328,14 @@ async function main() {
   await expectText(page, '[data-testid="trace-table"]', "Captured traces", "trace table");
   await expectText(page, '[data-testid="trace-table"]', "gpt-4o-mini", "trace table model");
   await expectText(page, '[data-testid="trace-table"]', "refund_search:v3", "trace table prompt");
+  await expectText(page, '[data-testid="trace-detail-panel"]', "Selected trace", "trace detail panel");
+  await expectText(page, '[data-testid="trace-detail-panel"]', "Prompt version", "trace detail prompt metadata");
+  await expectText(page, '[data-testid="trace-detail-panel"]', "Code SHA", "trace detail code metadata");
+  await expectText(page, '[data-testid="trace-detail-panel"]', "Session", "trace detail session metadata");
+  await page.getByTestId("trace-sort").selectOption("total_tokens");
+  await expectText(page, '[data-testid="trace-detail-panel"]', "106", "trace detail follows sorted selection");
+  await page.getByTestId("trace-filter-source").selectOption("native");
+  await expectText(page, '[data-testid="trace-detail-panel"]', "TraceBisect", "trace source filter keeps selected detail");
   await expectText(page, ".upload-panel", "Known-good baseline", "baseline upload label");
   await expectText(page, ".upload-panel", "New run to check", "candidate upload label");
   await expectText(page, ".upload-panel", "Find first behavior change", "compare action label");
