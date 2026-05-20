@@ -344,8 +344,21 @@ async function main() {
   await page.getByTestId("sidebar-section-sessions").click();
   await expectText(page, '[data-testid="studio-title"]', "Conversation sessions", "sessions title");
   await expectText(page, '[data-testid="sessions-table"]', "Refund search", "sessions table");
+  await expectText(page, '[data-testid="sessions-table"]', "Models / sources", "sessions model/source column");
   await expectText(page, '[data-testid="sessions-table"]', "Trace ID", "sessions expanded trace rows");
   await expectText(page, '[data-testid="sessions-table"]', "Success", "sessions status");
+  await page.getByTestId("session-sort").selectOption("tokens");
+  await expectText(page, '[data-testid="sessions-table"]', "Most tokens", "sessions sort control");
+  const openSessionsBeforeToggle = await page.locator(".session-expanded").count();
+  assert(openSessionsBeforeToggle >= 1, `Expected an expanded session group, found ${openSessionsBeforeToggle}`);
+  await page.locator(".session-group-open .session-row").first().click();
+  const openSessionsAfterCollapse = await page.locator(".session-expanded").count();
+  assert(
+    openSessionsAfterCollapse === openSessionsBeforeToggle - 1,
+    `Session row did not collapse: before=${openSessionsBeforeToggle} after=${openSessionsAfterCollapse}`,
+  );
+  await page.locator(".session-row").first().click();
+  await expectText(page, '[data-testid="sessions-table"]', "Trace ID", "sessions row re-expanded");
   await assertNoHorizontalOverflow(page, "sessions section");
   await page.getByTestId("sidebar-section-divergences").click();
   await expectText(page, '[data-testid="studio-title"]', "Regression issues", "issues title");

@@ -3650,18 +3650,61 @@ html[data-theme="dark"] .payload-actual {
   align-items: center;
 }
 
+.session-summary-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.session-summary-strip article {
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-muted);
+}
+
+.session-summary-strip span {
+  display: block;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.session-summary-strip strong {
+  display: block;
+  margin-top: 5px;
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+.session-toolbar {
+  padding: 0 0 12px;
+}
+
 .session-table {
   border-radius: 3px;
 }
 
 .session-table-head,
 .session-row {
-  grid-template-columns: minmax(260px, 1.4fr) 100px 150px 140px 140px;
+  grid-template-columns:
+    minmax(230px, 1.35fr) 76px 118px minmax(140px, 0.9fr)
+    100px 108px 128px;
 }
 
 .session-row {
+  width: 100%;
   min-height: 56px;
   border-left: 3px solid transparent;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
 }
 
 .session-group-open > .session-row {
@@ -3694,7 +3737,7 @@ html[data-theme="dark"] .payload-actual {
 .session-expanded-head,
 .session-trace-row {
   display: grid;
-  grid-template-columns: minmax(230px, 1fr) minmax(210px, 1fr) 120px 110px 110px;
+  grid-template-columns: minmax(220px, 1fr) minmax(170px, 0.9fr) minmax(128px, 0.74fr) 86px 96px 92px;
   gap: 12px;
   align-items: center;
   min-height: 34px;
@@ -3960,6 +4003,7 @@ html[data-theme="dark"] .payload-actual {
   .stat-strip,
   .section-grid,
   .side-column,
+  .session-summary-strip,
   .trace-detail-list div,
   .settings-layout,
   .settings-card-grid,
