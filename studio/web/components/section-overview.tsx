@@ -1,4 +1,3 @@
-import { CheckCircle2, Clock3, ShieldCheck } from "lucide-react";
 import type { Report, StudioSection } from "@/lib/types";
 
 type SectionOverviewProps = {
@@ -14,28 +13,34 @@ const sectionCopy: Record<StudioSection, { eyebrow: string; title: string; descr
       "Pick a known-good trace, compare a new run, inspect the first behavior change, and save a guardrail test.",
   },
   sources: {
-    eyebrow: "Trace Sources",
-    title: "Add trace sources",
+    eyebrow: "Traces",
+    title: "Trace inventory",
     description:
-      "Upload native TraceBisect files or OpenTelemetry exports, then compare them against known-good baselines.",
+      "Browse captured runs, filter by source and model, then upload or compare traces when a regression appears.",
+  },
+  sessions: {
+    eyebrow: "Sessions",
+    title: "Conversation sessions",
+    description:
+      "Group related traces by session, thread, conversation, or scenario so multi-turn behavior is easier to inspect.",
   },
   divergences: {
-    eyebrow: "Regression Review",
-    title: "Review behavior changes",
+    eyebrow: "Issues",
+    title: "Regression issues",
     description:
-      "Start from the first meaningful change, inspect baseline versus candidate values, and decide whether to save a guardrail.",
+      "Cluster repeated behavior changes, inspect the affected trace path, and decide which issues become guardrails.",
   },
   cases: {
-    eyebrow: "Regression testing",
-    title: "Regression guardrails",
+    eyebrow: "Guardrails",
+    title: "Guardrail datasets",
     description:
-      "Save important comparisons as rerunnable guardrails and copy generated pytest checks into your repository.",
+      "Save important regressions as rerunnable guardrail datasets and copy generated pytest checks into your repository.",
   },
   setup: {
-    eyebrow: "CI Setup",
-    title: "Ship CI protection",
+    eyebrow: "Settings / Refund Ops",
+    title: "Workspace settings",
     description:
-      "Commit baseline traces and generated tests so agent regressions fail before deployment.",
+      "Manage workspace identity, project access, API keys, and ingest configuration for TraceBisect Studio.",
   },
 };
 
@@ -45,52 +50,9 @@ export function sectionContent(section: StudioSection) {
 
 export function SectionOverview({
   section,
-  report,
+  report: _report,
 }: SectionOverviewProps) {
   if (section !== "setup") return null;
 
-  return (
-    <section className="section-grid" data-testid="setup-section">
-      <article className="panel section-panel section-panel-wide">
-        <div className="section-heading">
-          <div>
-            <p>Operational checklist</p>
-            <h2>Ship a CI regression guardrail</h2>
-          </div>
-          <ShieldCheck size={18} aria-hidden />
-        </div>
-        <div className="setup-steps">
-          <div>
-            <CheckCircle2 size={16} aria-hidden />
-            <span>Export or record a baseline trace as `.tbtrace`.</span>
-          </div>
-          <div>
-            <CheckCircle2 size={16} aria-hidden />
-            <span>Run the same scenario after code, prompt, or model changes.</span>
-          </div>
-          <div>
-            <CheckCircle2 size={16} aria-hidden />
-            <span>Copy the generated pytest guardrail into your test suite.</span>
-          </div>
-          <div>
-            <Clock3 size={16} aria-hidden />
-            <span>Wire the test into GitHub Actions or your deploy gate.</span>
-          </div>
-        </div>
-      </article>
-      <article className="panel section-panel">
-        <div className="section-heading compact">
-          <div>
-            <p>Active export</p>
-            <h2>{report ? "Generated pytest guardrail" : "No export yet"}</h2>
-          </div>
-        </div>
-        <p className="section-note">
-          {report
-            ? `${report.divergence_count} behavior changes are represented in the current generated test.`
-            : "Load or compare traces to generate a pytest export."}
-        </p>
-      </article>
-    </section>
-  );
+  return null;
 }

@@ -65,7 +65,7 @@ export function RegressionCaseLibrary({
     <section className="panel regression-case-panel" data-testid="regression-case-library">
       <div className="section-heading">
         <div>
-          <p>Guardrail tests</p>
+          <p>Saved suites</p>
           <h2>Saved guardrails</h2>
         </div>
         <button

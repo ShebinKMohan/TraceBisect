@@ -9,6 +9,8 @@ import {
   formatJson,
   formatShortDate,
   formatTime,
+  friendlyDivergenceDescription,
+  friendlyDivergenceType,
   friendlyEventType,
   friendlySeverity,
   friendlySourceConvention,
@@ -16,7 +18,7 @@ import {
   friendlyTraceName,
 } from "@/lib/format";
 
-type InspectorTab = "metadata" | "observations" | "timeline" | "payload";
+type InspectorTab = "metadata" | "change" | "timeline" | "payload";
 
 type EventDetailsPanelProps = {
   event: TraceEvent | null;
@@ -29,8 +31,8 @@ type EventDetailsPanelProps = {
 };
 
 const tabs: { id: InspectorTab; label: string }[] = [
+  { id: "change", label: "Change Inspector" },
   { id: "metadata", label: "Summary" },
-  { id: "observations", label: "Event list" },
   { id: "timeline", label: "Timing" },
   { id: "payload", label: "Raw payload" },
 ];
@@ -78,18 +80,6 @@ function sourceLabel(event: TraceEvent | null): string {
   return event.source_format || "Unknown";
 }
 
-function eventDepth(event: TraceEvent, byId: Map<string, TraceEvent>): number {
-  let depth = 0;
-  let parentId = event.parent_id;
-  while (parentId) {
-    const parent = byId.get(parentId);
-    if (!parent) break;
-    depth += 1;
-    parentId = parent.parent_id;
-  }
-  return Math.min(depth, 3);
-}
-
 function eventParentChain(event: TraceEvent, byId: Map<string, TraceEvent>): TraceEvent[] {
   const chain: TraceEvent[] = [];
   let parentId = event.parent_id;
@@ -100,46 +90,6 @@ function eventParentChain(event: TraceEvent, byId: Map<string, TraceEvent>): Tra
     parentId = parent.parent_id;
   }
   return chain.slice(-3);
-}
-
-function hasLaterSibling(event: TraceEvent, events: TraceEvent[]): boolean {
-  const index = events.findIndex((item) => item.id === event.id);
-  if (index < 0) return false;
-  return events.slice(index + 1).some((item) => item.parent_id === event.parent_id);
-}
-
-function EventTreeGutter({
-  ancestorContinuation,
-  depth,
-  hasNextSibling,
-}: {
-  ancestorContinuation: boolean[];
-  depth: number;
-  hasNextSibling: boolean;
-}) {
-  return (
-    <span className="event-tree-gutter" aria-hidden data-depth={depth}>
-      {Array.from({ length: 3 }).map((_, index) => {
-        const isCurrentLevel = depth > 0 && index === depth - 1;
-        const shouldContinue = ancestorContinuation[index] ?? false;
-        return (
-          <span
-            className={[
-              "event-tree-guide",
-              shouldContinue ? "event-tree-guide-continue" : "",
-              isCurrentLevel ? "event-tree-guide-branch" : "",
-              isCurrentLevel && hasNextSibling ? "event-tree-guide-branch-open" : "",
-            ]
-              .filter(Boolean)
-              .join(" ")}
-            key={index}
-          >
-            {isCurrentLevel ? <span className="tree-arrow" /> : null}
-          </span>
-        );
-      })}
-    </span>
-  );
 }
 
 function selectedHasDivergence(event: TraceEvent | null, divergence: Divergence | null): boolean {
@@ -180,17 +130,28 @@ export function EventDetailsPanel({
   highlightedIds,
   onSelectEvent,
 }: EventDetailsPanelProps) {
-  const [activeTab, setActiveTab] = useState<InspectorTab>("metadata");
+  const [activeTab, setActiveTab] = useState<InspectorTab>("change");
   const byId = useMemo(() => new Map(events.map((item) => [item.id, item])), [events]);
   const bounds = useMemo(() => timelineBounds(events), [events]);
   const isFirstDrift = selectedHasDivergence(event, divergence);
+  const parentEvent = event?.parent_id ? byId.get(event.parent_id) : null;
+  const parentChain = event ? eventParentChain(event, byId) : [];
+  const baselineValue = stringifyValue(divergence?.expected);
+  const candidateValue = stringifyValue(divergence?.actual);
+  const affectedEventLabel =
+    divergence && divergence.impact.affected_event_count > 0
+      ? `${divergence.impact.affected_event_count} affected`
+      : "First changed event";
+  const changeSummary = divergence
+    ? friendlyDivergenceDescription(divergence.type, divergence.description)
+    : "No behavior change has been detected for this comparison.";
 
   return (
     <aside className="panel event-details-panel" aria-label="Selected event details" data-testid="details-panel">
       <div className="workbench-heading">
         <div>
           <p>Inspector</p>
-          <h2>{event ? event.semantic_name : "Select an event"}</h2>
+          <h2>{activeTab === "change" ? "Selected change" : event ? event.semantic_name : "Select an event"}</h2>
         </div>
         <span>{side === "baseline" ? "Baseline" : "Candidate"}</span>
       </div>
@@ -310,49 +271,75 @@ export function EventDetailsPanel({
         </section>
       ) : null}
 
-      {activeTab === "observations" ? (
+      {activeTab === "change" ? (
         <section
-          aria-labelledby="trace-detail-tab-observations"
-          data-testid="trace-detail-observations"
-          id="trace-detail-observations"
+          aria-labelledby="trace-detail-tab-change"
+          data-testid="trace-detail-change"
+          id="trace-detail-change"
           role="tabpanel"
         >
-          <ol className="observation-list">
-            {events.map((item) => {
-              const highlighted = highlightedIds.has(item.id);
-              const active = event?.id === item.id;
-              const chain = eventParentChain(item, byId);
-              const depth = eventDepth(item, byId);
-              return (
-                <li key={item.id}>
-                  <button
-                    className={[
-                      "observation-row",
-                      active ? "observation-row-active" : "",
-                      highlighted ? "observation-row-drift" : "",
-                    ]
-                      .filter(Boolean)
-                      .join(" ")}
-                    data-depth={depth}
-                    onClick={() => onSelectEvent(item)}
-                    type="button"
-                    >
-                    <EventTreeGutter
-                      ancestorContinuation={chain.slice(1).map((ancestorChild) => hasLaterSibling(ancestorChild, events))}
-                      depth={depth}
-                      hasNextSibling={hasLaterSibling(item, events)}
-                    />
-                    <span className="observation-main">
-                      <span className="observation-type">{friendlyEventType(item.type)}</span>
-                      <span className="observation-name">{item.semantic_name}</span>
-                    </span>
-                    <span className="observation-duration">{formatDuration(item.duration_ms)}</span>
-                    {highlighted ? <em>First change</em> : <i aria-hidden />}
-                  </button>
-                </li>
-              );
-            })}
-          </ol>
+          <div className={["change-card", isFirstDrift ? "change-card-drift" : ""].filter(Boolean).join(" ")}>
+            <div>
+              <span>{isFirstDrift ? "Selected regression" : "Selected event"}</span>
+              <strong>{isFirstDrift ? friendlyDivergenceType(divergence?.type) : friendlyEventType(event?.type)}</strong>
+              <p>{isFirstDrift ? changeSummary : "This event is part of the trace path, but it is not the first changed step."}</p>
+            </div>
+            <em>{isFirstDrift ? friendlySeverity(divergence?.severity) : eventStatus(event)}</em>
+          </div>
+
+          {isFirstDrift ? (
+            <div className="change-value-grid">
+              <div>
+                <span>Baseline value</span>
+                <pre>{baselineValue ?? "--"}</pre>
+              </div>
+              <div>
+                <span>Candidate value</span>
+                <pre>{candidateValue ?? "--"}</pre>
+              </div>
+            </div>
+          ) : null}
+
+          <div className="detail-section detail-section-compact">
+            <div className="detail-section-title">
+              <span>Event context</span>
+              <GitBranch size={15} aria-hidden />
+            </div>
+            <dl className="metadata-list metadata-list-grid">
+              <div>
+                <dt>Canonical event</dt>
+                <dd>{event?.id ?? "--"}</dd>
+              </div>
+              <div>
+                <dt>Source event</dt>
+                <dd>{event?.source_event_id ?? "--"}</dd>
+              </div>
+              <div>
+                <dt>Parent</dt>
+                <dd>{parentEvent ? `${friendlyEventType(parentEvent.type)} / ${parentEvent.semantic_name}` : "Root event"}</dd>
+              </div>
+              <div>
+                <dt>Path</dt>
+                <dd>
+                  {parentChain.length > 0
+                    ? parentChain.map((ancestor) => ancestor.semantic_name).join(" -> ")
+                    : "Trace root"}
+                </dd>
+              </div>
+              <div>
+                <dt>Impact</dt>
+                <dd>
+                  {divergence
+                    ? `${affectedEventLabel}, ${formatDuration(event?.duration_ms)} selected`
+                    : formatDuration(event?.duration_ms)}
+                </dd>
+              </div>
+              <div>
+                <dt>Cost delta</dt>
+                <dd>{divergence ? `${divergence.impact.cost_delta_ratio.toFixed(2)}x` : "--"}</dd>
+              </div>
+            </dl>
+          </div>
         </section>
       ) : null}
 

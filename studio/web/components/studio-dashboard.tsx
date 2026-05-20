@@ -13,27 +13,22 @@ import {
   runRegressionCase,
   uploadTrace,
 } from "@/lib/api";
-import type { RegressionCase, Report, RunSummary, TraceEvent, TraceSummary } from "@/lib/types";
+import type { RegressionCase, Report, RunSummary, StudioSection, TraceEvent, TraceSummary } from "@/lib/types";
 import { CompareDrawer } from "@/components/compare-drawer";
 import { EventDetailsPanel } from "@/components/event-details-panel";
 import { IntegrationPanel } from "@/components/integration-panel";
-import { ProjectTabs, type StudioSectionConfig } from "@/components/project-tabs";
+import { IssuesPanel } from "@/components/issues-panel";
 import { RegressionCaseLibrary } from "@/components/regression-case-library";
 import { RunList } from "@/components/run-list";
 import { SectionOverview, sectionContent } from "@/components/section-overview";
+import { SettingsPanel } from "@/components/settings-panel";
+import { SessionsPanel } from "@/components/sessions-panel";
 import { Sidebar } from "@/components/sidebar";
 import { Topbar } from "@/components/topbar";
+import { TraceList } from "@/components/trace-list";
 import { TraceWorkbench } from "@/components/trace-workbench";
 import { UploadComparePanel } from "@/components/upload-compare-panel";
 import { friendlyTraceName } from "@/lib/format";
-
-const studioSections: StudioSectionConfig[] = [
-  { id: "runs", label: "Comparisons" },
-  { id: "sources", label: "Trace Sources" },
-  { id: "divergences", label: "Regression Review" },
-  { id: "cases", label: "Guardrail Tests" },
-  { id: "setup", label: "CI Setup" },
-];
 
 export function StudioDashboard() {
   const [report, setReport] = useState<Report | null>(null);
@@ -43,10 +38,11 @@ export function StudioDashboard() {
   const [baselineId, setBaselineId] = useState("");
   const [candidateId, setCandidateId] = useState("");
   const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [activeSide, setActiveSide] = useState<"baseline" | "candidate">("candidate");
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
-  const [activeSection, setActiveSection] = useState<StudioSectionConfig["id"]>("runs");
+  const [activeSection, setActiveSection] = useState<StudioSection>("runs");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "passing" | "failing">("all");
   const [severityFilter, setSeverityFilter] = useState<
@@ -70,7 +66,7 @@ export function StudioDashboard() {
   }, [first]);
   const activeTrace = activeSide === "baseline" ? report?.baseline : report?.candidate;
   const activeEvents = activeSide === "baseline" ? (report?.events.baseline ?? []) : (report?.events.candidate ?? []);
-  const hasSideRail = activeSection === "sources";
+  const hasSideRail = false;
   const selectedEvent =
     activeEvents.find((event) => event.id === selectedEventId) ??
     activeEvents.find((event) => highlightedIds.has(event.id)) ??
@@ -228,15 +224,17 @@ export function StudioDashboard() {
 
   return (
     <main className="studio-shell">
-      <div className="dashboard-frame">
-        <Sidebar activeSection={activeSection} onSectionChange={setActiveSection} />
+      <div className={sidebarCollapsed ? "dashboard-frame dashboard-frame-sidebar-collapsed" : "dashboard-frame"}>
+        <Sidebar
+          activeSection={activeSection}
+          collapsed={sidebarCollapsed}
+          onSectionChange={setActiveSection}
+          onThemeToggle={toggleTheme}
+          onToggleCollapsed={() => setSidebarCollapsed((current) => !current)}
+          theme={theme}
+        />
         <div className="dashboard-main">
-          <Topbar
-            searchValue={searchQuery}
-            theme={theme}
-            onSearchChange={setSearchQuery}
-            onThemeToggle={toggleTheme}
-          />
+          <Topbar searchValue={searchQuery} onSearchChange={setSearchQuery} />
 
           <section className="page-header">
             <div>
@@ -253,12 +251,6 @@ export function StudioDashboard() {
               </span>
             </div>
           </section>
-
-          <ProjectTabs
-            activeSection={activeSection}
-            onSectionChange={setActiveSection}
-            sections={studioSections}
-          />
 
           {error ? (
             <section className="error-band" role="alert">
@@ -287,20 +279,20 @@ export function StudioDashboard() {
                 severityFilter={severityFilter}
                 statusFilter={statusFilter}
               />
-              <TraceWorkbench
-                events={activeEvents}
-                highlightedIds={highlightedIds}
-                onSelectEvent={handleSelectEvent}
-                selectedEventId={selectedEvent?.id ?? null}
-                side={activeSide}
-                trace={activeTrace}
-              />
               <EventDetailsPanel
                 divergence={first}
                 event={selectedEvent}
                 events={activeEvents}
                 highlightedIds={highlightedIds}
                 onSelectEvent={handleSelectEvent}
+                side={activeSide}
+                trace={activeTrace}
+              />
+              <TraceWorkbench
+                events={activeEvents}
+                highlightedIds={highlightedIds}
+                onSelectEvent={handleSelectEvent}
+                selectedEventId={selectedEvent?.id ?? null}
                 side={activeSide}
                 trace={activeTrace}
               />
@@ -308,25 +300,9 @@ export function StudioDashboard() {
           ) : null}
 
           {activeSection === "divergences" ? (
-            <div className="review-workbench" data-testid="review-workbench">
+            <div className="issues-page-frame" data-testid="review-workbench">
+              <IssuesPanel runs={runs} searchQuery={searchQuery} />
               <CompareDrawer divergence={first} report={report} />
-              <TraceWorkbench
-                events={activeEvents}
-                highlightedIds={highlightedIds}
-                onSelectEvent={handleSelectEvent}
-                selectedEventId={selectedEvent?.id ?? null}
-                side={activeSide}
-                trace={activeTrace}
-              />
-              <EventDetailsPanel
-                divergence={first}
-                event={selectedEvent}
-                events={activeEvents}
-                highlightedIds={highlightedIds}
-                onSelectEvent={handleSelectEvent}
-                side={activeSide}
-                trace={activeTrace}
-              />
             </div>
           ) : null}
 
@@ -350,19 +326,28 @@ export function StudioDashboard() {
                 />
               ) : null}
               {activeSection === "setup" ? (
-                <CompareDrawer divergence={first} report={report} />
+                <SettingsPanel />
               ) : null}
               {activeSection === "sources" ? (
-                <UploadComparePanel
-                  traces={traces}
-                  baselineId={baselineId}
-                  candidateId={candidateId}
-                  busy={busy}
-                  onBaselineChange={setBaselineId}
-                  onCandidateChange={setCandidateId}
-                  onUpload={(file, role) => void handleUpload(file, role)}
-                  onCompare={() => void handleCompare()}
-                />
+                <>
+                  <TraceList traces={traces} searchQuery={searchQuery} />
+                  <div className="trace-source-actions">
+                    <UploadComparePanel
+                      traces={traces}
+                      baselineId={baselineId}
+                      candidateId={candidateId}
+                      busy={busy}
+                      onBaselineChange={setBaselineId}
+                      onCandidateChange={setCandidateId}
+                      onUpload={(file, role) => void handleUpload(file, role)}
+                      onCompare={() => void handleCompare()}
+                    />
+                    <IntegrationPanel integrations={report?.integrations ?? []} />
+                  </div>
+                </>
+              ) : null}
+              {activeSection === "sessions" ? (
+                <SessionsPanel traces={traces} searchQuery={searchQuery} />
               ) : null}
             </div>
 

@@ -1,4 +1,4 @@
-import { CheckCircle2, CircleAlert, Clock3, GitCompare, Search } from "lucide-react";
+import { CheckCircle2, CircleAlert, Filter, GitCompare, Search } from "lucide-react";
 import type { Divergence, Report, RunSummary, RunStatus } from "@/lib/types";
 import {
   friendlyDivergenceType,
@@ -76,7 +76,6 @@ function pluralize(count: number, singular: string, plural = `${singular}s`): st
 export function RunList({
   report,
   runs,
-  first,
   searchQuery,
   statusFilter,
   severityFilter,
@@ -88,8 +87,6 @@ export function RunList({
 }: RunListProps) {
   const activeReportId = selectedReportId ?? report?.report_id ?? null;
   const displayRuns = groupRuns(runs);
-  const totalDivergences = runs.reduce((total, run) => total + run.divergence_count, 0);
-  const failingCount = runs.filter((run) => run.status === "failing").length;
   const emptyCopy =
     searchQuery.trim() || statusFilter !== "all" || severityFilter !== "all"
       ? "No comparison runs match the current filters."
@@ -97,27 +94,14 @@ export function RunList({
 
   return (
     <section className="panel run-list-panel" aria-label="Comparison history" data-testid="runs-table">
-      <div className="stat-strip" aria-label="Comparison summary">
-        <article>
-          <span>Comparisons</span>
-          <strong>{runs.length}</strong>
-          <small>{pluralize(failingCount, "regression")} need review</small>
-        </article>
-        <article>
-          <span>Behavior changes</span>
-          <strong>{report?.divergence_count ?? totalDivergences}</strong>
-          <small>{friendlyDivergenceType(first?.type)}</small>
-        </article>
-        <article>
-          <span>Risk</span>
-          <strong>{friendlySeverity(first?.severity)}</strong>
-          <small>Selected comparison</small>
-        </article>
-        <article>
-          <span>Cost change</span>
-          <strong>{first ? `${first.impact.cost_delta_ratio.toFixed(2)}x` : "1.00x"}</strong>
-          <small>Selected comparison</small>
-        </article>
+      <div className="comparison-list-header">
+        <div>
+          <p>Recent comparisons</p>
+          <strong>{pluralize(displayRuns.length, "check")}</strong>
+        </div>
+        <button aria-label="Filter comparisons" type="button">
+          <Filter size={15} aria-hidden />
+        </button>
       </div>
 
       <div className="run-toolbar" aria-label="Run filters">
@@ -134,7 +118,6 @@ export function RunList({
           </button>
         ))}
         <label className="filter-select">
-          <Clock3 size={14} aria-hidden />
           <span className="sr-only">Severity filter</span>
           <select
             aria-label="Severity filter"
@@ -159,7 +142,7 @@ export function RunList({
 
       <div className="run-table">
         <div className="run-table-head" aria-hidden="true">
-          <span>Scenario</span>
+          <span>Comparison</span>
           <span>Result</span>
           <span>First change</span>
           <span>Impact</span>
@@ -183,6 +166,10 @@ export function RunList({
               onClick={() => onSelectRun(run.report_id)}
               type="button"
             >
+              <span className="run-meta-line">
+                <code>{run.report_id.slice(0, 10)}</code>
+                <small>{formatRunDate(run.created_at)}</small>
+              </span>
               <span className="run-content">
                 <span className={`run-status run-status-${run.status}`} aria-hidden>
                   {run.status === "passing" ? <CheckCircle2 size={15} /> : <CircleAlert size={15} />}
@@ -197,7 +184,7 @@ export function RunList({
               </span>
               <span>
                 <em className={`tier-pill tier-${run.status}`}>{statusLabel}</em>
-                <small>{friendlySourceConvention(run.source_convention)}</small>
+                <em className="version-pill">v1.2 vs v1.3</em>
               </span>
               <span>
                 <strong className="run-signal">{divergenceLabel}</strong>
@@ -205,16 +192,10 @@ export function RunList({
               </span>
               <span>{pluralize(run.divergence_count, "change")}</span>
               <span>{run.event_count}</span>
-              <span>{formatRunDate(run.created_at)}</span>
+              <span>{friendlySourceConvention(run.source_convention)}</span>
             </button>
           );
         })}
-        {displayRuns.length > 0 ? (
-          <div className="run-table-note">
-            <strong>Read this page left to right.</strong>
-            <span>Select a comparison, inspect the trace step that changed, then save the guardrail from Review.</span>
-          </div>
-        ) : null}
         {runs.length === 0 ? (
           <div className="run-empty" role="status">
             <span>{emptyCopy}</span>

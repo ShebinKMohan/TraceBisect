@@ -97,6 +97,46 @@ async function assertFullScreenAppShell(page, label) {
   );
 }
 
+async function assertSidebarViewportLocked(page, label) {
+  const lock = await page.evaluate(() => {
+    const main = document.querySelector(".dashboard-main");
+    const sidebar = document.querySelector(".sidebar");
+    const profile = document.querySelector('[data-testid="sidebar-profile-button"]');
+    const settings = document.querySelector('[data-testid="sidebar-settings-link"]');
+    if (main) main.scrollTop = main.scrollHeight;
+    const sidebarRect = sidebar?.getBoundingClientRect();
+    const profileRect = profile?.getBoundingClientRect();
+    const settingsRect = settings?.getBoundingClientRect();
+    return {
+      bodyScrollHeight: document.body.scrollHeight,
+      bodyClientHeight: document.body.clientHeight,
+      mainScrollTop: Math.round(main?.scrollTop ?? 0),
+      profileVisible:
+        Boolean(profileRect) &&
+        profileRect.top >= 0 &&
+        profileRect.bottom <= window.innerHeight,
+      settingsVisible:
+        Boolean(settingsRect) &&
+        settingsRect.top >= 0 &&
+        settingsRect.bottom <= window.innerHeight,
+      sidebarHeight: Math.round(sidebarRect?.height ?? 0),
+      windowHeight: window.innerHeight,
+    };
+  });
+  assert(
+    lock.profileVisible && lock.settingsVisible,
+    `${label} sidebar footer is not viewport pinned: ${JSON.stringify(lock)}`,
+  );
+  assert(
+    Math.abs(lock.sidebarHeight - lock.windowHeight) <= 1,
+    `${label} sidebar is not viewport height: ${JSON.stringify(lock)}`,
+  );
+  assert(
+    lock.bodyScrollHeight <= lock.bodyClientHeight + 1,
+    `${label} page body scrolls instead of dashboard main: ${JSON.stringify(lock)}`,
+  );
+}
+
 async function assertWorkbenchLayout(page, testId, label) {
   const layout = await page.evaluate((id) => {
     const grid = document.querySelector(`[data-testid="${id}"]`);
@@ -120,17 +160,24 @@ async function assertWorkbenchLayout(page, testId, label) {
     };
   }, testId);
   assert(layout.found, `${label} was not rendered`);
-  assert(layout.columns === 3, `${label} should use three workbench columns. Actual: ${layout.columns}`);
-  assert(layout.children.length === 3, `${label} should have three panes. Actual: ${layout.children.length}`);
-  const [first, second, third] = layout.children;
-  assert(
-    Math.max(first.top, second.top, third.top) - Math.min(first.top, second.top, third.top) <= 1,
-    `${label} panes are not top-aligned: ${JSON.stringify(layout.children)}`,
-  );
-  assert(
-    Math.max(first.bottom, second.bottom, third.bottom) - Math.min(first.bottom, second.bottom, third.bottom) <= 1,
-    `${label} panes are not height-aligned: ${JSON.stringify(layout.children)}`,
-  );
+  assert(layout.children.length >= 1, `${label} should have rendered panes. Actual: ${layout.children.length}`);
+  if (testId === "comparison-workbench") {
+    assert(layout.columns === 2, `${label} should use reference two-column split. Actual: ${layout.columns}`);
+    assert(layout.children.length === 3, `${label} should have list, inspector, and trace panes. Actual: ${layout.children.length}`);
+    const [list, inspector, trace] = layout.children;
+    assert(
+      Math.abs(list.top - inspector.top) <= 1,
+      `${label} list and inspector are not top-aligned: ${JSON.stringify(layout.children)}`,
+    );
+    assert(
+      Math.abs(inspector.bottom - trace.top) <= 1,
+      `${label} inspector and execution trace should stack without a gap: ${JSON.stringify(layout.children)}`,
+    );
+    assert(
+      Math.abs(list.bottom - trace.bottom) <= 1,
+      `${label} left list should span inspector plus trace: ${JSON.stringify(layout.children)}`,
+    );
+  }
   assert(
     layout.scrollWidth <= layout.innerWidth,
     `${label} introduced horizontal overflow: ${JSON.stringify(layout)}`,
@@ -143,25 +190,28 @@ async function expectTraceDetailTab(page, tabName, selector, expectedText) {
 }
 
 async function assertTreeConnectors(page, label) {
-  const counts = await page.evaluate(() => ({
-    eventBranches: document.querySelectorAll(".observation-row .event-tree-guide-branch").length,
-    eventContinuations: document.querySelectorAll(
-      ".observation-row .event-tree-guide-continue, .observation-row .event-tree-guide-branch-open",
-    ).length,
-    eventArrows: document.querySelectorAll(".observation-row .tree-arrow").length,
-    traceBranches: document.querySelectorAll(".trace-tree-row .tree-guide-branch").length,
-    traceContinuations: document.querySelectorAll(
-      ".trace-tree-row .tree-guide-continue, .trace-tree-row .tree-guide-branch-open",
-    ).length,
-    traceArrows: document.querySelectorAll(".trace-tree-row .tree-arrow").length,
-    traceRowTransition: getComputedStyle(document.querySelector(".trace-tree-row")).transitionDuration,
-  }));
+  const counts = await page.evaluate(() => {
+    const branch = document.querySelector(".trace-tree-row .tree-guide-branch");
+    const row = document.querySelector(".trace-tree-row");
+    return {
+      traceBranches: document.querySelectorAll(".trace-tree-row .tree-guide-branch").length,
+      traceRootRails: document.querySelectorAll(".trace-tree-row .tree-guide-root").length,
+      traceContinuations: document.querySelectorAll(
+        ".trace-tree-row .tree-guide-continue, .trace-tree-row .tree-guide-branch-open",
+      ).length,
+      traceArrows: document.querySelectorAll(".trace-tree-row .tree-arrow").length,
+      traceConnectorColor: branch ? getComputedStyle(branch, "::before").backgroundColor : "",
+      traceRowTransition: row ? getComputedStyle(row).transitionDuration : "0s",
+    };
+  });
   assert(counts.traceBranches >= 3, `${label} trace tree connectors missing: ${JSON.stringify(counts)}`);
+  assert(counts.traceRootRails >= 1, `${label} trace root rail missing: ${JSON.stringify(counts)}`);
   assert(counts.traceContinuations >= 2, `${label} trace continuation lines missing: ${JSON.stringify(counts)}`);
   assert(counts.traceArrows >= 3, `${label} trace arrowheads missing: ${JSON.stringify(counts)}`);
-  assert(counts.eventBranches >= 3, `${label} event-list connectors missing: ${JSON.stringify(counts)}`);
-  assert(counts.eventContinuations >= 2, `${label} event-list continuation lines missing: ${JSON.stringify(counts)}`);
-  assert(counts.eventArrows >= 3, `${label} event-list arrowheads missing: ${JSON.stringify(counts)}`);
+  assert(
+    counts.traceConnectorColor === "rgb(63, 142, 199)" || counts.traceConnectorColor === "rgb(98, 168, 232)",
+    `${label} trace connector should use the reference blue rail: ${JSON.stringify(counts)}`,
+  );
   assert(
     counts.traceRowTransition !== "0s",
     `${label} trace interaction animation missing: ${JSON.stringify(counts)}`,
@@ -256,10 +306,14 @@ async function main() {
   await expectText(page, '[data-testid="studio-title"]', "Comparison history", "product title");
   const placeholder = await page.locator(".search-control input").getAttribute("placeholder");
   assert(
-    placeholder === "Search comparisons, traces, events",
+    placeholder === "Search comparisons, traces, sessions, issues",
     `Search placeholder was not product-scoped. Actual: ${placeholder}`,
   );
   await expectText(page, ".sidebar", "Comparisons", "desktop sidebar labels");
+  await expectText(page, ".sidebar", "Traces", "desktop sidebar labels");
+  await expectText(page, ".sidebar", "Sessions", "desktop sidebar labels");
+  await expectText(page, ".sidebar", "Issues", "desktop sidebar labels");
+  await expectText(page, ".sidebar", "Guardrails", "desktop sidebar labels");
   await expectText(page, '[data-testid="runs-table"]', "Refund search", "runs table");
   await expectText(page, '[data-testid="runs-table"]', "Tool arguments changed", "run divergence signal");
   await expectNotText(page, '[data-testid="runs-table"]', ".tbtrace", "runs table primary labels");
@@ -270,31 +324,94 @@ async function main() {
   await page.getByTestId("clear-run-filters").click();
   await expectText(page, '[data-testid="runs-table"]', "Refund search", "cleared run filters");
   await page.getByTestId("sidebar-section-sources").click();
-  await expectText(page, '[data-testid="studio-title"]', "Add trace sources", "sources title");
+  await expectText(page, '[data-testid="studio-title"]', "Trace inventory", "traces title");
+  await expectText(page, '[data-testid="trace-table"]', "Captured traces", "trace table");
+  await expectText(page, '[data-testid="trace-table"]', "gpt-4o-mini", "trace table model");
+  await expectText(page, '[data-testid="trace-table"]', "refund_search:v3", "trace table prompt");
   await expectText(page, ".upload-panel", "Known-good baseline", "baseline upload label");
   await expectText(page, ".upload-panel", "New run to check", "candidate upload label");
   await expectText(page, ".upload-panel", "Find first behavior change", "compare action label");
   await expectText(page, '[data-testid="integration-otel"]', "OpenTelemetry", "OTel integration card");
   await assertNoHorizontalOverflow(page, "sources section");
+  await page.getByTestId("sidebar-section-sessions").click();
+  await expectText(page, '[data-testid="studio-title"]', "Conversation sessions", "sessions title");
+  await expectText(page, '[data-testid="sessions-table"]', "Refund search", "sessions table");
+  await expectText(page, '[data-testid="sessions-table"]', "Trace ID", "sessions expanded trace rows");
+  await expectText(page, '[data-testid="sessions-table"]', "Success", "sessions status");
+  await assertNoHorizontalOverflow(page, "sessions section");
   await page.getByTestId("sidebar-section-divergences").click();
-  await expectText(page, '[data-testid="studio-title"]', "Review behavior changes", "divergences title");
-  await expectText(page, '[data-testid="first-divergence-card"]', "search database", "divergences section");
-  await assertWorkbenchLayout(page, "review-workbench", "regression review workbench");
+  await expectText(page, '[data-testid="studio-title"]', "Regression issues", "issues title");
+  await expectText(page, '[data-testid="issues-table"]', "Tool arguments changed", "issues table");
+  await expectText(page, '[data-testid="issues-table"]', "Frequency", "issues metric");
+  await expectText(page, '[data-testid="review-workbench"]', "Tool arguments changed", "issues frame");
   await assertNoHorizontalOverflow(page, "divergences section");
   await page.getByTestId("sidebar-section-cases").click();
-  await expectText(page, '[data-testid="studio-title"]', "Regression guardrails", "cases title");
+  await expectText(page, '[data-testid="studio-title"]', "Guardrail datasets", "cases title");
   await expectText(page, '[data-testid="regression-case-library"]', "Saved guardrails", "cases section");
   await assertNoHorizontalOverflow(page, "cases section");
-  await page.getByTestId("sidebar-section-setup").click();
-  await expectText(page, '[data-testid="studio-title"]', "Ship CI protection", "setup title");
-  await expectText(page, '[data-testid="setup-section"]', "Operational checklist", "setup section");
-  await expectText(page, '[data-testid="setup-section"]', "baseline trace", "setup baseline guidance");
+  await page.getByTestId("sidebar-settings-link").click();
+  await expectText(page, '[data-testid="studio-title"]', "Workspace settings", "setup title");
+  await expectText(page, '[data-testid="setup-section"]', "API keys", "setup section");
+  await expectText(page, '[data-testid="setup-section"]', "Ingest endpoints", "setup ingest endpoints");
+  await expectText(page, '[data-testid="settings-members"]', "Shebin Mohan", "setup members");
   await assertNoHorizontalOverflow(page, "setup section");
+  await assertSidebarViewportLocked(page, "settings section");
+
+  const topbarThemeToggleCount = await page.getByTestId("theme-toggle").count();
+  assert(topbarThemeToggleCount === 0, `Theme toggle leaked into topbar: ${topbarThemeToggleCount}`);
+  const profileButton = page.getByTestId("sidebar-profile-button");
+  assert((await profileButton.count()) === 1, "Expected one sidebar profile button");
+  await profileButton.click();
+  await expectText(page, '[data-testid="profile-popover"]', "Refund Ops", "profile popover workspace");
+  await expectText(page, '[data-testid="profile-popover"]', "Dark mode", "profile popover theme action");
+  await page.getByTestId("profile-theme-toggle").click();
+  let theme = await page.locator("html").getAttribute("data-theme");
+  assert(theme === "dark", `Profile theme toggle did not set dark mode. Actual: ${theme}`);
+  await page.getByTestId("profile-theme-toggle").click();
+  theme = await page.locator("html").getAttribute("data-theme");
+  assert(theme === "light", `Profile theme toggle did not restore light mode. Actual: ${theme}`);
+  await page.getByTestId("sidebar-profile-button").click();
+
+  await page.getByTestId("sidebar-collapse-button").click();
+  const collapsedShell = await page.evaluate(() => {
+    const frame = document.querySelector(".dashboard-frame");
+    const sidebar = document.querySelector(".sidebar");
+    return {
+      frameCollapsed: frame?.classList.contains("dashboard-frame-sidebar-collapsed") ?? false,
+      sidebarCollapsed: sidebar?.classList.contains("sidebar-collapsed") ?? false,
+      sidebarWidth: Math.round(sidebar?.getBoundingClientRect().width ?? 0),
+    };
+  });
+  assert(
+    collapsedShell.frameCollapsed && collapsedShell.sidebarCollapsed && collapsedShell.sidebarWidth <= 80,
+    `Sidebar did not collapse cleanly: ${JSON.stringify(collapsedShell)}`,
+  );
+  await assertNoHorizontalOverflow(page, "collapsed sidebar");
+  await page.getByTestId("sidebar-collapse-button").click();
+  const expandedShell = await page.evaluate(() => {
+    const frame = document.querySelector(".dashboard-frame");
+    const sidebar = document.querySelector(".sidebar");
+    return {
+      frameCollapsed: frame?.classList.contains("dashboard-frame-sidebar-collapsed") ?? false,
+      sidebarCollapsed: sidebar?.classList.contains("sidebar-collapsed") ?? false,
+      sidebarWidth: Math.round(sidebar?.getBoundingClientRect().width ?? 0),
+    };
+  });
+  assert(
+    !expandedShell.frameCollapsed && !expandedShell.sidebarCollapsed && expandedShell.sidebarWidth >= 160,
+    `Sidebar did not expand cleanly: ${JSON.stringify(expandedShell)}`,
+  );
+
   await page.getByTestId("sidebar-section-runs").click();
   await expectText(page, '[data-testid="studio-title"]', "Comparison history", "runs title after section navigation");
   await expectText(page, '[data-testid="trace-tree"]', "Tool call", "trace tree event type");
   await expectText(page, '[data-testid="trace-tree"]', "search_database", "trace tree event name");
-  await expectText(page, '[data-testid="details-panel"]', "search_database", "details panel");
+  await expectText(page, '[data-testid="details-panel"]', "Baseline value", "details panel");
+  const duplicateEventListTabs = await page
+    .getByTestId("trace-detail-tabs")
+    .getByRole("tab", { name: "Event list" })
+    .count();
+  assert(duplicateEventListTabs === 0, `Inspector should not duplicate the execution trace as Event list: ${duplicateEventListTabs}`);
   await expectTraceDetailTab(
     page,
     "Summary",
@@ -303,9 +420,9 @@ async function main() {
   );
   await expectTraceDetailTab(
     page,
-    "Event list",
-    '[data-testid="trace-detail-observations"]',
-    "search_database",
+    "Change Inspector",
+    '[data-testid="trace-detail-change"]',
+    "Baseline value",
   );
   await assertTreeConnectors(page, "event hierarchy");
   await expectTraceDetailTab(
@@ -321,30 +438,25 @@ async function main() {
     "query",
   );
   await page.getByTestId("sidebar-section-divergences").click();
-  await expectText(
-    page,
-    '[data-testid="first-divergence-card"]',
-    "search database used different tool arguments",
-    "first divergence card",
-  );
-  await expectText(page, '[data-testid="metric-divergences"]', "3", "divergence metric");
+  await expectText(page, '[data-testid="issues-table"]', "Tool arguments changed", "issues card");
+  await page.getByTestId("sidebar-section-runs").click();
   await assertContrast(page, '[data-testid="studio-title"]', "light title");
-  await assertContrast(page, '[data-testid="first-divergence-card"] h2', "light divergence heading");
-  await assertContrast(page, ".payload-expected code", "light expected payload");
-  await assertContrast(page, ".payload-actual code", "light actual payload");
-  await assertContrast(page, '[data-testid="metric-divergences"]', "light divergence metric");
+  await assertContrast(page, '[data-testid="trace-detail-change"] .change-card strong', "light divergence heading");
+  await assertContrast(page, ".change-value-grid div:first-child pre", "light expected payload");
+  await assertContrast(page, ".change-value-grid div:last-child pre", "light actual payload");
   await assertNoHorizontalOverflow(page, "desktop light");
   await page.screenshot({ path: path.join(screenshotDir, "desktop-light.png"), fullPage: true });
 
-  await page.getByTestId("theme-toggle").click();
-  const theme = await page.locator("html").getAttribute("data-theme");
+  await page.getByTestId("sidebar-profile-button").click();
+  await page.getByTestId("profile-theme-toggle").click();
+  theme = await page.locator("html").getAttribute("data-theme");
   assert(theme === "dark", `Theme toggle did not set dark mode. Actual: ${theme}`);
+  await page.getByTestId("sidebar-profile-button").click();
   await assertFullScreenAppShell(page, "desktop dark");
   await assertContrast(page, '[data-testid="studio-title"]', "dark title");
-  await assertContrast(page, '[data-testid="first-divergence-card"] h2', "dark divergence heading");
-  await assertContrast(page, ".payload-expected code", "dark expected payload");
-  await assertContrast(page, ".payload-actual code", "dark actual payload");
-  await assertContrast(page, '[data-testid="metric-divergences"]', "dark divergence metric");
+  await assertContrast(page, '[data-testid="trace-detail-change"] .change-card strong', "dark divergence heading");
+  await assertContrast(page, ".change-value-grid div:first-child pre", "dark expected payload");
+  await assertContrast(page, ".change-value-grid div:last-child pre", "dark actual payload");
   await assertNoHorizontalOverflow(page, "desktop dark");
   await page.screenshot({ path: path.join(screenshotDir, "desktop-dark.png"), fullPage: true });
 
@@ -353,7 +465,7 @@ async function main() {
   await page.getByTestId("candidate-upload").setInputFiles(fixtures.candidate);
   await page.getByTestId("compare-button").click();
   await page.getByTestId("sidebar-section-divergences").click();
-  await page.getByTestId("first-divergence-card").waitFor({ state: "visible" });
+  await expectText(page, '[data-testid="issues-table"]', "Tool arguments changed", "uploaded issue card");
   await expectText(
     page,
     '[data-testid="comparison-summary"]',
@@ -391,11 +503,6 @@ async function main() {
   await page.getByTestId("regression-case-library").getByRole("button", { name: "Rerun" }).first().click();
   await expectText(page, '[data-testid="regression-case-library"]', "Needs review", "regression case run status");
 
-  await page.getByTestId("sidebar-section-setup").click();
-  await page.getByTestId("copy-pytest").click();
-  await page.getByTestId("copy-pytest").filter({ hasText: "Copied" }).waitFor({ state: "visible" });
-  await expectText(page, '[data-testid="copy-pytest"]', "Copied", "copy button");
-
   await page.evaluate(() => {
     window.localStorage.setItem("tracebisect-theme", "light");
     document.documentElement.dataset.theme = "light";
@@ -408,7 +515,10 @@ async function main() {
   await assertNoHorizontalOverflow(page, "mobile light");
   await page.screenshot({ path: path.join(screenshotDir, "mobile-light.png"), fullPage: true });
 
-  await page.getByTestId("theme-toggle").click();
+  await page.evaluate(() => {
+    window.localStorage.setItem("tracebisect-theme", "dark");
+    document.documentElement.dataset.theme = "dark";
+  });
   await assertNoHorizontalOverflow(page, "mobile dark");
   await page.screenshot({ path: path.join(screenshotDir, "mobile-dark.png"), fullPage: true });
 

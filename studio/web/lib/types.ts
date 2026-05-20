@@ -16,10 +16,22 @@ export type TraceSummary = {
   created_at: string;
   event_count: number;
   root_event: string;
-  status?: string | null;
+  status: "success" | "error" | "unknown";
+  duration_ms: number;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  total_tokens: number;
+  total_cost_usd: number;
+  model: string | null;
+  model_version: string | null;
+  prompt_version: string | null;
+  code_sha: string | null;
+  agent_name: string | null;
+  agent_version: string | null;
+  session_id: string | null;
 };
 
-export type StudioSection = "runs" | "sources" | "divergences" | "cases" | "setup";
+export type StudioSection = "runs" | "sources" | "sessions" | "divergences" | "cases" | "setup";
 
 export type TraceEvent = {
   id: string;

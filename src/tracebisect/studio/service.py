@@ -19,7 +19,16 @@ from tracebisect.demo import build_refund_baseline_trace, build_refund_candidate
 from tracebisect.diff import Divergence, detect_divergences, first_divergence
 from tracebisect.jsonl import read_trace
 from tracebisect.otel import import_otel_json
-from tracebisect.schema import Event, EventPayload, JsonObject, JsonValue, Trace
+from tracebisect.schema import (
+    Event,
+    EventPayload,
+    JsonObject,
+    JsonValue,
+    LLMCallPayload,
+    RunEndPayload,
+    RunStartPayload,
+    Trace,
+)
 
 DEFAULT_SCENARIO_CMD = ["python", "examples/refund_agent.py", "--case", "refund_042"]
 DEFAULT_ASSERTIONS = ["tool_args", "final_output", "cost"]
@@ -397,6 +406,7 @@ def _report_summary(report: JsonObject) -> JsonObject:
 
 
 def _trace_summary(trace: Trace, *, trace_key: str, display_name: str) -> JsonObject:
+    profile = _trace_profile(trace)
     return {
         "id": trace_key,
         "trace_id": trace.trace_id,
@@ -405,7 +415,112 @@ def _trace_summary(trace: Trace, *, trace_key: str, display_name: str) -> JsonOb
         "created_at": _format_datetime(trace.created_at),
         "event_count": len(trace.events),
         "root_event": trace.root_event.semantic_name,
+        **profile,
     }
+
+
+def _trace_profile(trace: Trace) -> JsonObject:
+    root_payload = trace.root_event.payload
+    llm_payloads = [
+        event.payload for event in trace.events if isinstance(event.payload, LLMCallPayload)
+    ]
+    end_payload = _run_end_payload(trace)
+    root_start = root_payload if isinstance(root_payload, RunStartPayload) else None
+    total_input_tokens = (
+        end_payload.total_input_tokens
+        if end_payload is not None
+        else sum(payload.input_tokens for payload in llm_payloads)
+    )
+    total_output_tokens = (
+        end_payload.total_output_tokens
+        if end_payload is not None
+        else sum(payload.output_tokens for payload in llm_payloads)
+    )
+    total_cost_usd = (
+        end_payload.total_cost_usd
+        if end_payload is not None
+        else sum(payload.cost_usd for payload in llm_payloads)
+    )
+    first_llm = llm_payloads[0] if llm_payloads else None
+    return {
+        "status": _trace_status(end_payload),
+        "duration_ms": _trace_duration_ms(trace),
+        "total_input_tokens": total_input_tokens,
+        "total_output_tokens": total_output_tokens,
+        "total_tokens": total_input_tokens + total_output_tokens,
+        "total_cost_usd": total_cost_usd,
+        "model": first_llm.model if first_llm is not None else None,
+        "model_version": _first_model_version(trace),
+        "prompt_version": _first_prompt_version(trace),
+        "code_sha": _first_code_sha(trace),
+        "agent_name": root_start.agent_name if root_start is not None else None,
+        "agent_version": root_start.agent_version if root_start is not None else None,
+        "session_id": _trace_session_id(root_start),
+    }
+
+
+def _run_end_payload(trace: Trace) -> RunEndPayload | None:
+    for event in reversed(trace.events):
+        if isinstance(event.payload, RunEndPayload):
+            return event.payload
+    return None
+
+
+def _trace_status(end_payload: RunEndPayload | None) -> str:
+    if end_payload is None:
+        return "unknown"
+    return "success" if end_payload.success else "error"
+
+
+def _trace_duration_ms(trace: Trace) -> float:
+    if not trace.events:
+        return 0.0
+    first_ts = min(event.timestamp for event in trace.events)
+    last_ts = max(event.timestamp for event in trace.events)
+    elapsed_ms = (last_ts - first_ts).total_seconds() * 1000
+    if elapsed_ms > 0:
+        return round(elapsed_ms, 3)
+    return round(sum(event.duration_ms or 0.0 for event in trace.events), 3)
+
+
+def _first_model_version(trace: Trace) -> str | None:
+    for event in trace.events:
+        if event.model_version:
+            return event.model_version
+    return None
+
+
+def _first_prompt_version(trace: Trace) -> str | None:
+    for event in trace.events:
+        if event.prompt_version:
+            return event.prompt_version
+    return None
+
+
+def _first_code_sha(trace: Trace) -> str | None:
+    for event in trace.events:
+        if event.code_sha:
+            return event.code_sha
+    return None
+
+
+def _trace_session_id(root_payload: RunStartPayload | None) -> str | None:
+    if root_payload is None:
+        return None
+    for key in ("session_id", "thread_id", "conversation_id", "case_id", "case", "scenario"):
+        value = root_payload.run_metadata.get(key)
+        text = _metadata_text(value)
+        if text:
+            return text
+    return root_payload.user_input[:80] if root_payload.user_input else None
+
+
+def _metadata_text(value: JsonValue | None) -> str | None:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, int | float) and not isinstance(value, bool):
+        return str(value)
+    return None
 
 
 def _event_view(event: Event) -> JsonObject:

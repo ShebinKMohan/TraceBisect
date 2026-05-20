@@ -3,10 +3,14 @@ import {
   Braces,
   CheckCircle2,
   CircleAlert,
+  ChevronsUpDown,
+  Database,
+  Filter,
   GitBranch,
   MousePointer2,
   Play,
   RadioTower,
+  SlidersHorizontal,
   Wrench,
 } from "lucide-react";
 import type { TraceEvent, TraceSummary } from "@/lib/types";
@@ -51,7 +55,7 @@ function eventDepth(event: TraceEvent, byId: Map<string, TraceEvent>): number {
     depth += 1;
     parentId = parent.parent_id;
   }
-  return Math.min(depth, 3);
+  return Math.min(depth, 4);
 }
 
 function eventParentChain(event: TraceEvent, byId: Map<string, TraceEvent>): TraceEvent[] {
@@ -76,6 +80,34 @@ function durationLabel(event: TraceEvent): string {
   return event.duration_ms === null ? "0.00s" : `${(event.duration_ms / 1000).toFixed(2)}s`;
 }
 
+function typeBadge(event: TraceEvent): string {
+  switch (event.type) {
+    case "RUN_START":
+    case "RUN_END":
+      return "ROUTER";
+    case "LLM_CALL":
+      return "LLM";
+    case "TOOL_CALL":
+      return "TOOL";
+    case "RETRIEVAL":
+      return "RET";
+    case "ERROR":
+      return "ERR";
+    case "MCP_CALL":
+      return "MCP";
+    default:
+      return "STEP";
+  }
+}
+
+function tokenLabel(event: TraceEvent): string | null {
+  const input = Number(event.payload.input_tokens ?? 0);
+  const output = Number(event.payload.output_tokens ?? 0);
+  const total = input + output;
+  if (!Number.isFinite(total) || total <= 0) return null;
+  return total.toLocaleString();
+}
+
 function TreeGutter({
   ancestorContinuation,
   depth,
@@ -87,13 +119,15 @@ function TreeGutter({
 }) {
   return (
     <span className="tree-gutter" aria-hidden data-depth={depth}>
-      {Array.from({ length: 3 }).map((_, index) => {
+      {Array.from({ length: 4 }).map((_, index) => {
+        const isRootRail = depth === 0 && index === 0;
         const isCurrentLevel = depth > 0 && index === depth - 1;
         const shouldContinue = ancestorContinuation[index] ?? false;
         return (
           <span
             className={[
               "tree-guide",
+              isRootRail ? "tree-guide-root" : "",
               shouldContinue ? "tree-guide-continue" : "",
               isCurrentLevel ? "tree-guide-branch" : "",
               isCurrentLevel && hasNextSibling ? "tree-guide-branch-open" : "",
@@ -124,10 +158,24 @@ export function TraceWorkbench({
     <section className="panel trace-workbench" aria-label={`${side} execution trace`} data-testid="trace-tree">
       <div className="workbench-heading">
         <div>
-          <p>Execution trace</p>
+          <p>Trace</p>
           <h2>{friendlyTraceName(trace?.display_name)}</h2>
         </div>
         <span>{friendlySourceConvention(trace?.source_convention)}</span>
+      </div>
+      <div className="trace-tree-controls" aria-label="Trace view controls">
+        <button type="button">
+          <Filter size={13} aria-hidden />
+          Collapse
+        </button>
+        <button type="button">
+          <SlidersHorizontal size={13} aria-hidden />
+          Stats
+        </button>
+        <button type="button">
+          <ChevronsUpDown size={13} aria-hidden />
+          Show all
+        </button>
       </div>
 
       <ol className="trace-tree-list">
@@ -137,6 +185,7 @@ export function TraceWorkbench({
           const active = selectedEventId === event.id;
           const chain = eventParentChain(event, byId);
           const depth = eventDepth(event, byId);
+          const tokens = tokenLabel(event);
           return (
             <li key={event.id}>
               <button
@@ -161,11 +210,22 @@ export function TraceWorkbench({
                   <Icon size={15} />
                 </span>
                 <span className="trace-event-main">
-                  <strong>{formatEventLabel(event)}</strong>
+                  <span>
+                    <em className={`trace-type-badge trace-type-${typeBadge(event).toLowerCase()}`}>{typeBadge(event)}</em>
+                    <strong>{formatEventLabel(event)}</strong>
+                  </span>
                   <small>{event.semantic_name}</small>
                 </span>
                 <span className="trace-event-meta">
-                  <small>{durationLabel(event)}</small>
+                  <span>
+                    <small>{durationLabel(event)}</small>
+                    {tokens ? (
+                      <small className="trace-token-badge">
+                        <Database size={10} aria-hidden />
+                        {tokens}
+                      </small>
+                    ) : null}
+                  </span>
                   {highlighted ? <em>First change</em> : null}
                 </span>
               </button>

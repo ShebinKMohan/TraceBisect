@@ -1,34 +1,31 @@
-import { Search } from "lucide-react";
-import { ThemeToggle } from "@/components/theme-toggle";
+import { Bell, CircleHelp, Search } from "lucide-react";
 
 type TopbarProps = {
   searchValue: string;
-  theme: "light" | "dark";
   onSearchChange: (value: string) => void;
-  onThemeToggle: () => void;
 };
 
-export function Topbar({ searchValue, theme, onSearchChange, onThemeToggle }: TopbarProps) {
+export function Topbar({ searchValue, onSearchChange }: TopbarProps) {
   return (
     <header className="topbar">
       <label className="search-control">
         <Search size={16} aria-hidden />
         <input
           type="search"
-          placeholder="Search comparisons, traces, events"
+          placeholder="Search comparisons, traces, sessions, issues"
           value={searchValue}
           onChange={(event) => onSearchChange(event.target.value)}
         />
+        <kbd>⌘K</kbd>
       </label>
-      <div className="topbar-actions">
-        <ThemeToggle theme={theme} onToggle={onThemeToggle} />
-        <div className="profile-chip" aria-label="Current workspace owner">
-          <span>TB</span>
-          <div>
-            <strong>Local workspace</strong>
-            <small>TraceBisect Studio</small>
-          </div>
-        </div>
+      <div className="topbar-utilities" aria-label="Workspace utilities">
+        <button className="icon-button notification-button" type="button" aria-label="Notifications">
+          <Bell size={16} aria-hidden />
+          <span aria-hidden />
+        </button>
+        <button className="icon-button" type="button" aria-label="Help">
+          <CircleHelp size={17} aria-hidden />
+        </button>
       </div>
     </header>
   );

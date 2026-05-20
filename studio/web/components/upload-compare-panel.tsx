@@ -28,8 +28,8 @@ export function UploadComparePanel({
     <section className="panel upload-panel">
       <div className="section-heading compact">
         <div>
-          <p>Trace sources</p>
-          <h2>Add traces</h2>
+          <p>Trace upload</p>
+          <h2>Add or compare traces</h2>
         </div>
         <UploadCloud size={19} aria-hidden />
       </div>

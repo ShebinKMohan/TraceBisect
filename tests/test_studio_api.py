@@ -237,6 +237,19 @@ def test_studio_api_replaces_duplicate_trace_uploads() -> None:
             "created_at": "2026-05-11T06:52:01Z",
             "event_count": 4,
             "root_event": "run",
+            "status": "success",
+            "duration_ms": 1000.0,
+            "total_input_tokens": 84,
+            "total_output_tokens": 22,
+            "total_tokens": 106,
+            "total_cost_usd": 0.00021,
+            "model": "gpt-4o-mini",
+            "model_version": "gpt-4o-2024-08-06",
+            "prompt_version": "v3",
+            "code_sha": "a30ecca",
+            "agent_name": "refund-support-bot",
+            "agent_version": "1.4.0",
+            "session_id": "refund_042",
         }
     ]
 
