@@ -43,6 +43,7 @@ from tracebisect.version import __version__
 
 if TYPE_CHECKING:
     from tracebisect.studio.backup import StudioBackupInspection
+    from tracebisect.studio.email_delivery import StudioEmailDelivery
     from tracebisect.studio.managed_database import StudioDatabaseTarget
 
 
@@ -313,8 +314,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     studio_email_deliver.add_argument(
         "--database",
-        required=True,
-        help="Current TRACEBISECT_STUDIO_SQLITE_PATH value.",
+        help=(
+            "SQLite database path. Omit for PostgreSQL when the Studio storage "
+            "environment is configured."
+        ),
     )
     studio_email_deliver.add_argument(
         "--limit",
@@ -328,8 +331,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     studio_email_work.add_argument(
         "--database",
-        required=True,
-        help="Current TRACEBISECT_STUDIO_SQLITE_PATH value.",
+        help=(
+            "SQLite database path. Omit for PostgreSQL when the Studio storage "
+            "environment is configured."
+        ),
     )
     studio_email_work.add_argument(
         "--limit",
@@ -580,13 +585,9 @@ def run_studio_restore(backup: str, database: str) -> int:
     return 0
 
 
-def run_studio_email_deliver(database: str, limit: int) -> int:
-    from tracebisect.studio.email_delivery import StudioEmailDelivery
-
-    env = dict(os.environ)
-    env["TRACEBISECT_STUDIO_STORAGE"] = "sqlite"
-    env["TRACEBISECT_STUDIO_SQLITE_PATH"] = database
-    result = StudioEmailDelivery.from_env(env).deliver_due(limit=limit)
+def run_studio_email_deliver(database: str | None, limit: int) -> int:
+    with _studio_email_delivery(database) as delivery:
+        result = delivery.deliver_due(limit=limit)
     print("Studio invitation email delivery finished")
     print(f"  Examined: {result.examined}")
     print(f"  Accepted by provider: {result.sent}")
@@ -595,18 +596,11 @@ def run_studio_email_deliver(database: str, limit: int) -> int:
     return 2 if result.failed else 0
 
 
-def run_studio_email_worker(database: str, limit: int, poll_seconds: int) -> int:
-    from tracebisect.studio.email_delivery import (
-        StudioEmailDelivery,
-        StudioEmailDeliveryError,
-    )
+def run_studio_email_worker(database: str | None, limit: int, poll_seconds: int) -> int:
+    from tracebisect.studio.email_delivery import StudioEmailDeliveryError
 
     if not 5 <= poll_seconds <= 3600:
         raise StudioEmailDeliveryError("email worker poll seconds must be between 5 and 3600")
-    env = dict(os.environ)
-    env["TRACEBISECT_STUDIO_STORAGE"] = "sqlite"
-    env["TRACEBISECT_STUDIO_SQLITE_PATH"] = database
-    delivery = StudioEmailDelivery.from_env(env)
     stop = Event()
 
     def request_stop(_signum: int, _frame: object) -> None:
@@ -615,17 +609,48 @@ def run_studio_email_worker(database: str, limit: int, poll_seconds: int) -> int
     signal.signal(signal.SIGINT, request_stop)
     signal.signal(signal.SIGTERM, request_stop)
     print(f"Studio email worker started; polling every {poll_seconds} seconds", flush=True)
-    while not stop.is_set():
-        result = delivery.deliver_due(limit=limit)
-        print(
-            "Studio email cycle: "
-            f"examined={result.examined} accepted={result.sent} "
-            f"retrying={result.retrying} failed={result.failed}",
-            flush=True,
-        )
-        stop.wait(poll_seconds)
+    with _studio_email_delivery(database) as delivery:
+        while not stop.is_set():
+            result = delivery.deliver_due(limit=limit)
+            print(
+                "Studio email cycle: "
+                f"examined={result.examined} accepted={result.sent} "
+                f"retrying={result.retrying} failed={result.failed}",
+                flush=True,
+            )
+            stop.wait(poll_seconds)
     print("Studio email worker stopped", flush=True)
     return 0
+
+
+@contextmanager
+def _studio_email_delivery(database: str | None) -> Iterator[StudioEmailDelivery]:
+    """Share the configured durable store with the invitation email worker."""
+    from tracebisect.studio.email_delivery import (
+        StudioEmailDelivery,
+        StudioEmailDeliveryError,
+    )
+
+    env = dict(os.environ)
+    if database:
+        env["TRACEBISECT_STUDIO_STORAGE"] = "sqlite"
+        env["TRACEBISECT_STUDIO_SQLITE_PATH"] = database
+        yield StudioEmailDelivery.from_env(env)
+        return
+    if env.get("TRACEBISECT_STUDIO_STORAGE", "").strip().lower() != "postgres":
+        raise StudioEmailDeliveryError(
+            "provide --database for SQLite or configure PostgreSQL Studio storage"
+        )
+    from tracebisect.studio.postgres_storage import PostgresStudioStore
+    from tracebisect.studio.storage import create_studio_store
+
+    store = create_studio_store(env)
+    if not isinstance(store, PostgresStudioStore):
+        raise StudioEmailDeliveryError("configured Studio storage is not PostgreSQL")
+    try:
+        yield StudioEmailDelivery.from_env(env, managed_database=store)
+    finally:
+        store.close()
 
 
 def _print_studio_backup_summary(

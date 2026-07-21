@@ -8,9 +8,10 @@ remain available for integrations, initial bootstrap, and operator recovery.
 
 Human accounts require managed workspace keys, durable SQLite or PostgreSQL
 storage, and a separate identity secret. Generate both server secrets once and
-store them in the deployment secret manager. PostgreSQL supports accounts,
-manual invitations, recovery, membership, and sessions; automatic invitation
-email remains SQLite-only. See [studio-postgres-core.md](studio-postgres-core.md).
+store them in the deployment secret manager. SQLite and PostgreSQL both support
+accounts, manual or automatic invitations, recovery, membership, and sessions.
+See [studio-postgres-core.md](studio-postgres-core.md) for the multi-instance
+database boundary.
 
 ```bash
 tracebisect studio keys generate-pepper
@@ -137,8 +138,7 @@ reopening traffic.
 ## Current hosted boundary
 
 This milestone provides invitation-only accounts, offline recovery, team roles,
-and revocable human sessions on SQLite and PostgreSQL. Optional encrypted Resend
-invitation delivery and signed delivery/bounce reconciliation remain single-node
-SQLite capabilities. It does not yet provide a PostgreSQL email outbox,
+revocable human sessions, and optional encrypted Resend delivery with signed
+delivery/bounce reconciliation on SQLite and PostgreSQL. It does not yet provide
 automated sender-domain/suppression operations, email ownership re-verification,
 multi-factor or identity-provider sign-in, distributed rate limiting, or billing.

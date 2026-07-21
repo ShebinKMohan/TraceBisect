@@ -130,6 +130,11 @@ def test_email_configuration_is_explicit_and_https_safe(tmp_path: Path) -> None:
     invalid["TRACEBISECT_STUDIO_PUBLIC_URL"] = "http://studio.example.com"
     with pytest.raises(StudioConfigurationError, match="must use HTTPS"):
         StudioEmailDelivery.from_env(invalid)
+    postgres_without_store = _env(tmp_path / "unused.db")
+    postgres_without_store["TRACEBISECT_STUDIO_STORAGE"] = "postgres"
+    postgres_without_store.pop("TRACEBISECT_STUDIO_SQLITE_PATH")
+    with pytest.raises(StudioConfigurationError, match="configured PostgreSQL store"):
+        StudioEmailDelivery.from_env(postgres_without_store)
 
 
 def test_invitation_payload_is_encrypted_and_sent_with_stable_idempotency(

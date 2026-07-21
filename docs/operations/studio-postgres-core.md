@@ -3,9 +3,9 @@
 PostgreSQL mode is the first multi-instance persistence milestone for
 TraceBisect Studio. It stores traces, comparison reports, regression cases, demo
 metadata, managed workspace keys, browser sessions, human accounts, recovery
-codes, team membership, manual invitations, and human sessions in one shared
-database. It does **not** yet make the complete product a hosted multi-tenant
-SaaS.
+codes, team membership, invitations, the encrypted email outbox, delivery
+webhook history, and human sessions in one shared database. It does **not** yet
+make the complete product a hosted multi-tenant SaaS.
 
 ## Current boundary
 
@@ -19,18 +19,20 @@ Supported in PostgreSQL mode:
 - short-lived, digest-only HttpOnly browser sessions that cannot outlive a key;
 - Argon2id human accounts, saved recovery codes, workspace team roles, manual
   invitation links, and revocable human sessions;
+- encrypted invitation-message payloads, bounded delivery retries, reclaimable
+  worker leases, stable provider idempotency keys, and signed webhook
+  reconciliation shared across API and worker processes;
 - first-admin bootstrap through the same `tracebisect studio keys` commands used
   for SQLite.
 
-Still SQLite-only:
+Still SQLite-specific:
 
-- the encrypted automatic invitation-email outbox, worker, and webhook history;
 - the local `studio backup`, `verify`, and `restore` commands.
 
-PostgreSQL accepts the human identity secret and exposes manual invitation links
-once. It still fails startup if automatic email settings are enabled because the
-encrypted delivery outbox has not migrated. Use SQLite when the current
-automatic invitation-email experience is required.
+PostgreSQL accepts the same human-identity and optional Resend settings as
+SQLite. The API and every supervised email worker must point at the same
+database and keep the identity secret stable so queued ciphertext remains
+decryptable.
 
 ## Configure the API
 
@@ -65,10 +67,27 @@ Copy the printed key immediately; PostgreSQL stores only its HMAC-SHA256 digest.
 Studio exchanges the key for a short-lived HttpOnly cookie, so the managed key
 does not remain in browser storage. Use **Settings → Workspace access** for later
 key creation and revocation. Use **Settings → People and invitations** to create
-the first human admin link and share it through a private channel.
+the first human admin link. Configure Resend when Studio should send that link
+without returning it to the browser.
 
-The API installs its versioned workspace and access tables under an advisory
-transaction lock.
+## Run invitation delivery
+
+After setting the Resend variables from
+[studio-email-delivery.md](studio-email-delivery.md), run the worker with the
+same PostgreSQL environment. Omit `--database`; that flag selects a local SQLite
+file.
+
+```bash
+tracebisect studio email deliver --limit 20
+tracebisect studio email work --limit 20 --poll-seconds 60
+```
+
+Each worker owns a delivery through a 90-second database lease. Multiple workers
+may poll the shared outbox, but each process consumes its own bounded connection
+pool; include worker pools when calculating the provider connection budget.
+
+The API installs its versioned workspace, access, identity, and email-delivery
+tables under an advisory transaction lock.
 Startup fails if the pool cannot connect, the schema cannot be installed, or a
 newer unsupported schema is present. `/api/ready` returns `503` when the database
 is unavailable; `/api/health` remains readable and reports the failed storage
@@ -112,7 +131,10 @@ Enable provider-managed encrypted backups and point-in-time recovery, define
 retention, and perform a restore drill into an isolated database before launch.
 The SQLite backup CLI does not operate on PostgreSQL.
 
-Treat a point-in-time restore as a credential rollback. Before reopening
+Treat a point-in-time restore as a credential and delivery-state rollback. Keep
+API and worker processes stopped while deciding whether restored pending/retry
+messages are still safe to send. Revoke stale invitations and clear or reconcile
+restored outbox rows before workers restart. Before reopening
 traffic, generate and deploy a new `TRACEBISECT_STUDIO_API_KEY_PEPPER` and
 `TRACEBISECT_STUDIO_IDENTITY_SECRET`, create a new admin key with the new pepper,
 and retire both old secrets. This invalidates restored keys, browser sessions,
@@ -139,7 +161,9 @@ pytest -q tests/test_studio_postgres_storage.py \
 ```
 
 The live test creates random workspaces, proves fresh cross-pool reads, managed
-key/session revocation, manual invitation acceptance, password sign-in,
-saved-code recovery, human-session invalidation, and workspace isolation, then
-removes those rows. A skipped live test is not evidence that a real provider
-connection, TLS policy, backup, or restore has been verified.
+key/session revocation, invitation acceptance, password sign-in, saved-code
+recovery, human-session invalidation, encrypted outbox delivery through another
+store instance, signed webhook deduplication/reconciliation, and workspace
+isolation, then removes those rows. It uses an in-process fake mail transport and
+does not contact Resend. A skipped live test is not evidence that a real provider
+connection, TLS policy, backup, restore, or provider delivery has been verified.

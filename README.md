@@ -92,9 +92,11 @@ uvicorn tracebisect.studio.api:app --port 8000
 
 The CLI prints the new key once; paste it into Studio to receive an HttpOnly
 browser session. Admins can then create, rotate, and revoke workspace keys and
-invite people from Settings. PostgreSQL shows each manual invitation link once;
-automatic invitation email still requires SQLite. Provider backups and
-point-in-time recovery replace the local SQLite backup commands. See
+invite people from Settings. PostgreSQL can either show each manual invitation
+link once or place the full message in the same encrypted durable outbox used by
+SQLite. Run the email worker without `--database` so it shares the configured
+PostgreSQL store. Provider backups and point-in-time recovery replace the local
+SQLite backup commands. See
 [`docs/operations/studio-postgres-core.md`](docs/operations/studio-postgres-core.md)
 for pooling, least-privilege, migration, and verification guidance.
 
@@ -296,7 +298,7 @@ It is deliberately not described as horizontally scalable SaaS infrastructure.
 - `tracebisect studio email deliver` — sends a bounded batch from the encrypted
   invitation outbox and records safe retry/failure state.
 - `tracebisect studio email work` — continuously drains that outbox for a
-  supervised single-node deployment and exits cleanly on `SIGTERM`.
+  supervised SQLite or PostgreSQL deployment and exits cleanly on `SIGTERM`.
 
 Example static comparison:
 
@@ -363,9 +365,9 @@ V1 Studio is still intentionally narrow: it has opt-in role-scoped workspace
 keys plus invitation-only human accounts, saved-code recovery, browser team
 membership administration, and optional encrypted Resend invitation delivery.
 It also has pooled PostgreSQL storage for core workspace evidence, managed keys,
-human identity, recovery, team membership, manual invitations, and sessions,
-while automatic invitation delivery remains on the single-node SQLite path. It
-does not yet include automated sender-domain/suppression operations,
+human identity, recovery, team membership, invitation email worker leases,
+delivery webhooks, and sessions. It does not yet include automated
+sender-domain/suppression operations,
 multi-factor or identity-provider sign-in, billing, vendor-native direct
 importers, or git-history bisection.
 

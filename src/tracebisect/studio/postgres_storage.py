@@ -1,8 +1,8 @@
 """Managed PostgreSQL storage for horizontally deployed Studio core data.
 
 This backend owns traces, comparison reports, regression cases, demo metadata,
-managed workspace keys, browser sessions, and human identity. Automatic
-invitation delivery remains on the SQLite path until its outbox migrates.
+managed workspace keys, browser sessions, human identity, and the encrypted
+invitation-email outbox with delivery webhook reconciliation.
 """
 
 from __future__ import annotations
@@ -48,7 +48,7 @@ from tracebisect.studio.storage import (
     validate_workspace_id,
 )
 
-POSTGRES_SCHEMA_VERSION = 3
+POSTGRES_SCHEMA_VERSION = 4
 _SCHEMA_LOCK_ID = 882_014_771
 _WORKSPACE_LOCK_SEED = 882_014_771
 _MANAGED_SECURITY_LOCK_ID = 882_014_772
@@ -268,6 +268,76 @@ POSTGRES_SCHEMA_STATEMENTS = (
     CREATE INDEX IF NOT EXISTS studio_identity_sessions_revoked_idx
     ON studio_identity_sessions (revoked_at)
     WHERE revoked_at IS NOT NULL
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS studio_email_outbox (
+        message_id text PRIMARY KEY,
+        invitation_id text NOT NULL
+            REFERENCES studio_invitations(invitation_id) ON DELETE CASCADE,
+        workspace_id text NOT NULL,
+        recipient_email text NOT NULL,
+        payload_ciphertext text NOT NULL,
+        status text NOT NULL
+            CHECK (status IN ('pending', 'sending', 'retry', 'sent', 'failed')),
+        attempt_count integer NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+        created_at timestamptz NOT NULL,
+        available_at timestamptz NOT NULL,
+        lease_expires_at timestamptz,
+        lease_token text,
+        sent_at timestamptz,
+        failed_at timestamptz,
+        provider_message_id text,
+        last_error_code text,
+        provider_status text CHECK (
+            provider_status IS NULL OR provider_status IN (
+                'accepted', 'delayed', 'delivered', 'failed',
+                'suppressed', 'bounced', 'complained'
+            )
+        ),
+        provider_event_at timestamptz,
+        provider_event_id text,
+        CHECK (workspace_id ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'),
+        CHECK (char_length(recipient_email) <= 254),
+        CHECK (char_length(payload_ciphertext) <= 131072),
+        CHECK (lease_token IS NULL OR char_length(lease_token) <= 128),
+        CHECK (provider_message_id IS NULL OR char_length(provider_message_id) <= 160),
+        CHECK (last_error_code IS NULL OR char_length(last_error_code) <= 64)
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS studio_email_outbox_due_idx
+    ON studio_email_outbox (status, available_at, lease_expires_at)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS studio_email_outbox_invitation_idx
+    ON studio_email_outbox (workspace_id, invitation_id, created_at DESC)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS studio_email_outbox_provider_idx
+    ON studio_email_outbox (provider_message_id)
+    WHERE provider_message_id IS NOT NULL
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS studio_email_webhook_events (
+        event_id text PRIMARY KEY,
+        provider_message_id text NOT NULL,
+        event_type text NOT NULL,
+        provider_status text NOT NULL CHECK (
+            provider_status IN (
+                'accepted', 'delayed', 'delivered', 'failed', 'suppressed',
+                'bounced', 'complained', 'ignored'
+            )
+        ),
+        event_created_at timestamptz NOT NULL,
+        received_at timestamptz NOT NULL,
+        CHECK (char_length(event_id) <= 160),
+        CHECK (char_length(provider_message_id) <= 160),
+        CHECK (char_length(event_type) <= 80)
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS studio_email_webhook_provider_idx
+    ON studio_email_webhook_events (provider_message_id, event_created_at)
     """,
 )
 

@@ -257,7 +257,9 @@ AUTH_CONFIG = StudioAuthConfig.from_env(
 )
 AUDIT = StudioAudit.from_env()
 ERROR_REPORTER = StudioErrorReporter.from_env()
-EMAIL_DELIVERY = StudioEmailDelivery.from_env()
+EMAIL_DELIVERY = StudioEmailDelivery.from_env(
+    managed_database=STORE if isinstance(STORE, StudioManagedDatabase) else None,
+)
 METRICS = StudioMetrics()
 METRICS_ACCESS = StudioMetricsAccess.from_env()
 
@@ -1817,10 +1819,15 @@ def _production_readiness(
             completed.append(
                 "pooled multi-instance PostgreSQL workspace and managed-security storage"
             )
-            blockers.insert(
-                0,
-                "PostgreSQL invitation email outbox and delivery reconciliation",
-            )
+            if EMAIL_DELIVERY.enabled and EMAIL_DELIVERY.managed_database is not None:
+                completed.append(
+                    "PostgreSQL invitation email outbox, worker leases, and delivery reconciliation"
+                )
+            else:
+                blockers.insert(
+                    0,
+                    "PostgreSQL invitation email outbox and delivery reconciliation",
+                )
     else:
         blockers.insert(0, "restart-safe durable storage")
     return {

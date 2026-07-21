@@ -88,8 +88,8 @@ Frontend:
 - Light and dark dashboard modes with the same component structure.
 - A zero-setup local mode plus protected workspace unlock, managed accounts,
   saved-code recovery, team roles, and manual invitations on SQLite or
-  PostgreSQL. Automatic invitation email remains SQLite-only; billing remains
-  future work.
+  PostgreSQL. Automatic invitation email uses the durable outbox on either
+  backend; billing remains future work.
 - Show the seeded demo immediately on first load.
 - UI must look like a product dashboard, not a docs page.
 
@@ -120,8 +120,8 @@ Later adapters can add:
 - Langfuse direct import.
 - LangSmith direct import.
 - GitHub PR/test generation.
-- PostgreSQL invitation-email delivery and SQLite-to-PostgreSQL migration tooling
-  on top of the implemented PostgreSQL identity and workspace store.
+- SQLite-to-PostgreSQL migration tooling and reconciliation checks on top of the
+  implemented PostgreSQL identity, workspace, and invitation-delivery store.
 
 This means the public pitch can mention Langfuse/LangSmith compatibility through
 OpenTelemetry-style trace data, but the first implementation should not pretend
@@ -138,9 +138,9 @@ bad inputs and now supports durable API-key-scoped workspaces. Managed browser
 sign-in exchanges a workspace key for a short-lived, revocable HttpOnly session,
 and SQLite supports invitation-only accounts, recovery, team roles, and email
 delivery. PostgreSQL supports core workspace evidence, managed access, human
-identity, recovery, team roles, and manual invitations across API instances, but
-email-outbox migration, hosted monitoring/error-event retention wiring, and
-distributed rate limiting remain separate SaaS milestones. The API
+identity, recovery, team roles, and encrypted invitation delivery across API and
+worker instances, but data migration, hosted monitoring/error-event retention
+wiring, and distributed rate limiting remain separate SaaS milestones. The API
 also provides hashed expiring keys, a protected Prometheus
 scrape endpoint, starter alert rules, and an incident runbook. Admins can now
 manage role-based workspace keys inside Settings after the operator bootstraps

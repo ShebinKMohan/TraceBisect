@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import uuid
@@ -10,6 +11,7 @@ from datetime import datetime, timezone
 
 import pytest
 from psycopg_pool import PoolTimeout
+from svix.webhooks import Webhook
 
 import tracebisect.studio.api as studio_api
 import tracebisect.studio.postgres_storage as postgres_storage
@@ -25,7 +27,10 @@ from tracebisect.studio.access_sessions import (
     revoke_studio_browser_session,
 )
 from tracebisect.studio.auth import StudioAuthConfig
+from tracebisect.studio.email_delivery import StudioEmailDelivery, StudioEmailMessage
 from tracebisect.studio.identity import (
+    IssuedStudioInvitation,
+    StudioInvitationRecord,
     accept_studio_invitation,
     create_studio_invitation,
     login_studio_identity,
@@ -147,6 +152,17 @@ def _store(executions: list[_Execution]) -> tuple[PostgresStudioStore, _Connecti
     return store, connection, pool
 
 
+class _LiveEmailTransport:
+    def __init__(self, provider_message_id: str) -> None:
+        self.provider_message_id = provider_message_id
+        self.messages: list[StudioEmailMessage] = []
+
+    def send(self, message: StudioEmailMessage, *, idempotency_key: str) -> str:
+        assert idempotency_key.startswith("tracebisect-invite-")
+        self.messages.append(message)
+        return self.provider_message_id
+
+
 def test_postgres_schema_uses_jsonb_timestamps_constraints_and_workspace_indexes() -> None:
     schema = "\n".join(POSTGRES_SCHEMA_STATEMENTS).lower()
 
@@ -171,10 +187,15 @@ def test_postgres_schema_uses_jsonb_timestamps_constraints_and_workspace_indexes
     assert "studio_invitations_pending_workspace_email_idx" in schema
     assert "studio_recovery_codes_active_user_idx" in schema
     assert "studio_identity_sessions_active_expiry_idx" in schema
+    assert "create table if not exists studio_email_outbox" in schema
+    assert "references studio_invitations(invitation_id) on delete cascade" in schema
+    assert "studio_email_outbox_due_idx" in schema
+    assert "create table if not exists studio_email_webhook_events" in schema
+    assert "studio_email_webhook_provider_idx" in schema
     assert "where revoked_at is null" in schema
 
 
-def test_postgres_schema_upgrades_core_v1_to_managed_identity_v3() -> None:
+def test_postgres_schema_upgrades_core_v1_to_email_delivery_v4() -> None:
     statements = [" ".join(statement.split()) for statement in POSTGRES_SCHEMA_STATEMENTS]
     connection = _Connection(
         [
@@ -592,6 +613,63 @@ def test_postgres_manual_invitation_reuses_shared_identity_rules_and_pool() -> N
     assert all("LIMIT -1" not in statement for statement, _params in connection.calls)
 
 
+def test_postgres_email_outbox_reuses_shared_pool_and_encrypts_payload() -> None:
+    expires_at = "2026-07-22T08:00:00Z"
+    store, connection, _pool = _store(
+        [
+            _Execution("pg_advisory_xact_lock"),
+            _Execution(
+                "SELECT expires_at, accepted_at, revoked_at FROM studio_invitations",
+                one=(expires_at, None, None),
+            ),
+            _Execution("SELECT 1 FROM studio_email_outbox", one=None),
+            _Execution("SELECT message_id FROM studio_email_outbox", many=()),
+            _Execution("DELETE FROM studio_email_outbox"),
+            _Execution("SELECT COUNT(*) FROM studio_email_outbox", one=(0,)),
+            _Execution("INSERT INTO studio_email_outbox"),
+        ]
+    )
+    identity_secret = "postgres-email-secret-with-at-least-thirty-two-characters"
+    delivery = StudioEmailDelivery.from_env(
+        {
+            "TRACEBISECT_STUDIO_STORAGE": "postgres",
+            "TRACEBISECT_STUDIO_IDENTITY_SECRET": identity_secret,
+            "TRACEBISECT_STUDIO_EMAIL_PROVIDER": "resend",
+            "TRACEBISECT_STUDIO_EMAIL_FROM": "TraceBisect <invites@example.com>",
+            "TRACEBISECT_STUDIO_PUBLIC_URL": "https://studio.example.com",
+            "RESEND_API_KEY": "re_postgres_queue_key_long_enough",
+        },
+        managed_database=store,
+    )
+    issued = IssuedStudioInvitation(
+        record=StudioInvitationRecord(
+            invitation_id="invite123456",
+            workspace_id="workspace-a",
+            email="new.person@example.com",
+            role="viewer",
+            created_at="2026-07-21T08:00:00Z",
+            expires_at=expires_at,
+            accepted_at=None,
+            revoked_at=None,
+        ),
+        invitation_token="tbiv_invite123456_secret-value-never-store-plaintext",
+    )
+
+    queued = delivery.queue_invitation(
+        issued,
+        now=datetime(2026, 7, 21, 8, 0, tzinfo=timezone.utc),
+    )
+
+    assert queued.status == "pending"
+    insert_params = connection.calls[-1][1]
+    assert isinstance(insert_params, tuple)
+    assert str(insert_params[4]).startswith("v1.")
+    assert issued.invitation_token not in str(insert_params)
+    assert all("?" not in statement for statement, _params in connection.calls)
+    assert all("LIMIT -1" not in statement for statement, _params in connection.calls)
+    assert not connection.executions
+
+
 def test_managed_postgres_auth_enables_browser_sessions_and_optional_identity() -> None:
     store, _connection, _pool = _store([])
     pepper = "managed-postgres-pepper-with-at-least-32-characters"
@@ -697,6 +775,43 @@ def test_production_readiness_reports_postgres_human_identity_without_email_clai
     assert any("PostgreSQL invitation email outbox" in blocker for blocker in readiness["blockers"])
 
 
+def test_production_readiness_claims_postgres_email_only_with_shared_store(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    managed_store, _connection, _pool = _store([])
+    env = {
+        "TRACEBISECT_STUDIO_STORAGE": "postgres",
+        "TRACEBISECT_STUDIO_IDENTITY_SECRET": "i" * 40,
+        "TRACEBISECT_STUDIO_EMAIL_PROVIDER": "resend",
+        "TRACEBISECT_STUDIO_EMAIL_FROM": "TraceBisect <invites@example.com>",
+        "TRACEBISECT_STUDIO_PUBLIC_URL": "https://studio.example.com",
+        "RESEND_API_KEY": "re_postgres_test_key_long_enough",
+    }
+    delivery = StudioEmailDelivery.from_env(env, managed_database=managed_store)
+    monkeypatch.setattr(studio_api, "EMAIL_DELIVERY", delivery)
+
+    readiness = studio_api._production_readiness(
+        storage_ok=True,
+        runtime={
+            "kind": "postgres",
+            "durable": True,
+            "workspace_id": "protected",
+            "trace_count": 0,
+            "report_count": 0,
+            "case_count": 0,
+        },
+    )
+
+    assert (
+        "PostgreSQL invitation email outbox, worker leases, and delivery reconciliation"
+        in readiness["completed"]
+    )
+    assert not any(
+        "PostgreSQL invitation email outbox" in blocker
+        for blocker in readiness["blockers"]
+    )
+
+
 def test_health_remains_available_when_postgres_runtime_counts_fail(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -740,6 +855,7 @@ def test_live_postgres_store_shares_fresh_data_and_isolates_workspaces() -> None
     restored: PostgresStudioStore | None = None
     other: PostgresStudioStore | None = None
     accepted_user_id: str | None = None
+    provider_message_id: str | None = None
     try:
         report = first.seed_demo_report()
         baseline = report["baseline"]
@@ -854,6 +970,65 @@ def test_live_postgres_store_shares_fresh_data_and_isolates_workspaces() -> None
             is not None
         )
 
+        email_invitation = create_studio_invitation(
+            first,
+            workspace_id=workspace_id,
+            email=f"email-{uuid.uuid4().hex[:12]}@example.com",
+            role="viewer",
+            expires_in_days=1,
+            identity_secret_value=identity_secret,
+        )
+        webhook_secret = "whsec_" + base64.b64encode(
+            b"tracebisect-live-postgres-webhook-secret"
+        ).decode()
+        email_env = {
+            "TRACEBISECT_STUDIO_STORAGE": "postgres",
+            "TRACEBISECT_STUDIO_IDENTITY_SECRET": identity_secret,
+            "TRACEBISECT_STUDIO_EMAIL_PROVIDER": "resend",
+            "TRACEBISECT_STUDIO_EMAIL_FROM": "TraceBisect <invites@example.com>",
+            "TRACEBISECT_STUDIO_PUBLIC_URL": "https://studio.example.com",
+            "RESEND_API_KEY": "re_live_postgres_key_long_enough",
+            "RESEND_WEBHOOK_SECRET": webhook_secret,
+        }
+        delivery = StudioEmailDelivery.from_env(email_env, managed_database=first)
+        restored_delivery = StudioEmailDelivery.from_env(
+            email_env,
+            managed_database=restored,
+        )
+        queued = delivery.queue_invitation(email_invitation)
+        provider_message_id = f"live-provider-{uuid.uuid4().hex[:16]}"
+        transport = _LiveEmailTransport(provider_message_id)
+        sent = restored_delivery.deliver_message(queued.message_id, transport=transport)
+        assert sent is not None
+        assert sent.status == "sent"
+        assert transport.messages[0].to == email_invitation.record.email
+        assert email_invitation.invitation_token in transport.messages[0].text
+
+        webhook_time = datetime.now(timezone.utc)
+        event_id = f"live-event-{uuid.uuid4().hex[:16]}"
+        webhook_body = json.dumps(
+            {
+                "type": "email.delivered",
+                "created_at": webhook_time.isoformat().replace("+00:00", "Z"),
+                "data": {"email_id": provider_message_id},
+            },
+            separators=(",", ":"),
+        )
+        webhook_headers = {
+            "svix-id": event_id,
+            "svix-timestamp": str(int(webhook_time.timestamp())),
+            "svix-signature": Webhook(webhook_secret).sign(
+                event_id,
+                webhook_time,
+                webhook_body,
+            ),
+        }
+        reconciled = delivery.process_webhook(webhook_body.encode(), webhook_headers)
+        assert reconciled.matched is True
+        assert delivery.process_webhook(webhook_body.encode(), webhook_headers).duplicate is True
+        latest = restored_delivery.latest_for_workspace(workspace_id)
+        assert latest[email_invitation.record.invitation_id].provider_status == "delivered"
+
         other = PostgresStudioStore(database_url, workspace_id=other_workspace_id)
         assert other.list_traces() == []
         assert other.list_report_summaries() == []
@@ -863,6 +1038,12 @@ def test_live_postgres_store_shares_fresh_data_and_isolates_workspaces() -> None
             try:
                 (restored or first).clear()
                 with first.managed_connection() as connection:
+                    if provider_message_id is not None:
+                        connection.execute(
+                            "DELETE FROM studio_email_webhook_events "
+                            "WHERE provider_message_id = ?",
+                            (provider_message_id,),
+                        )
                     connection.execute(
                         "DELETE FROM studio_api_keys WHERE workspace_id = ?",
                         (workspace_id,),

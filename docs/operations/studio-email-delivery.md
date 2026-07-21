@@ -22,11 +22,12 @@ export RESEND_API_KEY='re_...'
 export RESEND_WEBHOOK_SECRET='whsec_...'
 ```
 
-Automatic delivery also requires SQLite storage and
+Automatic delivery also requires durable SQLite or PostgreSQL storage and
 `TRACEBISECT_STUDIO_IDENTITY_SECRET`. Startup fails with a safe configuration
-error if a required setting is absent. The PostgreSQL core-data mode does not
-yet host this outbox; see [studio-postgres-core.md](studio-postgres-core.md).
-Non-loopback public URLs must use HTTPS.
+error if a required setting is absent. PostgreSQL API and worker processes share
+the same encrypted outbox through the configured database URL; see
+[studio-postgres-core.md](studio-postgres-core.md). Non-loopback public URLs
+must use HTTPS.
 
 In the Resend dashboard, register
 `https://studio.example.com/api/webhooks/resend` and subscribe to
@@ -44,6 +45,14 @@ are retried after restarts:
 tracebisect studio email deliver \
   --database .tracebisect/studio.db \
   --limit 20
+```
+
+For PostgreSQL, keep the normal Studio storage environment and omit the SQLite
+flag:
+
+```bash
+tracebisect studio email deliver --limit 20
+tracebisect studio email work --limit 20 --poll-seconds 60
 ```
 
 Run this command at least once per minute with the deployment scheduler. Only
@@ -73,10 +82,16 @@ and timestamps. Repeated `svix-id` values are ignored, and an older out-of-order
 event cannot replace newer delivery state. An event that races ahead of the API
 response is reconciled when the provider message ID is stored.
 
-Backups deliberately remove the email outbox and webhook event metadata as well
-as login sessions. This prevents a restored snapshot from sending an old invitation. Pending
-invitations remain, but an admin must revoke and recreate any invite that still
-needs delivery after a restore.
+SQLite backup commands deliberately remove the email outbox and webhook event
+metadata as well as login sessions. This prevents a restored local snapshot from
+sending an old invitation. Pending invitations remain, but an admin must revoke
+and recreate any invite that still needs delivery after a restore.
+
+PostgreSQL provider backups retain outbox and webhook rows. Keep workers stopped
+during a point-in-time restore, inspect pending/retry messages, revoke stale
+invitations, and clear or reconcile unsafe delivery rows before restarting them.
+Rotating `TRACEBISECT_STUDIO_IDENTITY_SECRET` makes restored ciphertext
+undecryptable, so combine secret rotation with an explicit queue disposition.
 
 ## Status and recovery
 
@@ -101,10 +116,12 @@ longer has their plaintext token; revoke and create a new invitation.
 
 This release proves encrypted queueing, bounded retries, lease-safe workers,
 provider request acceptance, signed webhook verification, deduplication, and
-ordered delivery/bounce reconciliation. It does not automatically manage
-sender-domain health or provider suppression lists, verify recipient ownership
-again after an email change, or provide a PostgreSQL-backed multi-node delivery
-worker.
+ordered delivery/bounce reconciliation on SQLite and PostgreSQL. PostgreSQL
+contract tests cover the shared pool and schema; the opt-in live test covers
+cross-store delivery and webhook reconciliation without contacting Resend. It
+does not automatically manage sender-domain health or provider suppression
+lists, verify recipient ownership again after an email change, or prove a real
+provider/TLS/restore deployment unless those checks are run by the operator.
 
 Provider reference: [Resend send-email API](https://resend.com/docs/api-reference/emails/send-email)
 and [Resend idempotency keys](https://resend.com/docs/dashboard/emails/idempotency-keys).

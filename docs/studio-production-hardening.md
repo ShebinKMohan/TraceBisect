@@ -29,16 +29,17 @@ temporary files out of the web root, and throttle repeated API calls.
 - Every SQLite row is scoped by a validated workspace identifier so storage
   isolation exists before request-level multi-tenancy is introduced.
 - An opt-in PostgreSQL backend persists core workspace evidence, managed keys,
-  browser sessions, human accounts, recovery codes, team membership, manual
-  invitations, and human sessions through a bounded, startup-verified connection
-  pool.
+  browser sessions, human accounts, recovery codes, team membership,
+  invitations, the encrypted email outbox/webhook history, and human sessions
+  through a bounded, startup-verified connection pool.
   Transaction locks keep trace capacity, report retention, key/session limits,
   case updates, and demo seeding consistent across API instances; composite and
   partial indexes serve workspace, expiry, and active-credential paths.
 - PostgreSQL managed security retains digest-only keys and sessions, Argon2id
-  accounts, saved-code recovery, team administration, and manual invitation
-  links. Automatic invitation delivery still fails startup in PostgreSQL mode
-  because its encrypted outbox and webhook reconciliation remain SQLite-only.
+  accounts, saved-code recovery, team administration, manual invitation links,
+  and encrypted automatic delivery. API and worker processes share bounded
+  retries, reclaimable leases, and signed webhook reconciliation through the
+  same pool-backed store.
 - Optional bearer-key authentication maps each credential to exactly one
   workspace. Client workspace headers are ignored, invalid keys fail closed,
   and comparisons cannot be read across workspace stores.
@@ -97,9 +98,9 @@ temporary files out of the web root, and throttle repeated API calls.
 - Admin team controls list members, change Viewer/Editor/Admin roles, remove
   workspace membership, protect the current account from removal, and retain at
   least one human admin. Memberships and invitations are workspace-scoped.
-- Backups preserve users, password hashes, membership, invitations, and recovery
-  hashes while stripping key-derived sessions, human sessions, and the email
-  outbox/webhook metadata. Operators are
+- SQLite backup commands preserve users, password hashes, membership,
+  invitations, and recovery hashes while stripping key-derived sessions, human
+  sessions, and the email outbox/webhook metadata. Operators are
   warned that restoring an older snapshot rolls credential state backward.
 - Legacy environment-key mode continues to use tab-scoped `sessionStorage` and
   is explicitly reported as lacking managed browser sessions.
@@ -153,9 +154,6 @@ temporary files out of the web root, and throttle repeated API calls.
 These are not solved by the local MVP and must be implemented before calling
 Studio a real multi-tenant SaaS:
 
-- PostgreSQL repositories for the encrypted invitation-email outbox, worker
-  leases, and webhook reconciliation. Human identity, team membership, recovery,
-  manual invitations, managed keys, and sessions already use pooled PostgreSQL.
 - Tested SQLite-to-PostgreSQL export/import tooling plus provider backup,
   point-in-time recovery, and restore-drill automation.
 - Sender-domain/suppression automation, email ownership re-verification, and
@@ -179,11 +177,11 @@ Studio a real multi-tenant SaaS:
   multi-region platform.
 
 The current build has pooled multi-instance PostgreSQL storage for core evidence,
-managed access, and human identity, but it is not a finished hosted SaaS. The
-next production step is migrating the encrypted email outbox and webhook
-reconciliation, then wiring provider backups, email-domain operations,
-monitoring, and error-event retention. Do not add Langfuse-scale ClickHouse or
-queues until the comparison workflow needs them.
+managed access, human identity, and encrypted invitation delivery, but it is not
+a finished hosted SaaS. The next production step is tested
+SQLite-to-PostgreSQL migration plus provider backup/restore drills, followed by
+email-domain operations, monitoring, and error-event retention. Do not add
+Langfuse-scale ClickHouse or queues until the comparison workflow needs them.
 
 ## References
 

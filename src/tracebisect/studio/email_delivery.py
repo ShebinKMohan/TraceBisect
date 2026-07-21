@@ -32,10 +32,17 @@ from tracebisect.studio.identity import (
     canonical_email,
     identity_secret,
 )
+from tracebisect.studio.managed_database import (
+    StudioDatabaseConnection,
+    StudioDatabaseCursor,
+    StudioDatabaseTarget,
+    StudioManagedDatabase,
+    ensure_managed_database_schema,
+    studio_database_connection,
+)
 from tracebisect.studio.storage import (
     StudioConfigurationError,
     StudioPersistenceError,
-    ensure_studio_schema,
     validate_workspace_id,
 )
 
@@ -255,35 +262,44 @@ class StudioEmailDelivery:
 
     config: StudioEmailConfig
     database_path: Path | None = None
+    managed_database: StudioManagedDatabase | None = None
     _identity_secret: str | None = None
 
     @classmethod
-    def from_env(cls, env: Mapping[str, str] | None = None) -> StudioEmailDelivery:
+    def from_env(
+        cls,
+        env: Mapping[str, str] | None = None,
+        *,
+        managed_database: StudioManagedDatabase | None = None,
+    ) -> StudioEmailDelivery:
         values = os.environ if env is None else env
         provider = values.get(EMAIL_PROVIDER_ENV, "none").strip().lower()
+        storage_kind = values.get("TRACEBISECT_STUDIO_STORAGE", "memory").strip().lower()
+        raw_database_path = values.get("TRACEBISECT_STUDIO_SQLITE_PATH", "").strip()
+        database_path = (
+            Path(raw_database_path).expanduser().resolve()
+            if storage_kind == "sqlite" and raw_database_path
+            else None
+        )
         if provider == "none":
-            raw_database_path = values.get("TRACEBISECT_STUDIO_SQLITE_PATH", "").strip()
-            database_path = (
-                Path(raw_database_path).expanduser().resolve()
-                if values.get("TRACEBISECT_STUDIO_STORAGE", "memory").strip().lower()
-                == "sqlite"
-                and raw_database_path
-                else None
-            )
             return cls(
                 config=StudioEmailConfig(provider="none"),
                 database_path=database_path,
+                managed_database=managed_database if storage_kind == "postgres" else None,
             )
         if provider != "resend":
             raise StudioConfigurationError(f"{EMAIL_PROVIDER_ENV} must be 'none' or 'resend'")
-        raw_database_path = values.get("TRACEBISECT_STUDIO_SQLITE_PATH", "").strip()
-        if values.get("TRACEBISECT_STUDIO_STORAGE", "memory").strip().lower() != "sqlite":
+        if storage_kind not in {"sqlite", "postgres"}:
             raise StudioConfigurationError(
-                f"{EMAIL_PROVIDER_ENV}=resend requires TRACEBISECT_STUDIO_STORAGE=sqlite"
+                f"{EMAIL_PROVIDER_ENV}=resend requires durable SQLite or PostgreSQL storage"
             )
-        if not raw_database_path:
+        if storage_kind == "sqlite" and database_path is None:
             raise StudioConfigurationError(
                 f"{EMAIL_PROVIDER_ENV}=resend requires TRACEBISECT_STUDIO_SQLITE_PATH"
+            )
+        if storage_kind == "postgres" and managed_database is None:
+            raise StudioConfigurationError(
+                f"{EMAIL_PROVIDER_ENV}=resend requires the configured PostgreSQL store"
             )
         secret = identity_secret(values)
         api_key = values.get(RESEND_API_KEY_ENV, "")
@@ -314,7 +330,8 @@ class StudioEmailDelivery:
                 timeout_seconds=timeout_seconds,
                 webhook_secret=raw_webhook_secret or None,
             ),
-            database_path=Path(raw_database_path).expanduser().resolve(),
+            database_path=database_path,
+            managed_database=managed_database if storage_kind == "postgres" else None,
             _identity_secret=secret,
         )
 
@@ -349,10 +366,10 @@ class StudioEmailDelivery:
         )
         workspace_id = validate_workspace_id(issued.record.workspace_id)
         try:
-            with sqlite3.connect(database, timeout=5) as connection:
+            with studio_database_connection(database) as connection:
                 connection.execute("PRAGMA foreign_keys = ON")
                 connection.execute("PRAGMA busy_timeout = 5000")
-                ensure_studio_schema(connection)
+                ensure_managed_database_schema(connection)
                 connection.execute("BEGIN IMMEDIATE")
                 _ensure_invitation_is_pending(
                     connection,
@@ -415,10 +432,10 @@ class StudioEmailDelivery:
         current = _utc_now(now)
         message_id = _new_message_id()
         try:
-            with sqlite3.connect(database, timeout=5) as connection:
+            with studio_database_connection(database) as connection:
                 connection.execute("PRAGMA foreign_keys = ON")
                 connection.execute("PRAGMA busy_timeout = 5000")
-                ensure_studio_schema(connection)
+                ensure_managed_database_schema(connection)
                 connection.execute("BEGIN IMMEDIATE")
                 _ensure_invitation_is_pending(
                     connection,
@@ -501,17 +518,13 @@ class StudioEmailDelivery:
         self,
         workspace_id: str,
     ) -> dict[str, StudioEmailDeliveryRecord]:
-        if self.database_path is None:
+        database = self._database_target()
+        if database is None:
             return {}
-        database = self.database_path
         workspace = validate_workspace_id(workspace_id)
         records: dict[str, StudioEmailDeliveryRecord] = {}
         try:
-            with sqlite3.connect(
-                f"{database.as_uri()}?mode=ro",
-                uri=True,
-                timeout=5,
-            ) as connection:
+            with studio_database_connection(database, read_only=True) as connection:
                 for row in connection.execute(
                     """
                     SELECT message_id, invitation_id, workspace_id, recipient_email,
@@ -531,6 +544,7 @@ class StudioEmailDelivery:
             sqlite3.DatabaseError,
             StudioEmailDeliveryError,
             StudioIdentityError,
+            StudioPersistenceError,
             ValueError,
         ) as exc:
             raise StudioEmailDeliveryError("could not load invitation delivery status") from exc
@@ -605,8 +619,8 @@ class StudioEmailDelivery:
         database, _secret = self._material()
         current = _utc_now(now)
         try:
-            with sqlite3.connect(database, timeout=5) as connection:
-                ensure_studio_schema(connection)
+            with studio_database_connection(database) as connection:
+                ensure_managed_database_schema(connection)
                 rows = connection.execute(
                     """
                     SELECT message_id FROM studio_email_outbox
@@ -669,9 +683,9 @@ class StudioEmailDelivery:
         )
         received_at = _timestamp(_utc_now(now))
         try:
-            with sqlite3.connect(database, timeout=5) as connection:
+            with studio_database_connection(database) as connection:
                 connection.execute("PRAGMA busy_timeout = 5000")
-                ensure_studio_schema(connection)
+                ensure_managed_database_schema(connection)
                 connection.execute("BEGIN IMMEDIATE")
                 existing = connection.execute(
                     "SELECT 1 FROM studio_email_webhook_events WHERE event_id = ?",
@@ -721,10 +735,16 @@ class StudioEmailDelivery:
             provider_status=provider_status,
         )
 
-    def _material(self) -> tuple[Path, str]:
-        if not self.enabled or self.database_path is None or self._identity_secret is None:
+    def _database_target(self) -> StudioDatabaseTarget | None:
+        if self.managed_database is not None:
+            return self.managed_database
+        return self.database_path
+
+    def _material(self) -> tuple[StudioDatabaseTarget, str]:
+        database = self._database_target()
+        if not self.enabled or database is None or self._identity_secret is None:
             raise StudioEmailDeliveryError("automatic invitation email is not configured")
-        return self.database_path, self._identity_secret
+        return database, self._identity_secret
 
     def _transport(self) -> StudioEmailTransport:
         if self.config.api_key is None:
@@ -808,16 +828,16 @@ If you were not expecting this invitation, ignore this email.
 
 
 def _claim_message(
-    database: Path,
+    database: StudioDatabaseTarget,
     *,
     message_id: str,
     current: datetime,
 ) -> _ClaimedEmail | StudioEmailDeliveryRecord | None:
     _message_id(message_id)
     try:
-        with sqlite3.connect(database, timeout=5) as connection:
+        with studio_database_connection(database) as connection:
             connection.execute("PRAGMA busy_timeout = 5000")
-            ensure_studio_schema(connection)
+            ensure_managed_database_schema(connection)
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
                 """
@@ -867,7 +887,7 @@ def _claim_message(
                 )
             if (
                 status in {"retry", "sending"}
-                and int(row[5]) > 0
+                and int(str(row[5])) > 0
                 and _parse_timestamp(str(row[6]))
                 <= current - timedelta(hours=EMAIL_IDEMPOTENCY_WINDOW_HOURS)
             ):
@@ -887,7 +907,7 @@ def _claim_message(
                     failed_at=failed_at,
                     last_error_code="idempotency_window_expired",
                 )
-            attempt_count = int(row[5]) + 1
+            attempt_count = int(str(row[5])) + 1
             lease_expires = current + timedelta(seconds=EMAIL_DELIVERY_LEASE_SECONDS)
             lease_token = secrets.token_urlsafe(18)
             connection.execute(
@@ -912,7 +932,7 @@ def _claim_message(
 
 
 def _mark_sent(
-    database: Path,
+    database: StudioDatabaseTarget,
     record: StudioEmailDeliveryRecord,
     *,
     lease_token: str,
@@ -921,7 +941,7 @@ def _mark_sent(
 ) -> StudioEmailDeliveryRecord:
     sent_at = _timestamp(current)
     try:
-        with sqlite3.connect(database, timeout=5) as connection:
+        with studio_database_connection(database) as connection:
             connection.execute("BEGIN IMMEDIATE")
             cursor = connection.execute(
                 """
@@ -970,13 +990,13 @@ def _mark_sent(
             ).fetchone()
             if stored is None:
                 raise StudioEmailDeliveryNotFound("sent email record disappeared")
-    except (OSError, sqlite3.DatabaseError) as exc:
+    except (OSError, sqlite3.DatabaseError, StudioPersistenceError) as exc:
         raise StudioEmailDeliveryError("could not finalize the sent invitation email") from exc
     return _record_from_row(stored)
 
 
 def _mark_retry_or_failed(
-    database: Path,
+    database: StudioDatabaseTarget,
     record: StudioEmailDeliveryRecord,
     *,
     lease_token: str,
@@ -995,7 +1015,7 @@ def _mark_retry_or_failed(
     available_at = _timestamp(current + timedelta(seconds=delay_seconds))
     safe_error_code = _error_code(error_code)
     try:
-        with sqlite3.connect(database, timeout=5) as connection:
+        with studio_database_connection(database) as connection:
             cursor = connection.execute(
                 """
                 UPDATE studio_email_outbox
@@ -1006,7 +1026,7 @@ def _mark_retry_or_failed(
                 (available_at, safe_error_code, record.message_id, lease_token),
             )
             _require_active_lease(cursor)
-    except (OSError, sqlite3.DatabaseError) as exc:
+    except (OSError, sqlite3.DatabaseError, StudioPersistenceError) as exc:
         raise StudioEmailDeliveryError("could not schedule the invitation email retry") from exc
     return _replace_record(
         record,
@@ -1017,7 +1037,7 @@ def _mark_retry_or_failed(
 
 
 def _mark_failed(
-    database: Path,
+    database: StudioDatabaseTarget,
     record: StudioEmailDeliveryRecord,
     *,
     lease_token: str,
@@ -1027,7 +1047,7 @@ def _mark_failed(
     failed_at = _timestamp(current)
     safe_error_code = _error_code(error_code)
     try:
-        with sqlite3.connect(database, timeout=5) as connection:
+        with studio_database_connection(database) as connection:
             cursor = connection.execute(
                 """
                 UPDATE studio_email_outbox
@@ -1038,7 +1058,7 @@ def _mark_failed(
                 (failed_at, safe_error_code, record.message_id, lease_token),
             )
             _require_active_lease(cursor)
-    except (OSError, sqlite3.DatabaseError) as exc:
+    except (OSError, sqlite3.DatabaseError, StudioPersistenceError) as exc:
         raise StudioEmailDeliveryError("could not finalize the failed invitation email") from exc
     return _replace_record(
         record,
@@ -1076,13 +1096,13 @@ def _replace_record(
     )
 
 
-def _require_active_lease(cursor: sqlite3.Cursor) -> None:
+def _require_active_lease(cursor: StudioDatabaseCursor) -> None:
     if cursor.rowcount != 1:
         raise StudioEmailDeliveryConflict("the email delivery lease is no longer active")
 
 
 def _prepare_outbox_capacity(
-    connection: sqlite3.Connection,
+    connection: StudioDatabaseConnection,
     *,
     workspace_id: str,
     invitation_id: str,
@@ -1110,17 +1130,18 @@ def _prepare_outbox_capacity(
         "DELETE FROM studio_email_outbox WHERE message_id = ?",
         oldest_final,
     )
-    count = int(
-        connection.execute(
-            "SELECT COUNT(*) FROM studio_email_outbox WHERE workspace_id = ?",
-            (workspace_id,),
-        ).fetchone()[0]
-    )
+    count_row = connection.execute(
+        "SELECT COUNT(*) FROM studio_email_outbox WHERE workspace_id = ?",
+        (workspace_id,),
+    ).fetchone()
+    if count_row is None:
+        raise StudioEmailDeliveryError("workspace email outbox count is unavailable")
+    count = int(str(count_row[0]))
     if count >= MAX_STORED_EMAIL_MESSAGES_PER_WORKSPACE:
         raise StudioEmailDeliveryConflict("workspace email outbox is at its safe limit")
 
 
-def _prepare_webhook_capacity(connection: sqlite3.Connection) -> None:
+def _prepare_webhook_capacity(connection: StudioDatabaseConnection) -> None:
     oldest = connection.execute(
         """
         SELECT event_id FROM studio_email_webhook_events
@@ -1136,7 +1157,7 @@ def _prepare_webhook_capacity(connection: sqlite3.Connection) -> None:
 
 
 def _apply_provider_event(
-    connection: sqlite3.Connection,
+    connection: StudioDatabaseConnection,
     *,
     provider_message_id: str,
     event_id: str,
@@ -1184,7 +1205,7 @@ def _apply_provider_event(
 
 
 def _ensure_invitation_is_pending(
-    connection: sqlite3.Connection,
+    connection: StudioDatabaseConnection,
     *,
     invitation_id: str,
     workspace_id: str,
