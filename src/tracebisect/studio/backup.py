@@ -20,6 +20,7 @@ _REQUIRED_TABLES = frozenset(
         "studio_cases",
         "studio_metadata",
         "studio_api_keys",
+        "studio_ingestion_tokens",
         "studio_browser_sessions",
         "studio_users",
         "studio_workspace_memberships",
@@ -47,6 +48,7 @@ class StudioBackupInspection:
     report_count: int
     case_count: int
     api_key_count: int
+    ingestion_token_count: int
     user_count: int
     membership_count: int
     size_bytes: int
@@ -112,6 +114,7 @@ def inspect_studio_backup(backup_path: str | Path) -> StudioBackupInspection:
                         UNION SELECT workspace_id FROM studio_cases
                         UNION SELECT workspace_id FROM studio_metadata
                         UNION SELECT workspace_id FROM studio_api_keys
+                        UNION SELECT workspace_id FROM studio_ingestion_tokens
                         UNION SELECT workspace_id FROM studio_workspace_memberships
                         UNION SELECT workspace_id FROM studio_invitations
                     )
@@ -122,6 +125,7 @@ def inspect_studio_backup(backup_path: str | Path) -> StudioBackupInspection:
             report_count = _table_count(connection, "studio_reports")
             case_count = _table_count(connection, "studio_cases")
             api_key_count = _table_count(connection, "studio_api_keys")
+            ingestion_token_count = _table_count(connection, "studio_ingestion_tokens")
             user_count = _table_count(connection, "studio_users")
             membership_count = _table_count(connection, "studio_workspace_memberships")
             if _table_count(connection, "studio_browser_sessions") != 0:
@@ -153,6 +157,7 @@ def inspect_studio_backup(backup_path: str | Path) -> StudioBackupInspection:
         report_count=report_count,
         case_count=case_count,
         api_key_count=api_key_count,
+        ingestion_token_count=ingestion_token_count,
         user_count=user_count,
         membership_count=membership_count,
         size_bytes=backup.stat().st_size,
@@ -309,6 +314,14 @@ def _content_sha256(connection: sqlite3.Connection) -> str:
             """,
         ),
         (
+            "ingestion_tokens",
+            """
+            SELECT token_id, workspace_id, label, scope, token_hash,
+                   created_at, expires_at, revoked_at
+            FROM studio_ingestion_tokens ORDER BY token_id
+            """,
+        ),
+        (
             "browser_sessions",
             """
             SELECT session_id, key_id, session_hash, created_at, expires_at, revoked_at
@@ -384,7 +397,7 @@ def _content_sha256(connection: sqlite3.Connection) -> str:
 
 def _logical_signature(
     inspection: StudioBackupInspection,
-) -> tuple[int, int, int, int, int, int, int, int, str]:
+) -> tuple[int, int, int, int, int, int, int, int, int, str]:
     return (
         inspection.schema_version,
         inspection.workspace_count,
@@ -392,6 +405,7 @@ def _logical_signature(
         inspection.report_count,
         inspection.case_count,
         inspection.api_key_count,
+        inspection.ingestion_token_count,
         inspection.user_count,
         inspection.membership_count,
         inspection.content_sha256,

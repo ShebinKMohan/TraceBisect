@@ -103,9 +103,11 @@ setting on `auto` or `true`.
 
 ## Compatibility boundary
 
-CLI tools and service integrations may continue to send a managed workspace key
-as an `Authorization: Bearer ...` header. Browser sessions are an additional,
-safer browser path; they do not remove API access.
+CLI tools that need broader workspace access may continue to send a managed
+workspace key as an `Authorization: Bearer ...` header. An agent or CI job that
+only uploads traces should use a
+[trace-upload token](studio-ingestion-tokens.md) instead. Browser sessions are
+an additional, safer browser path; they do not remove API access.
 
 The legacy `TRACEBISECT_STUDIO_API_KEYS` JSON mapping cannot issue managed
 browser sessions because it has no durable key ID, expiry, or revocation record.

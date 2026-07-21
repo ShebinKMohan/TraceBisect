@@ -18,7 +18,7 @@ from tracebisect.studio.postgres_migration import (
     migrate_sqlite_to_postgres,
     verify_sqlite_postgres_migration,
 )
-from tracebisect.studio.storage import ensure_studio_schema
+from tracebisect.studio.storage import SCHEMA_VERSION, ensure_studio_schema
 
 
 def _populate_source(database: Path) -> None:
@@ -61,6 +61,15 @@ def _populate_source(database: Path) -> None:
             ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
             """,
             ("key-1", "workspace-a", "admin", "Admin", "a" * 64, created, expires),
+        )
+        connection.execute(
+            """
+            INSERT INTO studio_ingestion_tokens (
+                token_id, workspace_id, label, scope, token_hash,
+                created_at, expires_at, revoked_at
+            ) VALUES (?, ?, ?, 'trace:write', ?, ?, ?, NULL)
+            """,
+            ("token-1", "workspace-a", "Production agent", "f" * 64, created, expires),
         )
         connection.execute(
             """
@@ -156,7 +165,7 @@ def test_complete_migration_is_source_safe_and_reconciles_every_table(tmp_path: 
 
     report = migrate_sqlite_to_postgres(source, destination)
 
-    assert report.schema_version == 7
+    assert report.schema_version == SCHEMA_VERSION
     assert report.workspace_count == 1
     assert report.total_rows == len(MIGRATION_TABLES)
     assert report.browser_session_count == 1
@@ -296,5 +305,5 @@ def test_cli_explains_missing_destination_and_prints_verified_next_steps(
     assert main(["studio", "migrate-postgres", "--source", str(source)]) == 0
     output = capsys.readouterr().out
     assert "PostgreSQL migration completed and verified" in output
-    assert "Rows reconciled: 13" in output
+    assert f"Rows reconciled: {len(MIGRATION_TABLES)}" in output
     assert "Keep the old API and every email worker stopped" in output

@@ -296,6 +296,36 @@ def test_sqlite_store_migrates_v6_to_email_webhook_reconciliation(tmp_path: Path
     migrated.close()
 
 
+def test_sqlite_store_migrates_v7_to_upload_only_ingestion_tokens(tmp_path: Path) -> None:
+    database_path = tmp_path / "studio.sqlite3"
+    original = SQLiteStudioStore(database_path, workspace_id="workspace-a")
+    original.close()
+    with sqlite3.connect(database_path) as connection:
+        connection.execute("DROP TABLE studio_ingestion_tokens")
+        connection.execute("UPDATE studio_schema SET version = 7")
+
+    migrated = SQLiteStudioStore(database_path, workspace_id="workspace-a")
+
+    with sqlite3.connect(database_path) as connection:
+        assert connection.execute("SELECT version FROM studio_schema").fetchone() == (
+            SCHEMA_VERSION,
+        )
+        table = connection.execute(
+            """
+            SELECT name FROM sqlite_master
+            WHERE type = 'table' AND name = 'studio_ingestion_tokens'
+            """
+        ).fetchone()
+        columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(studio_ingestion_tokens)")
+        }
+    assert table == ("studio_ingestion_tokens",)
+    assert {"token_id", "workspace_id", "scope", "token_hash", "expires_at"}.issubset(
+        columns
+    )
+    migrated.close()
+
+
 def test_sqlite_store_isolates_workspaces_in_one_database(tmp_path: Path) -> None:
     database_path = tmp_path / "studio.sqlite3"
     workspace_a = SQLiteStudioStore(database_path, workspace_id="workspace-a")

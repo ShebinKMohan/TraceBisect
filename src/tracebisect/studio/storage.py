@@ -27,7 +27,7 @@ from tracebisect.studio.service import (
     StudioStore,
 )
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 _WORKSPACE_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 _STORAGE_SETTING_NAMES = (
     "TRACEBISECT_STUDIO_STORAGE",
@@ -109,12 +109,22 @@ class SQLiteStudioStore(StudioStore):
                 "could not initialize the configured SQLite Studio store"
             ) from exc
 
-    def add_trace(self, trace: Trace, *, name: str | None = None) -> str:
+    def add_trace(
+        self,
+        trace: Trace,
+        *,
+        name: str | None = None,
+        replace_existing: bool = True,
+    ) -> str:
         with self._lock:
             trace_key = trace.trace_id
             previous_trace = self.traces.get(trace_key)
             previous_name = self.trace_names.get(trace_key)
-            persisted_key = super().add_trace(trace, name=name)
+            persisted_key = super().add_trace(
+                trace,
+                name=name,
+                replace_existing=replace_existing,
+            )
             try:
                 with self._connection:
                     self._connection.execute(
@@ -386,7 +396,7 @@ def ensure_studio_schema(connection: sqlite3.Connection) -> None:
                 "INSERT INTO studio_schema (version) VALUES (?)",
                 (SCHEMA_VERSION,),
             )
-        elif not isinstance(row[0], int) or row[0] not in {1, 2, 3, 4, 5, 6, SCHEMA_VERSION}:
+        elif not isinstance(row[0], int) or row[0] not in {1, 2, 3, 4, 5, 6, 7, SCHEMA_VERSION}:
             raise StudioPersistenceError(f"unsupported Studio database schema version {row[0]!r}")
         else:
             database_version = row[0]
@@ -459,6 +469,26 @@ def ensure_studio_schema(connection: sqlite3.Connection) -> None:
             """
             CREATE INDEX IF NOT EXISTS studio_api_keys_workspace_idx
             ON studio_api_keys (workspace_id)
+            """,
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS studio_ingestion_tokens (
+                token_id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                label TEXT NOT NULL,
+                scope TEXT NOT NULL CHECK (scope = 'trace:write'),
+                token_hash TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                revoked_at TEXT
+            )
+            """,
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS studio_ingestion_tokens_workspace_idx
+            ON studio_ingestion_tokens (workspace_id, created_at)
             """,
         )
         connection.execute(

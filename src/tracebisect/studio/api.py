@@ -72,6 +72,7 @@ from tracebisect.studio.identity import (
     StudioInvitationRecord,
     StudioMembershipRecord,
 )
+from tracebisect.studio.ingestion_tokens import MAX_ACTIVE_INGESTION_TOKENS_PER_WORKSPACE
 from tracebisect.studio.managed_database import StudioManagedDatabase
 from tracebisect.studio.metrics import (
     PROMETHEUS_CONTENT_TYPE,
@@ -83,6 +84,7 @@ from tracebisect.studio.service import (
     DEFAULT_SCENARIO_CMD,
     StudioStore,
     StudioStoreFullError,
+    StudioTraceConflictError,
     build_comparison_report,
     load_trace_from_path,
     seed_demo_report,
@@ -457,7 +459,7 @@ async def apply_api_guardrails(
                     status_code=401,
                     content={
                         "detail": (
-                            "A valid Studio browser session or workspace API key is required."
+                            "A valid Studio session, workspace key, or ingestion token is required."
                         )
                     },
                     headers={"WWW-Authenticate": "Bearer"},
@@ -658,6 +660,7 @@ def health() -> JsonObject:
             "rate_limit_requests": RATE_LIMIT_REQUESTS,
             "rate_limit_upload_requests": RATE_LIMIT_UPLOAD_REQUESTS,
             "max_active_workspace_keys": MAX_ACTIVE_STUDIO_API_KEYS_PER_WORKSPACE,
+            "max_active_ingestion_tokens": MAX_ACTIVE_INGESTION_TOKENS_PER_WORKSPACE,
             "max_workspace_members": MAX_ACTIVE_MEMBERS_PER_WORKSPACE,
             "max_pending_workspace_invitations": MAX_ACTIVE_INVITATIONS_PER_WORKSPACE,
             "max_stored_workspace_invitations": MAX_STORED_INVITATIONS_PER_WORKSPACE,
@@ -1329,6 +1332,7 @@ def get_run_report(report_id: str, store: StudioStoreDependency) -> JsonObject:
 @app.post("/api/traces/upload", response_model=None)
 async def upload_trace(
     file: Annotated[UploadFile, File()],
+    request: Request,
     store: StudioStoreDependency,
 ) -> JsonObject:
     filename = _safe_display_filename(file.filename)
@@ -1356,9 +1360,21 @@ async def upload_trace(
         await file.close()
 
     try:
-        trace_key = store.add_trace(trace, name=filename)
+        trace_key = store.add_trace(
+            trace,
+            name=filename,
+            replace_existing=getattr(request.state, "auth_kind", None) != "ingestion_token",
+        )
     except StudioStoreFullError as exc:
         raise HTTPException(status_code=507, detail=str(exc)) from exc
+    except StudioTraceConflictError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "A trace with this ID already exists. "
+                "Give every uploaded run a unique trace ID."
+            ),
+        ) from exc
     summary = next(item for item in store.list_traces() if item["id"] == trace_key)
     return {"trace": summary}
 
@@ -1549,6 +1565,8 @@ def _validate_run_filter(name: str, value: str | None, allowed: frozenset[str]) 
 
 def _role_allows_request(*, role: str, method: str, path: str) -> bool:
     """Keep viewer credentials read-only, including the demo's seeding GET route."""
+    if role == "ingest":
+        return method.upper() == "POST" and path == "/api/traces/upload"
     if path == BROWSER_SESSION_EXCHANGE_PATH:
         return True
     if path == ACCESS_KEYS_API_PATH or path.startswith(f"{ACCESS_KEYS_API_PATH}/"):
@@ -1563,6 +1581,8 @@ def _role_allows_request(*, role: str, method: str, path: str) -> bool:
 
 
 def _role_denied_detail(role: str, *, path: str) -> str:
+    if role == "ingest":
+        return "This ingestion token can only upload traces. It cannot open or read Studio."
     if path == ACCESS_KEYS_API_PATH or path.startswith(f"{ACCESS_KEYS_API_PATH}/"):
         return "Workspace admin access is required to manage access keys."
     if path.startswith("/api/team/"):
@@ -1744,6 +1764,10 @@ def _production_readiness(
                     "short-lived revocable HttpOnly browser sessions",
                 ]
             )
+            if AUTH_CONFIG.ingestion_tokens_enabled:
+                completed.append(
+                    "workspace-scoped upload-only ingestion tokens for agents and CI"
+                )
             if BROWSER_SESSION_COOKIE_SECURE:
                 completed.append("Secure browser session cookies")
             else:

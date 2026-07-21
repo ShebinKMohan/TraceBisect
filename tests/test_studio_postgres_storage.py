@@ -40,6 +40,11 @@ from tracebisect.studio.identity import (
     principal_for_studio_identity_session,
     recover_studio_identity,
 )
+from tracebisect.studio.ingestion_tokens import (
+    create_studio_ingestion_token,
+    principal_for_managed_ingestion_token,
+    revoke_studio_ingestion_token,
+)
 from tracebisect.studio.postgres_migration import MIGRATION_TABLES, migrate_sqlite_to_postgres
 from tracebisect.studio.postgres_storage import (
     POSTGRES_SCHEMA_STATEMENTS,
@@ -48,7 +53,11 @@ from tracebisect.studio.postgres_storage import (
     ensure_postgres_schema,
 )
 from tracebisect.studio.rate_limit import PostgresStudioRateLimiter
-from tracebisect.studio.service import StudioStore, build_demo_report
+from tracebisect.studio.service import (
+    StudioStore,
+    StudioTraceConflictError,
+    build_demo_report,
+)
 from tracebisect.studio.storage import (
     StudioConfigurationError,
     StudioPersistenceError,
@@ -180,6 +189,9 @@ def test_postgres_schema_uses_jsonb_timestamps_constraints_and_workspace_indexes
     assert "studio_reports_workspace_created_idx" in schema
     assert "studio_cases_workspace_updated_idx" in schema
     assert "create table if not exists studio_api_keys" in schema
+    assert "create table if not exists studio_ingestion_tokens" in schema
+    assert "scope text not null check (scope = 'trace:write')" in schema
+    assert "studio_ingestion_tokens_active_workspace_expiry_idx" in schema
     assert "create table if not exists studio_browser_sessions" in schema
     assert "references studio_api_keys(key_id) on delete cascade" in schema
     assert "create table if not exists studio_users" in schema
@@ -204,7 +216,7 @@ def test_postgres_schema_uses_jsonb_timestamps_constraints_and_workspace_indexes
     assert "where revoked_at is null" in schema
 
 
-def test_postgres_schema_upgrades_core_v1_to_rate_limiting_v5() -> None:
+def test_postgres_schema_upgrades_core_v1_to_ingestion_tokens_v6() -> None:
     statements = [" ".join(statement.split()) for statement in POSTGRES_SCHEMA_STATEMENTS]
     connection = _Connection(
         [
@@ -342,6 +354,22 @@ def test_postgres_store_add_trace_locks_capacity_and_uses_parameterized_upsert()
     assert "%s" in upsert
     assert params is not None
     assert "Refund baseline" in params
+
+
+def test_postgres_append_only_trace_upload_cannot_replace_existing_evidence() -> None:
+    store, connection, _pool = _store(
+        [
+            _Execution("pg_advisory_xact_lock"),
+            _Execution("SELECT 1 FROM studio_traces", one=(1,)),
+        ]
+    )
+    trace = build_refund_baseline_trace()
+
+    with pytest.raises(StudioTraceConflictError, match="already exists"):
+        store.add_trace(trace, name="Agent upload", replace_existing=False)
+
+    assert all("INSERT INTO studio_traces" not in call[0] for call in connection.calls)
+    assert not connection.executions
 
 
 def test_postgres_workspace_views_share_one_pool_and_query_fresh_counts() -> None:
@@ -491,6 +519,56 @@ def test_postgres_managed_key_creation_and_resolution_reuse_the_shared_pool() ->
     assert principal is not None
     assert principal.workspace_id == "workspace-a"
     assert principal.role == "admin"
+    assert not connection.executions
+
+
+def test_postgres_ingestion_token_creation_and_resolution_reuse_the_shared_pool() -> None:
+    store, connection, _pool = _store(
+        [
+            _Execution("pg_advisory_xact_lock"),
+            _Execution("SELECT COUNT(*) FROM studio_ingestion_tokens", one=(0,)),
+            _Execution("INSERT INTO studio_ingestion_tokens"),
+        ]
+    )
+    pepper = "managed-postgres-pepper-with-at-least-32-characters"
+
+    issued = create_studio_ingestion_token(
+        store,
+        workspace_id="workspace-a",
+        label="Production agent",
+        expires_in_days=30,
+        pepper=pepper,
+    )
+    insert_params = connection.calls[-1][1]
+    assert isinstance(insert_params, tuple)
+    stored_hash = insert_params[4]
+    assert issued.token not in str(insert_params)
+    connection.executions.extend(
+        [
+            _Execution("SET TRANSACTION READ ONLY"),
+            _Execution(
+                "SELECT workspace_id, scope, token_hash, expires_at, revoked_at",
+                one=(
+                    "workspace-a",
+                    "trace:write",
+                    stored_hash,
+                    issued.record.expires_at,
+                    None,
+                ),
+            ),
+        ]
+    )
+
+    principal = principal_for_managed_ingestion_token(
+        store,
+        token=issued.token,
+        pepper=pepper,
+    )
+
+    assert principal is not None
+    assert principal.workspace_id == "workspace-a"
+    assert principal.scope == "trace:write"
+    assert all("?" not in statement for statement, _params in connection.calls)
     assert not connection.executions
 
 
@@ -1021,6 +1099,34 @@ def test_live_postgres_store_shares_fresh_data_and_isolates_workspaces() -> None
             is None
         )
 
+        issued_ingestion = create_studio_ingestion_token(
+            first,
+            workspace_id=workspace_id,
+            label="Live production agent",
+            expires_in_days=1,
+            pepper=pepper,
+        )
+        ingestion_principal = principal_for_managed_ingestion_token(
+            restored,
+            token=issued_ingestion.token,
+            pepper=pepper,
+        )
+        assert ingestion_principal is not None
+        assert ingestion_principal.workspace_id == workspace_id
+        assert ingestion_principal.scope == "trace:write"
+        revoke_studio_ingestion_token(
+            first,
+            token_id=issued_ingestion.record.token_id,
+        )
+        assert (
+            principal_for_managed_ingestion_token(
+                restored,
+                token=issued_ingestion.token,
+                pepper=pepper,
+            )
+            is None
+        )
+
         identity_secret = "live-postgres-identity-secret-with-at-least-32-characters"
         invitation = create_studio_invitation(
             first,
@@ -1157,6 +1263,10 @@ def test_live_postgres_store_shares_fresh_data_and_isolates_workspaces() -> None
                         )
                     connection.execute(
                         "DELETE FROM studio_api_keys WHERE workspace_id = ?",
+                        (workspace_id,),
+                    )
+                    connection.execute(
+                        "DELETE FROM studio_ingestion_tokens WHERE workspace_id = ?",
                         (workspace_id,),
                     )
                     connection.execute(

@@ -139,8 +139,9 @@ bad inputs and now supports durable API-key-scoped workspaces. Managed browser
 sign-in exchanges a workspace key for a short-lived, revocable HttpOnly session,
 and SQLite supports invitation-only accounts, recovery, team roles, and email
 delivery. PostgreSQL supports core workspace evidence, managed access, human
-identity, recovery, team roles, encrypted invitation delivery, and shared exact
-request limiting across API and worker instances. Atomic SQLite cutover and
+identity, recovery, team roles, upload-only ingestion tokens, encrypted
+invitation delivery, and shared exact request limiting across API and worker
+instances. Atomic SQLite cutover and
 verification tooling is implemented; provider rehearsal and hosted
 monitoring/error-event retention wiring remain separate SaaS milestones. The API
 also provides hashed expiring keys, a protected Prometheus

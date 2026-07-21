@@ -1,8 +1,10 @@
 # Studio workspace access
 
-This guide is for a workspace admin who needs to give an integration or
+This guide is for a workspace admin who needs to give an interactive tool or
 emergency operator the smallest access it needs. People should normally use an
 invited account; see [Studio accounts and team access](studio-accounts.md).
+Agents and CI jobs that only upload traces should use a
+[trace-upload token](studio-ingestion-tokens.md), not an Editor key.
 Routine key management happens inside Studio;
 the command line is only needed to bootstrap the first admin or recover a
 workspace that has no usable admin key.
@@ -10,7 +12,7 @@ workspace that has no usable admin key.
 ## Create access in Studio
 
 1. Open **Settings** and find **Workspace access**.
-2. Enter a recognizable name such as `CI uploads` or `Emergency operator`.
+2. Enter a recognizable name such as `Release reviewer` or `Emergency operator`.
 3. Choose the smallest permission:
    - **Viewer** can inspect traces, comparisons, and generated tests.
    - **Editor** can also upload, compare, save, and rerun guardrails.
@@ -79,7 +81,7 @@ email is not implemented yet.
   a key ID.
 - SQLite and PostgreSQL store a peppered HMAC digest, not the plaintext key.
 
-This feature manages workspace keys. Human accounts, invitation links, saved
-recovery codes, and team membership are documented separately. Automated email,
-identity-provider sign-in, multi-factor authentication, and billing are not yet
-provided.
+This feature manages workspace keys. Upload-only automation credentials, human
+accounts, invitation links, saved recovery codes, and team membership are
+documented separately. Automated sender-domain operations, identity-provider
+sign-in, multi-factor authentication, and billing are not yet provided.

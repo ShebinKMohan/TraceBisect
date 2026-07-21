@@ -54,6 +54,7 @@ from tracebisect.studio.identity import (
     revoke_studio_invitation,
     update_studio_membership_role,
 )
+from tracebisect.studio.ingestion_tokens import principal_for_managed_ingestion_token
 from tracebisect.studio.managed_database import (
     StudioDatabaseTarget,
     StudioManagedDatabase,
@@ -62,7 +63,8 @@ from tracebisect.studio.storage import StudioConfigurationError, validate_worksp
 
 AuthMode = Literal["none", "api-key"]
 CredentialSource = Literal["none", "environment", "managed"]
-AuthKind = Literal["api_key", "browser_session", "identity_session"]
+AuthKind = Literal["api_key", "browser_session", "identity_session", "ingestion_token"]
+StudioAuthRole = WorkspaceRole | Literal["ingest"]
 MIN_API_KEY_LENGTH = 32
 MAX_API_KEY_LENGTH = 256
 BROWSER_SESSION_TTL_ENV = "TRACEBISECT_STUDIO_BROWSER_SESSION_TTL_SECONDS"
@@ -74,7 +76,7 @@ class StudioAuthPrincipal:
     """Workspace and role granted by one accepted bearer credential."""
 
     workspace_id: str
-    role: WorkspaceRole
+    role: StudioAuthRole
     key_id: str | None = None
     auth_kind: AuthKind = "api_key"
     session_id: str | None = None
@@ -213,12 +215,25 @@ class StudioAuthConfig:
                 api_key=candidate,
                 pepper=self._pepper,
             )
-            if principal is None:
+            if principal is not None:
+                return StudioAuthPrincipal(
+                    workspace_id=principal.workspace_id,
+                    role=principal.role,
+                    key_id=principal.key_id,
+                )
+            ingestion_principal = principal_for_managed_ingestion_token(
+                self._database,
+                token=candidate,
+                pepper=self._pepper,
+            )
+            if ingestion_principal is None:
                 return None
             return StudioAuthPrincipal(
-                workspace_id=principal.workspace_id,
-                role=principal.role,
-                key_id=principal.key_id,
+                workspace_id=ingestion_principal.workspace_id,
+                role="ingest",
+                key_id=ingestion_principal.token_id,
+                auth_kind="ingestion_token",
+                expires_at=ingestion_principal.expires_at,
             )
         matched_workspace: str | None = None
         for expected, workspace_id in self._credentials:
@@ -234,6 +249,11 @@ class StudioAuthConfig:
         return self.credential_source == "managed"
 
     @property
+    def ingestion_tokens_enabled(self) -> bool:
+        """Return whether upload-only integration credentials can be resolved."""
+        return self.credential_source == "managed"
+
+    @property
     def browser_session_ttl_seconds(self) -> int:
         """Return the configured maximum browser-session lifetime."""
         return self._browser_session_ttl_seconds
@@ -243,6 +263,7 @@ class StudioAuthConfig:
         candidate = _bearer_candidate(authorization)
         if (
             candidate is None
+            or not candidate.startswith("tbsk_")
             or not self.browser_sessions_enabled
             or self._database is None
             or self._pepper is None
@@ -521,6 +542,7 @@ class StudioAuthConfig:
             "credential_source": self.credential_source,
             "browser_sessions": self.browser_sessions_enabled,
             "self_service_access_management": self.access_management_enabled,
+            "ingestion_tokens": self.ingestion_tokens_enabled,
             "human_accounts": self.identity_enabled,
             "browser_session_ttl_seconds": (
                 self._browser_session_ttl_seconds if self.browser_sessions_enabled else 0

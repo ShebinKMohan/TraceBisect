@@ -147,6 +147,7 @@ This milestone provides invitation-only accounts, offline recovery, team roles,
 revocable human sessions, and optional encrypted Resend delivery with signed
 delivery/bounce reconciliation on SQLite and PostgreSQL. It does not yet provide
 automated sender-domain/suppression operations, email ownership re-verification,
-multi-factor or identity-provider sign-in, account-scoped ingestion tokens, or
-billing. PostgreSQL mode does share exact request limits across API replicas;
+multi-factor or identity-provider sign-in, or billing. Automated agents and CI
+can use separate upload-only tokens instead of a person's account or Editor key.
+PostgreSQL mode also shares exact request limits across API replicas;
 SQLite and memory modes remain process-local.

@@ -32,6 +32,7 @@ from tracebisect.studio.service import (
     DEFAULT_SCENARIO_CMD,
     StudioStore,
     StudioStoreFullError,
+    StudioTraceConflictError,
     _case_from_report,
     _float_value,
     _format_datetime,
@@ -48,7 +49,7 @@ from tracebisect.studio.storage import (
     validate_workspace_id,
 )
 
-POSTGRES_SCHEMA_VERSION = 5
+POSTGRES_SCHEMA_VERSION = 6
 _SCHEMA_LOCK_ID = 882_014_771
 _WORKSPACE_LOCK_SEED = 882_014_771
 _MANAGED_SECURITY_LOCK_ID = 882_014_772
@@ -136,6 +137,25 @@ POSTGRES_SCHEMA_STATEMENTS = (
     """
     CREATE INDEX IF NOT EXISTS studio_api_keys_active_workspace_expiry_idx
     ON studio_api_keys (workspace_id, expires_at)
+    WHERE revoked_at IS NULL
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS studio_ingestion_tokens (
+        token_id text PRIMARY KEY,
+        workspace_id text NOT NULL,
+        label text NOT NULL,
+        scope text NOT NULL CHECK (scope = 'trace:write'),
+        token_hash text NOT NULL CHECK (length(token_hash) = 64),
+        created_at timestamptz NOT NULL,
+        expires_at timestamptz NOT NULL,
+        revoked_at timestamptz,
+        CHECK (workspace_id ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'),
+        CHECK (expires_at > created_at)
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS studio_ingestion_tokens_active_workspace_expiry_idx
+    ON studio_ingestion_tokens (workspace_id, expires_at)
     WHERE revoked_at IS NULL
     """,
     """
@@ -425,7 +445,13 @@ class PostgresStudioStore(StudioStore):
             initialize_schema=False,
         )
 
-    def add_trace(self, trace: Trace, *, name: str | None = None) -> str:
+    def add_trace(
+        self,
+        trace: Trace,
+        *,
+        name: str | None = None,
+        replace_existing: bool = True,
+    ) -> str:
         trace_key = trace.trace_id or f"trace-{uuid.uuid4().hex[:12]}"
         try:
             with self._pool.connection() as connection:
@@ -437,13 +463,17 @@ class PostgresStudioStore(StudioStore):
                     """,
                     (self.workspace_id, trace_key),
                 ).fetchone()
+                if existing is not None and not replace_existing:
+                    raise StudioTraceConflictError(
+                        "a trace with this ID already exists in the workspace"
+                    )
                 trace_count = _table_count(connection, "studio_traces", self.workspace_id)
                 if existing is None and trace_count >= self.max_traces:
                     raise StudioStoreFullError(
                         "trace store is full; increase TRACEBISECT_STUDIO_MAX_STORED_TRACES"
                     )
                 _upsert_trace(connection, self.workspace_id, trace_key, trace, name)
-        except StudioStoreFullError:
+        except (StudioStoreFullError, StudioTraceConflictError):
             raise
         except Error as exc:
             raise StudioPersistenceError("could not save trace to PostgreSQL") from exc

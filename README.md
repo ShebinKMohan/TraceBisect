@@ -67,7 +67,8 @@ readiness probe.
 
 For multiple API instances, Studio now shares core workspace data, managed
 access keys, browser sessions, human accounts, recovery codes, team membership,
-manual invitations, human sessions, and exact sliding-window request limits
+manual invitations, human sessions, upload-only agent tokens, and exact
+sliding-window request limits
 through PostgreSQL. Rate-limit rows contain only SHA-256 bucket identifiers, not
 raw client or account keys. Generate both server-side hashing secrets, save the
 database URL in your secret manager, and create the first admin key before
@@ -101,6 +102,19 @@ PostgreSQL store. Provider backups and point-in-time recovery replace the local
 SQLite backup commands. See
 [`docs/operations/studio-postgres-core.md`](docs/operations/studio-postgres-core.md)
 for pooling, least-privilege, migration, and verification guidance.
+
+Agents and CI jobs that only send traces do not need an Editor key. Create a
+workspace-scoped upload token that cannot read or open Studio:
+
+```bash
+tracebisect studio ingest-tokens create \
+  --workspace team-a \
+  --name 'Production support agent'
+```
+
+Use `--database .tracebisect/studio.db` for SQLite. See
+[`docs/operations/studio-ingestion-tokens.md`](docs/operations/studio-ingestion-tokens.md)
+for the upload, rotation, and revocation workflow.
 
 Existing SQLite installations can move to an empty PostgreSQL database with one
 source-safe command. The database URL stays in the environment instead of shell
@@ -308,6 +322,8 @@ It is deliberately not described as horizontally scalable SaaS infrastructure.
   hash managed keys.
 - `tracebisect studio keys create/list/revoke` — manages expiring workspace keys
   without persisting or redisplaying their plaintext values.
+- `tracebisect studio ingest-tokens create/list/revoke` — manages upload-only
+  agent tokens with the same one-time plaintext handling.
 - `tracebisect studio identity generate-secret` — creates the dedicated server
   secret for invitation-only human accounts, recovery, and sessions.
 - `tracebisect studio email deliver` — sends a bounded batch from the encrypted

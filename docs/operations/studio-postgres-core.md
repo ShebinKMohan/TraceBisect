@@ -2,11 +2,11 @@
 
 PostgreSQL mode is the first multi-instance persistence milestone for
 TraceBisect Studio. It stores traces, comparison reports, regression cases, demo
-metadata, managed workspace keys, browser sessions, human accounts, recovery
-codes, team membership, invitations, the encrypted email outbox, delivery
-webhook history, human sessions, and short-lived request-limit buckets in one
-shared database. It does **not** yet make the complete product a hosted
-multi-tenant SaaS.
+metadata, managed workspace keys, upload-only ingestion tokens, browser sessions,
+human accounts, recovery codes, team membership, invitations, the encrypted
+email outbox, delivery webhook history, human sessions, and short-lived
+request-limit buckets in one shared database. It does **not** yet make the
+complete product a hosted multi-tenant SaaS.
 
 ## Current boundary
 
@@ -21,6 +21,8 @@ Supported in PostgreSQL mode:
   expired rows removed in bounded in-band batches; request paths are normalized
   to fixed actions so random paths cannot evade limits or create unbounded rows;
 - digest-only managed workspace keys with expiry, roles, and immediate revocation;
+- digest-only, workspace-scoped trace-upload tokens that cannot read Studio or
+  create browser sessions;
 - short-lived, digest-only HttpOnly browser sessions that cannot outlive a key;
 - Argon2id human accounts, saved recovery codes, workspace team roles, manual
   invitation links, and revocable human sessions;
@@ -173,7 +175,7 @@ tracebisect studio migrate-postgres \
 The command never writes to the SQLite source. It creates an isolated online
 snapshot, upgrades only that disposable copy, checks SQLite integrity and
 foreign-key relationships, and requires every destination product table to be
-empty. It then copies all 13 product, access, identity, session, invitation,
+empty. It then copies all 14 product, access, identity, session, invitation,
 outbox, and webhook tables in one destination transaction.
 
 Before commit, TraceBisect compares every table count and a canonical SHA-256 of
@@ -232,7 +234,7 @@ through separate connection pools consume the same bucket and cleans up that
 bucket. The suite uses an in-process fake mail transport and does not contact
 Resend. A skipped live test is not evidence that a real provider
 connection, TLS policy, backup, restore, or provider delivery has been verified.
-The migration suite separately proves populated 13-table copies, non-empty
+The migration suite separately proves populated 14-table copies, non-empty
 destination refusal, content-drift detection, transaction rollback, live-source
 change detection, and PostgreSQL parameter translation. A real cutover should
 still be rehearsed against an isolated provider database before production.

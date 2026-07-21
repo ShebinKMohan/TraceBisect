@@ -288,6 +288,73 @@ def build_parser() -> argparse.ArgumentParser:
         help="12-character key ID shown by the list command.",
     )
 
+    studio_ingest_tokens = studio_commands.add_parser(
+        "ingest-tokens",
+        help="Create upload-only tokens for agents and CI without granting Studio access.",
+    )
+    studio_ingest_token_commands = studio_ingest_tokens.add_subparsers(
+        dest="studio_ingest_token_command",
+        metavar="<token-command>",
+    )
+    studio_ingest_tokens.set_defaults(studio_ingest_tokens_parser=studio_ingest_tokens)
+
+    studio_ingest_token_create = studio_ingest_token_commands.add_parser(
+        "create",
+        help="Issue one expiring trace-upload token and show it once.",
+    )
+    studio_ingest_token_create.add_argument(
+        "--database",
+        help=(
+            "SQLite database path. Omit for PostgreSQL when "
+            "TRACEBISECT_STUDIO_DATABASE_URL is set."
+        ),
+    )
+    studio_ingest_token_create.add_argument(
+        "--workspace",
+        required=True,
+        help="Workspace that will receive uploaded traces.",
+    )
+    studio_ingest_token_create.add_argument(
+        "--name",
+        required=True,
+        help="Human-readable agent or CI job name, such as 'Production support agent'.",
+    )
+    studio_ingest_token_create.add_argument(
+        "--expires-in-days",
+        type=int,
+        default=90,
+        help="Token lifetime from today (default: 90, maximum: 3650).",
+    )
+
+    studio_ingest_token_list = studio_ingest_token_commands.add_parser(
+        "list",
+        help="Show token IDs, workspace, expiry, and status—never secrets.",
+    )
+    studio_ingest_token_list.add_argument(
+        "--database",
+        help=(
+            "SQLite database path. Omit for PostgreSQL when "
+            "TRACEBISECT_STUDIO_DATABASE_URL is set."
+        ),
+    )
+
+    studio_ingest_token_revoke = studio_ingest_token_commands.add_parser(
+        "revoke",
+        help="Immediately disable one upload token by its non-secret token ID.",
+    )
+    studio_ingest_token_revoke.add_argument(
+        "--database",
+        help=(
+            "SQLite database path. Omit for PostgreSQL when "
+            "TRACEBISECT_STUDIO_DATABASE_URL is set."
+        ),
+    )
+    studio_ingest_token_revoke.add_argument(
+        "--token-id",
+        required=True,
+        help="12-character token ID shown by the list command.",
+    )
+
     studio_metrics = studio_commands.add_parser(
         "metrics",
         help="Configure safe access to production service metrics.",
@@ -752,6 +819,7 @@ def _print_studio_backup_summary(
     print(f"  Comparisons: {inspection.report_count}")
     print(f"  Guardrails: {inspection.case_count}")
     print(f"  Access keys: {inspection.api_key_count}")
+    print(f"  Ingestion tokens: {inspection.ingestion_token_count}")
     print(f"  People: {inspection.user_count}")
     print(f"  Memberships: {inspection.membership_count}")
     print(f"  Size: {inspection.size_bytes} bytes")
@@ -834,6 +902,70 @@ def run_studio_keys_revoke(database: str | None, key_id: str) -> int:
     print(f"  Key ID: {record.key_id}")
     print(f"  Workspace: {record.workspace_id}")
     print(f"  Role: {record.role}")
+    print(f"  Name: {record.label}")
+    print(f"  Revoked: {record.revoked_at}")
+    return 0
+
+
+def run_studio_ingest_tokens_create(
+    database: str | None,
+    workspace: str,
+    name: str,
+    expires_in_days: int,
+) -> int:
+    from tracebisect.studio.access_keys import api_key_pepper
+    from tracebisect.studio.ingestion_tokens import create_studio_ingestion_token
+
+    with _studio_key_database(database) as target:
+        issued = create_studio_ingestion_token(
+            target,
+            workspace_id=workspace,
+            label=name,
+            expires_in_days=expires_in_days,
+            pepper=api_key_pepper(),
+        )
+    print("Trace-upload token created")
+    print(f"  Token ID: {issued.record.token_id}")
+    print(f"  Workspace: {issued.record.workspace_id}")
+    print(f"  Name: {issued.record.label}")
+    print(f"  Permission: {issued.record.scope} (upload only)")
+    print(f"  Expires: {issued.record.expires_at}")
+    print()
+    print("Copy this token now. TraceBisect stores only its hash and cannot show it again:")
+    print(f"  {issued.token}")
+    print()
+    print("Send it as a Bearer token only to POST /api/traces/upload.")
+    print("It cannot open Studio, read workspace data, or start a browser session.")
+    return 0
+
+
+def run_studio_ingest_tokens_list(database: str | None) -> int:
+    from tracebisect.studio.ingestion_tokens import list_studio_ingestion_tokens
+
+    with _studio_key_database(database) as target:
+        records = list_studio_ingestion_tokens(target)
+    if not records:
+        print("No trace-upload tokens exist yet.")
+        print("Create one with: tracebisect studio ingest-tokens create --help")
+        return 0
+    print("Trace-upload tokens")
+    for record in records:
+        print(
+            f"- {record.token_id} · {record.status} · upload only · "
+            f"{record.workspace_id} · {record.label}"
+        )
+        print(f"  expires {record.expires_at}")
+    return 0
+
+
+def run_studio_ingest_tokens_revoke(database: str | None, token_id: str) -> int:
+    from tracebisect.studio.ingestion_tokens import revoke_studio_ingestion_token
+
+    with _studio_key_database(database) as target:
+        record = revoke_studio_ingestion_token(target, token_id=token_id)
+    print("Trace-upload token revoked")
+    print(f"  Token ID: {record.token_id}")
+    print(f"  Workspace: {record.workspace_id}")
     print(f"  Name: {record.label}")
     print(f"  Revoked: {record.revoked_at}")
     return 0
@@ -938,6 +1070,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         from tracebisect.studio.access_keys import StudioApiKeyError
         from tracebisect.studio.backup import StudioBackupError
         from tracebisect.studio.email_delivery import StudioEmailDeliveryError
+        from tracebisect.studio.ingestion_tokens import StudioIngestionTokenError
         from tracebisect.studio.postgres_migration import StudioPostgresMigrationError
         from tracebisect.studio.storage import StudioConfigurationError
 
@@ -971,6 +1104,21 @@ def main(argv: Sequence[str] | None = None) -> int:
                     return run_studio_keys_list(args.database)
                 if args.studio_keys_command == "revoke":
                     return run_studio_keys_revoke(args.database, args.key_id)
+            if args.studio_command == "ingest-tokens":
+                if args.studio_ingest_token_command is None:
+                    args.studio_ingest_tokens_parser.print_help()
+                    return 0
+                if args.studio_ingest_token_command == "create":
+                    return run_studio_ingest_tokens_create(
+                        args.database,
+                        args.workspace,
+                        args.name,
+                        args.expires_in_days,
+                    )
+                if args.studio_ingest_token_command == "list":
+                    return run_studio_ingest_tokens_list(args.database)
+                if args.studio_ingest_token_command == "revoke":
+                    return run_studio_ingest_tokens_revoke(args.database, args.token_id)
             if args.studio_command == "metrics":
                 if args.studio_metrics_command is None:
                     args.studio_metrics_parser.print_help()
@@ -1000,11 +1148,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             StudioBackupError,
             StudioConfigurationError,
             StudioEmailDeliveryError,
+            StudioIngestionTokenError,
             StudioPostgresMigrationError,
         ) as exc:
             failed_command = args.studio_command
             if args.studio_command == "keys" and args.studio_keys_command is not None:
                 failed_command = f"keys {args.studio_keys_command}"
+            if (
+                args.studio_command == "ingest-tokens"
+                and args.studio_ingest_token_command is not None
+            ):
+                failed_command = f"ingest-tokens {args.studio_ingest_token_command}"
             if args.studio_command == "metrics" and args.studio_metrics_command is not None:
                 failed_command = f"metrics {args.studio_metrics_command}"
             if args.studio_command == "identity" and args.studio_identity_command is not None:

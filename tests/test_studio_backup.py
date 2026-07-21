@@ -29,6 +29,10 @@ from tracebisect.studio.identity import (
     login_studio_identity,
     principal_for_studio_identity_session,
 )
+from tracebisect.studio.ingestion_tokens import (
+    create_studio_ingestion_token,
+    principal_for_managed_ingestion_token,
+)
 from tracebisect.studio.service import seed_demo_report
 from tracebisect.studio.storage import SCHEMA_VERSION, SQLiteStudioStore
 
@@ -59,6 +63,13 @@ def test_live_backup_verifies_and_restores_all_workspace_data(tmp_path: Path) ->
         workspace_id="workspace-a",
         role="editor",
         label="Restored browser",
+        expires_in_days=90,
+        pepper=pepper,
+    )
+    issued_ingestion_token = create_studio_ingestion_token(
+        source_path,
+        workspace_id="workspace-a",
+        label="Restored production agent",
         expires_in_days=90,
         pepper=pepper,
     )
@@ -140,6 +151,7 @@ def test_live_backup_verifies_and_restores_all_workspace_data(tmp_path: Path) ->
     assert inspection.report_count == 2
     assert inspection.case_count == 1
     assert inspection.api_key_count == 1
+    assert inspection.ingestion_token_count == 1
     assert inspection.user_count == 1
     assert inspection.membership_count == 1
     assert len(inspection.sha256) == 64
@@ -165,6 +177,7 @@ def test_live_backup_verifies_and_restores_all_workspace_data(tmp_path: Path) ->
     assert restored_inspection.report_count == 2
     assert restored_inspection.case_count == 1
     assert restored_inspection.api_key_count == 1
+    assert restored_inspection.ingestion_token_count == 1
     assert restored_inspection.user_count == 1
     assert restored_inspection.membership_count == 1
     assert restored_inspection.content_sha256 == inspection.content_sha256
@@ -181,6 +194,13 @@ def test_live_backup_verifies_and_restores_all_workspace_data(tmp_path: Path) ->
     assert restored_principal is not None
     assert restored_principal.workspace_id == "workspace-a"
     assert restored_principal.role == "editor"
+    restored_ingestion_principal = principal_for_managed_ingestion_token(
+        restored_path,
+        token=issued_ingestion_token.token,
+        pepper=pepper,
+    )
+    assert restored_ingestion_principal is not None
+    assert restored_ingestion_principal.workspace_id == "workspace-a"
     assert (
         principal_for_studio_browser_session(
             restored_path,

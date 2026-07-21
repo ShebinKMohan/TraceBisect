@@ -18,6 +18,7 @@ export type StudioHealth = {
     credential_source: "none" | "environment" | "managed";
     browser_sessions: boolean;
     self_service_access_management: boolean;
+    ingestion_tokens: boolean;
     human_accounts: boolean;
     browser_session_ttl_seconds: number;
     browser_session_cookie_secure: boolean;
@@ -72,6 +73,7 @@ export type StudioHealth = {
     rate_limit_requests: number;
     rate_limit_upload_requests: number;
     max_active_workspace_keys: number;
+    max_active_ingestion_tokens: number;
     max_workspace_members: number;
     max_pending_workspace_invitations: number;
     max_stored_workspace_invitations: number;

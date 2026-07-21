@@ -68,6 +68,12 @@ temporary files out of the web root, and throttle repeated API calls.
 - Active access is capped at 100 keys per workspace. Expired or revoked keys no
   longer consume active capacity, and creation is serialized in either store so
   concurrent requests cannot bypass the cap.
+- Automated agents and CI can use a distinct `tbit_` trace-upload token with one
+  fixed `trace:write` permission. It is workspace-scoped, digest-only, expiring,
+  immediately revocable, and rejected from reads, comparisons, browser-session
+  exchange, guardrails, team controls, and every endpoint except
+  `POST /api/traces/upload`. Upload-token writes are append-only: a duplicate
+  trace ID returns `409` instead of replacing existing evidence.
 - The legacy plaintext `TRACEBISECT_STUDIO_API_KEYS` mapping remains supported
   for migration/local use and is reported separately by the health endpoint.
 - Managed browser sign-in exchanges the workspace key once for a short-lived,
@@ -171,9 +177,6 @@ Studio a real multi-tenant SaaS:
   but an actual provider rehearsal remains an operator gate.
 - Sender-domain/suppression automation, email ownership re-verification, and
   optional multi-factor or identity-provider sign-in.
-- Account-level scoped ingestion tokens. Admin self-service workspace-key
-  issuance/rotation and human/browser-session lifecycle are implemented, but
-  integrations still need dedicated least-privilege ingestion credentials.
 - Durable background jobs for large OTel imports and comparisons.
 - Durable centralized retention, search, alerting, and access control for the
   structured audit stream.
@@ -189,8 +192,9 @@ Studio a real multi-tenant SaaS:
   multi-region platform.
 
 The current build has pooled multi-instance PostgreSQL storage for core evidence,
-managed access, human identity, encrypted invitation delivery, and shared exact
-rate limiting, but it is not a finished hosted SaaS. The next production step is
+managed access, upload-only ingestion tokens, human identity, encrypted
+invitation delivery, and shared exact rate limiting, but it is not a finished
+hosted SaaS. The next production step is
 a real provider migration rehearsal plus backup/restore drills, followed by
 email-domain operations, monitoring, and error-event retention. Do not add
 Langfuse-scale ClickHouse or queues until the comparison workflow needs them.

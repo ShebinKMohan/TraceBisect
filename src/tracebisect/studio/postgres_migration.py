@@ -116,6 +116,19 @@ MIGRATION_TABLES = (
         ),
     ),
     _MigrationTable(
+        "studio_ingestion_tokens",
+        (
+            "token_id",
+            "workspace_id",
+            "label",
+            "scope",
+            "token_hash",
+            "created_at",
+            "expires_at",
+            "revoked_at",
+        ),
+    ),
+    _MigrationTable(
         "studio_users",
         (
             "user_id",
@@ -470,6 +483,7 @@ def _workspace_count(connection: StudioDatabaseConnection) -> int:
             UNION SELECT workspace_id FROM studio_cases
             UNION SELECT workspace_id FROM studio_metadata
             UNION SELECT workspace_id FROM studio_api_keys
+            UNION SELECT workspace_id FROM studio_ingestion_tokens
             UNION SELECT workspace_id FROM studio_workspace_memberships
             UNION SELECT workspace_id FROM studio_invitations
         ) AS workspaces

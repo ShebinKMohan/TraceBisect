@@ -41,6 +41,10 @@ class StudioStoreFullError(RuntimeError):
     """Raised when the Studio store reaches its configured capacity."""
 
 
+class StudioTraceConflictError(RuntimeError):
+    """Raised when an append-only upload would replace existing evidence."""
+
+
 @dataclass(slots=True)
 class StudioStore:
     """In-memory Studio store used by the zero-configuration local mode."""
@@ -59,9 +63,19 @@ class StudioStore:
     max_cases: int = DEFAULT_MAX_STORED_CASES
     _lock: RLock = field(default_factory=RLock, repr=False, compare=False)
 
-    def add_trace(self, trace: Trace, *, name: str | None = None) -> str:
+    def add_trace(
+        self,
+        trace: Trace,
+        *,
+        name: str | None = None,
+        replace_existing: bool = True,
+    ) -> str:
         with self._lock:
             trace_key = trace.trace_id or f"trace-{uuid.uuid4().hex[:12]}"
+            if not replace_existing and trace_key in self.traces:
+                raise StudioTraceConflictError(
+                    "a trace with this ID already exists in the workspace"
+                )
             if trace_key not in self.traces and len(self.traces) >= self.max_traces:
                 raise StudioStoreFullError(
                     "trace store is full; increase TRACEBISECT_STUDIO_MAX_STORED_TRACES"
