@@ -132,7 +132,8 @@ and tell people to replace passwords/recovery codes before reopening traffic.
 ## Current hosted boundary
 
 This milestone provides invitation-only accounts, offline recovery, team roles,
-revocable human sessions, and optional encrypted Resend invitation delivery for
-the single-node SQLite deployment. It does not yet provide delivery/bounce
-webhooks, email ownership re-verification, multi-factor or identity-provider
-sign-in, a managed multi-user database, distributed rate limiting, or billing.
+revocable human sessions, optional encrypted Resend invitation delivery, and
+signed delivery/bounce reconciliation for the single-node SQLite deployment. It
+does not yet provide automated sender-domain/suppression operations, email
+ownership re-verification, multi-factor or identity-provider sign-in, a managed
+multi-user database, distributed rate limiting, or billing.

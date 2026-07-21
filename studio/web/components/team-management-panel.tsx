@@ -163,7 +163,7 @@ export function TeamManagementPanel() {
   }
 
   async function resend(invitation: WorkspaceInvitation) {
-    if (busy || invitation.delivery?.status !== "failed") return;
+    if (busy || !deliveryCanRetry(invitation)) return;
     setBusy(true);
     setError(null);
     setNotice(null);
@@ -258,7 +258,7 @@ export function TeamManagementPanel() {
       ) : null}
 
       <div className="access-list-heading team-pending-heading"><div><h3>Pending invitations</h3><p>{pendingInvitations.length ? `${pendingInvitations.length} waiting to be accepted` : "No active invitation links"}</p></div></div>
-      {pendingInvitations.length ? <div className="access-key-list">{pendingInvitations.map((invitation) => <article className="access-key-row team-invitation-row" key={invitation.invitation_id}><div className="access-key-identity"><span aria-hidden><MailPlus size={16} /></span><div><strong>{invitation.email}</strong><p>{roleName(invitation.role)} · expires {formatDate(invitation.expires_at)} · {deliveryLabel(invitation)}</p></div></div><span className={`access-key-status ${invitation.delivery?.status === "failed" ? "access-key-status-revoked" : "access-key-status-active"}`}>{invitation.delivery?.status === "failed" ? "Email failed" : "Pending"}</span><div className="access-key-actions">{invitation.delivery?.status === "failed" ? <button className="access-secondary-button" disabled={busy} onClick={() => void resend(invitation)} type="button"><RefreshCw size={14} aria-hidden />Retry email</button> : null}<button className="access-revoke-button" disabled={busy} onClick={() => void revoke(invitation)} type="button">Revoke</button></div></article>)}</div> : <p className="access-empty">Invite someone when they need account access.</p>}
+      {pendingInvitations.length ? <div className="access-key-list">{pendingInvitations.map((invitation) => <article className="access-key-row team-invitation-row" key={invitation.invitation_id}><div className="access-key-identity"><span aria-hidden><MailPlus size={16} /></span><div><strong>{invitation.email}</strong><p>{roleName(invitation.role)} · expires {formatDate(invitation.expires_at)} · {deliveryLabel(invitation)}</p></div></div><span className={`access-key-status ${deliveryNeedsAttention(invitation) ? "access-key-status-revoked" : "access-key-status-active"}`}>{deliveryNeedsAttention(invitation) ? "Email failed" : "Pending"}</span><div className="access-key-actions">{deliveryCanRetry(invitation) ? <button className="access-secondary-button" disabled={busy} onClick={() => void resend(invitation)} type="button"><RefreshCw size={14} aria-hidden />Retry email</button> : null}<button className="access-revoke-button" disabled={busy} onClick={() => void revoke(invitation)} type="button">Revoke</button></div></article>)}</div> : <p className="access-empty">Invite someone when they need account access.</p>}
     </section>
   );
 }
@@ -268,6 +268,14 @@ function roleName(role: WorkspaceRole): string {
 }
 
 function deliveryLabel(invitation: WorkspaceInvitation): string {
+  switch (invitation.delivery?.provider_status) {
+    case "delivered": return "delivered to their mail server";
+    case "delayed": return "delivery is delayed";
+    case "bounced": return "email bounced";
+    case "complained": return "recipient marked it as spam";
+    case "failed": return "provider could not deliver it";
+    case "suppressed": return "provider suppressed it";
+  }
   switch (invitation.delivery?.status) {
     case "pending": return "email queued";
     case "sending": return "sending email";
@@ -276,6 +284,18 @@ function deliveryLabel(invitation: WorkspaceInvitation): string {
     case "failed": return "email needs attention";
     default: return "share the private link manually";
   }
+}
+
+function deliveryNeedsAttention(invitation: WorkspaceInvitation): boolean {
+  return invitation.delivery?.status === "failed"
+    || ["bounced", "complained", "failed", "suppressed"].includes(
+      invitation.delivery?.provider_status ?? "",
+    );
+}
+
+function deliveryCanRetry(invitation: WorkspaceInvitation): boolean {
+  return invitation.delivery?.status === "failed"
+    || invitation.delivery?.provider_status === "failed";
 }
 
 function formatDate(value: string): string {

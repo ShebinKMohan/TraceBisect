@@ -27,6 +27,7 @@ _REQUIRED_TABLES = frozenset(
         "studio_recovery_codes",
         "studio_identity_sessions",
         "studio_email_outbox",
+        "studio_email_webhook_events",
     }
 )
 _HASH_CHUNK_BYTES = 1024 * 1024
@@ -135,6 +136,10 @@ def inspect_studio_backup(backup_path: str | Path) -> StudioBackupInspection:
                 raise StudioBackupError(
                     "the backup contains email delivery records and is unsafe to restore"
                 )
+            if _table_count(connection, "studio_email_webhook_events") != 0:
+                raise StudioBackupError(
+                    "the backup contains email webhook records and is unsafe to restore"
+                )
             content_sha256 = _content_sha256(connection)
     except StudioBackupError:
         raise
@@ -200,6 +205,7 @@ def _clear_ephemeral_state(database_path: Path) -> None:
         connection.execute("DELETE FROM studio_browser_sessions")
         connection.execute("DELETE FROM studio_identity_sessions")
         connection.execute("DELETE FROM studio_email_outbox")
+        connection.execute("DELETE FROM studio_email_webhook_events")
     with database_path.open("rb") as handle:
         os.fsync(handle.fileno())
 
@@ -353,8 +359,17 @@ def _content_sha256(connection: sqlite3.Connection) -> str:
             SELECT message_id, invitation_id, workspace_id, recipient_email,
                    payload_ciphertext, status, attempt_count, created_at,
                    available_at, lease_expires_at, lease_token, sent_at, failed_at,
-                   provider_message_id, last_error_code
+                   provider_message_id, last_error_code, provider_status,
+                   provider_event_at, provider_event_id
             FROM studio_email_outbox ORDER BY message_id
+            """,
+        ),
+        (
+            "email_webhook_events",
+            """
+            SELECT event_id, provider_message_id, event_type, provider_status,
+                   event_created_at, received_at
+            FROM studio_email_webhook_events ORDER BY event_id
             """,
         ),
     )

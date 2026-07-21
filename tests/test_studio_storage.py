@@ -264,6 +264,38 @@ def test_sqlite_store_migrates_v5_to_encrypted_email_outbox(tmp_path: Path) -> N
     migrated.close()
 
 
+def test_sqlite_store_migrates_v6_to_email_webhook_reconciliation(tmp_path: Path) -> None:
+    database_path = tmp_path / "studio.sqlite3"
+    original = SQLiteStudioStore(database_path, workspace_id="workspace-a")
+    original.close()
+    with sqlite3.connect(database_path) as connection:
+        connection.execute("DROP TABLE studio_email_webhook_events")
+        connection.execute("ALTER TABLE studio_email_outbox DROP COLUMN provider_event_id")
+        connection.execute("ALTER TABLE studio_email_outbox DROP COLUMN provider_event_at")
+        connection.execute("ALTER TABLE studio_email_outbox DROP COLUMN provider_status")
+        connection.execute("UPDATE studio_schema SET version = 6")
+
+    migrated = SQLiteStudioStore(database_path, workspace_id="workspace-a")
+
+    with sqlite3.connect(database_path) as connection:
+        assert connection.execute("SELECT version FROM studio_schema").fetchone() == (
+            SCHEMA_VERSION,
+        )
+        columns = {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(studio_email_outbox)")
+        }
+        webhook_table = connection.execute(
+            """
+            SELECT name FROM sqlite_master
+            WHERE type = 'table' AND name = 'studio_email_webhook_events'
+            """
+        ).fetchone()
+    assert {"provider_status", "provider_event_at", "provider_event_id"}.issubset(columns)
+    assert webhook_table == ("studio_email_webhook_events",)
+    migrated.close()
+
+
 def test_sqlite_store_isolates_workspaces_in_one_database(tmp_path: Path) -> None:
     database_path = tmp_path / "studio.sqlite3"
     workspace_a = SQLiteStudioStore(database_path, workspace_id="workspace-a")

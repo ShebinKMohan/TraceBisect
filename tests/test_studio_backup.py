@@ -111,6 +111,23 @@ def test_live_backup_verifies_and_restores_all_workspace_data(tmp_path: Path) ->
         }
     )
     email_delivery.queue_invitation(queued_invitation)
+    with sqlite3.connect(source_path) as connection:
+        connection.execute(
+            """
+            INSERT INTO studio_email_webhook_events (
+                event_id, provider_message_id, event_type, provider_status,
+                event_created_at, received_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "msg_backup_webhook_123",
+                "provider-backup-message",
+                "email.delivered",
+                "delivered",
+                "2026-07-21T08:00:00Z",
+                "2026-07-21T08:00:01Z",
+            ),
+        )
     with pytest.raises(StudioBackupError, match="contains browser sessions"):
         inspect_studio_backup(source_path)
 
@@ -134,6 +151,9 @@ def test_live_backup_verifies_and_restores_all_workspace_data(tmp_path: Path) ->
             0,
         )
         assert connection.execute("SELECT COUNT(*) FROM studio_email_outbox").fetchone() == (0,)
+        assert connection.execute(
+            "SELECT COUNT(*) FROM studio_email_webhook_events"
+        ).fetchone() == (0,)
 
     # Prove that the backup is a point-in-time snapshot, not a reference to the live file.
     source.clear()

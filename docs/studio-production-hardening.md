@@ -69,6 +69,10 @@ temporary files out of the web root, and throttle repeated API calls.
   authenticated ciphertext, uses lease-safe bounded workers and a stable
   provider idempotency key, and falls back explicitly to the one-time link when
   durable queueing is unavailable.
+- Optional Resend webhooks verify the raw request with the endpoint's Svix
+  signing secret, deduplicate at-least-once events, retain bounded non-content
+  metadata, and reconcile out-of-order delivery, delay, failure, suppression,
+  bounce, and complaint state by provider timestamp.
 - New accounts receive eight random, single-use saved recovery codes. A valid
   recovery replaces every code, changes the password, revokes every human
   session, and requires a fresh sign-in. Invalid email/code pairs return the
@@ -84,7 +88,7 @@ temporary files out of the web root, and throttle repeated API calls.
   least one human admin. Memberships and invitations are workspace-scoped.
 - Backups preserve users, password hashes, membership, invitations, and recovery
   hashes while stripping key-derived sessions, human sessions, and the email
-  outbox. Operators are
+  outbox/webhook metadata. Operators are
   warned that restoring an older snapshot rolls credential state backward.
 - Legacy environment-key mode continues to use tab-scoped `sessionStorage` and
   is explicitly reported as lacking managed browser sessions.
@@ -135,7 +139,7 @@ These are not solved by the local MVP and must be implemented before calling
 Studio a real multi-tenant SaaS:
 
 - Managed multi-user database storage beyond the single-node SQLite backend.
-- Delivery/bounce webhook reconciliation, email ownership re-verification, and
+- Sender-domain/suppression automation, email ownership re-verification, and
   optional multi-factor or identity-provider sign-in.
 - Account-level scoped ingestion tokens. Admin self-service workspace-key
   issuance/rotation and human/browser-session lifecycle are implemented, but
@@ -157,7 +161,7 @@ Studio a real multi-tenant SaaS:
 The current build has restart-safe single-node persistence plus fail-closed
 workspace API-key authorization, not a finished hosted SaaS. The next
 production step is a managed multi-user database plus deployment-level email
-webhooks/domain operations, monitoring, backup, and error-event retention wiring;
+domain/suppression operations, monitoring, backup, and error-event retention wiring;
 do not add Langfuse-scale
 ClickHouse or queues until the comparison workflow needs them.
 

@@ -24,6 +24,7 @@ from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+from svix.webhooks import Webhook, WebhookVerificationError
 
 from tracebisect.studio.identity import (
     IssuedStudioInvitation,
@@ -44,6 +45,7 @@ EMAIL_REPLY_TO_ENV = "TRACEBISECT_STUDIO_EMAIL_REPLY_TO"
 PUBLIC_URL_ENV = "TRACEBISECT_STUDIO_PUBLIC_URL"
 EMAIL_TIMEOUT_ENV = "TRACEBISECT_STUDIO_EMAIL_TIMEOUT_SECONDS"
 RESEND_API_KEY_ENV = "RESEND_API_KEY"
+RESEND_WEBHOOK_SECRET_ENV = "RESEND_WEBHOOK_SECRET"
 RESEND_API_URL = "https://api.resend.com/emails"
 DEFAULT_EMAIL_TIMEOUT_SECONDS = 10
 MIN_EMAIL_TIMEOUT_SECONDS = 2
@@ -54,6 +56,8 @@ EMAIL_IDEMPOTENCY_WINDOW_HOURS = 23
 MAX_STORED_EMAIL_MESSAGES_PER_WORKSPACE = 1000
 MAX_PROVIDER_MESSAGE_ID_LENGTH = 160
 MAX_ERROR_CODE_LENGTH = 64
+MAX_STORED_WEBHOOK_EVENTS = 5000
+MAX_WEBHOOK_BODY_BYTES = 64 * 1024
 
 EmailProvider = Literal["none", "resend"]
 EmailDeliveryStatus = Literal["pending", "sending", "retry", "sent", "failed"]
@@ -61,8 +65,28 @@ _DELIVERY_STATUSES = frozenset({"pending", "sending", "retry", "sent", "failed"}
 _MESSAGE_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{11}$")
 _ERROR_CODE_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 _RESEND_API_KEY_PATTERN = re.compile(r"^re_[A-Za-z0-9_]{12,252}$")
+_RESEND_WEBHOOK_SECRET_PATTERN = re.compile(r"^whsec_[A-Za-z0-9+/=_-]{16,256}$")
+_WEBHOOK_EVENT_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{8,160}$")
 _CLI_SAFE_ID_FIRST_CHARACTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 _ENCRYPTION_INFO = b"tracebisect-studio-email-outbox-v1"
+_PROVIDER_EVENT_STATUSES = {
+    "email.sent": "accepted",
+    "email.delivered": "delivered",
+    "email.delivery_delayed": "delayed",
+    "email.bounced": "bounced",
+    "email.complained": "complained",
+    "email.failed": "failed",
+    "email.suppressed": "suppressed",
+}
+_PROVIDER_STATUS_PRIORITY = {
+    "accepted": 0,
+    "delayed": 1,
+    "delivered": 2,
+    "failed": 3,
+    "suppressed": 4,
+    "bounced": 5,
+    "complained": 6,
+}
 
 
 class StudioEmailDeliveryError(RuntimeError):
@@ -75,6 +99,10 @@ class StudioEmailDeliveryConflict(StudioEmailDeliveryError):
 
 class StudioEmailDeliveryNotFound(StudioEmailDeliveryError):
     """Raised when no matching invitation email can be found."""
+
+
+class StudioEmailWebhookInvalid(StudioEmailDeliveryError):
+    """Raised when a provider webhook is missing, invalid, or malformed."""
 
 
 class _TransientProviderError(StudioEmailDeliveryError):
@@ -97,10 +125,15 @@ class StudioEmailConfig:
     reply_to: str | None = None
     public_url: str | None = None
     timeout_seconds: int = DEFAULT_EMAIL_TIMEOUT_SECONDS
+    webhook_secret: str | None = None
 
     @property
     def enabled(self) -> bool:
         return self.provider == "resend"
+
+    @property
+    def webhooks_enabled(self) -> bool:
+        return self.enabled and self.webhook_secret is not None
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,6 +159,8 @@ class StudioEmailDeliveryRecord:
     sent_at: str | None
     failed_at: str | None
     last_error_code: str | None
+    provider_status: str | None = None
+    provider_event_at: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,6 +169,13 @@ class StudioEmailBatchResult:
     sent: int
     retrying: int
     failed: int
+
+
+@dataclass(frozen=True, slots=True)
+class StudioEmailWebhookResult:
+    duplicate: bool
+    matched: bool
+    provider_status: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -201,7 +243,10 @@ class ResendEmailTransport:
             or len(provider_message_id) > MAX_PROVIDER_MESSAGE_ID_LENGTH
         ):
             raise _TransientProviderError("resend_invalid_response")
-        return provider_message_id
+        try:
+            return _provider_message_id(provider_message_id)
+        except StudioEmailDeliveryError as exc:
+            raise _TransientProviderError("resend_invalid_response") from exc
 
 
 @dataclass(frozen=True, slots=True)
@@ -251,6 +296,14 @@ class StudioEmailDelivery:
         reply_to = _mailbox(raw_reply_to, label=EMAIL_REPLY_TO_ENV) if raw_reply_to else None
         public_url = _public_url(values.get(PUBLIC_URL_ENV, ""))
         timeout_seconds = _timeout_seconds(values.get(EMAIL_TIMEOUT_ENV, ""))
+        raw_webhook_secret = values.get(RESEND_WEBHOOK_SECRET_ENV, "")
+        if raw_webhook_secret and (
+            raw_webhook_secret != raw_webhook_secret.strip()
+            or _RESEND_WEBHOOK_SECRET_PATTERN.fullmatch(raw_webhook_secret) is None
+        ):
+            raise StudioConfigurationError(
+                f"{RESEND_WEBHOOK_SECRET_ENV} must be a valid whsec_ signing secret"
+            )
         return cls(
             config=StudioEmailConfig(
                 provider="resend",
@@ -259,6 +312,7 @@ class StudioEmailDelivery:
                 reply_to=reply_to,
                 public_url=public_url,
                 timeout_seconds=timeout_seconds,
+                webhook_secret=raw_webhook_secret or None,
             ),
             database_path=Path(raw_database_path).expanduser().resolve(),
             _identity_secret=secret,
@@ -275,6 +329,7 @@ class StudioEmailDelivery:
             "durable_outbox": self.enabled,
             "encrypted_payloads": self.enabled,
             "max_attempts": MAX_EMAIL_DELIVERY_ATTEMPTS if self.enabled else 0,
+            "webhooks": self.config.webhooks_enabled,
         }
 
     def queue_invitation(
@@ -373,7 +428,8 @@ class StudioEmailDelivery:
                 )
                 source = connection.execute(
                     """
-                    SELECT message_id, payload_ciphertext, recipient_email
+                    SELECT message_id, payload_ciphertext, recipient_email,
+                           status, provider_status
                     FROM studio_email_outbox
                     WHERE workspace_id = ? AND invitation_id = ?
                     ORDER BY created_at DESC, message_id DESC LIMIT 1
@@ -383,6 +439,10 @@ class StudioEmailDelivery:
                 if source is None:
                     raise StudioEmailDeliveryNotFound(
                         "this invitation was created for manual delivery"
+                    )
+                if str(source[3]) != "failed" and str(source[4]) != "failed":
+                    raise StudioEmailDeliveryConflict(
+                        "the invitation email does not have a retryable failure"
                     )
                 _prepare_outbox_capacity(
                     connection,
@@ -456,7 +516,8 @@ class StudioEmailDelivery:
                     """
                     SELECT message_id, invitation_id, workspace_id, recipient_email,
                            status, attempt_count, created_at, available_at,
-                           sent_at, failed_at, last_error_code
+                           sent_at, failed_at, last_error_code,
+                           provider_status, provider_event_at
                     FROM studio_email_outbox
                     WHERE workspace_id = ?
                     ORDER BY created_at DESC, message_id DESC
@@ -572,6 +633,92 @@ class StudioEmailDelivery:
             sent=sum(record.status == "sent" for record in completed),
             retrying=sum(record.status == "retry" for record in completed),
             failed=sum(record.status == "failed" for record in completed),
+        )
+
+    def process_webhook(
+        self,
+        raw_body: bytes,
+        headers: Mapping[str, str],
+        *,
+        now: datetime | None = None,
+    ) -> StudioEmailWebhookResult:
+        database, _secret = self._material()
+        webhook_secret = self.config.webhook_secret
+        if webhook_secret is None:
+            raise StudioEmailWebhookInvalid("email delivery webhooks are not configured")
+        if not raw_body or len(raw_body) > MAX_WEBHOOK_BODY_BYTES:
+            raise StudioEmailWebhookInvalid("webhook body is empty or too large")
+        event_id = _webhook_header(headers, "svix-id", maximum=160)
+        timestamp = _webhook_header(headers, "svix-timestamp", maximum=24)
+        signature = _webhook_header(headers, "svix-signature", maximum=1024)
+        if _WEBHOOK_EVENT_ID_PATTERN.fullmatch(event_id) is None:
+            raise StudioEmailWebhookInvalid("webhook event ID is invalid")
+        try:
+            verified: object = Webhook(webhook_secret).verify(
+                raw_body,
+                {
+                    "svix-id": event_id,
+                    "svix-timestamp": timestamp,
+                    "svix-signature": signature,
+                },
+            )
+        except (WebhookVerificationError, ValueError, TypeError) as exc:
+            raise StudioEmailWebhookInvalid("webhook signature is invalid") from exc
+        event_type, provider_status, provider_message_id, event_created_at = (
+            _provider_event(verified)
+        )
+        received_at = _timestamp(_utc_now(now))
+        try:
+            with sqlite3.connect(database, timeout=5) as connection:
+                connection.execute("PRAGMA busy_timeout = 5000")
+                ensure_studio_schema(connection)
+                connection.execute("BEGIN IMMEDIATE")
+                existing = connection.execute(
+                    "SELECT 1 FROM studio_email_webhook_events WHERE event_id = ?",
+                    (event_id,),
+                ).fetchone()
+                if existing is not None:
+                    matched = connection.execute(
+                        "SELECT 1 FROM studio_email_outbox WHERE provider_message_id = ? LIMIT 1",
+                        (provider_message_id,),
+                    ).fetchone() is not None
+                    return StudioEmailWebhookResult(
+                        duplicate=True,
+                        matched=matched,
+                        provider_status=provider_status,
+                    )
+                _prepare_webhook_capacity(connection)
+                connection.execute(
+                    """
+                    INSERT INTO studio_email_webhook_events (
+                        event_id, provider_message_id, event_type, provider_status,
+                        event_created_at, received_at
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        event_id,
+                        provider_message_id,
+                        event_type,
+                        provider_status,
+                        event_created_at,
+                        received_at,
+                    ),
+                )
+                matched = _apply_provider_event(
+                    connection,
+                    provider_message_id=provider_message_id,
+                    event_id=event_id,
+                    provider_status=provider_status,
+                    event_created_at=event_created_at,
+                )
+        except StudioEmailDeliveryError:
+            raise
+        except (OSError, sqlite3.DatabaseError, StudioPersistenceError, ValueError) as exc:
+            raise StudioEmailDeliveryError("could not record the email webhook") from exc
+        return StudioEmailWebhookResult(
+            duplicate=False,
+            matched=matched,
+            provider_status=provider_status,
         )
 
     def _material(self) -> tuple[Path, str]:
@@ -775,13 +922,15 @@ def _mark_sent(
     sent_at = _timestamp(current)
     try:
         with sqlite3.connect(database, timeout=5) as connection:
+            connection.execute("BEGIN IMMEDIATE")
             cursor = connection.execute(
                 """
                 UPDATE studio_email_outbox
                 SET status = 'sent', sent_at = ?, failed_at = NULL,
                     lease_expires_at = NULL, lease_token = NULL,
                     provider_message_id = ?,
-                    last_error_code = NULL
+                    last_error_code = NULL, provider_status = 'accepted',
+                    provider_event_at = NULL, provider_event_id = NULL
                 WHERE message_id = ? AND status = 'sending' AND lease_token = ?
                 """,
                 (
@@ -792,9 +941,38 @@ def _mark_sent(
                 ),
             )
             _require_active_lease(cursor)
+            events = connection.execute(
+                """
+                SELECT event_id, provider_status, event_created_at
+                FROM studio_email_webhook_events
+                WHERE provider_message_id = ? AND provider_status <> 'ignored'
+                ORDER BY event_created_at, event_id
+                """,
+                (provider_message_id,),
+            ).fetchall()
+            for event in events:
+                _apply_provider_event(
+                    connection,
+                    provider_message_id=provider_message_id,
+                    event_id=str(event[0]),
+                    provider_status=str(event[1]),
+                    event_created_at=str(event[2]),
+                )
+            stored = connection.execute(
+                """
+                SELECT message_id, invitation_id, workspace_id, recipient_email,
+                       status, attempt_count, created_at, available_at,
+                       sent_at, failed_at, last_error_code,
+                       provider_status, provider_event_at
+                FROM studio_email_outbox WHERE message_id = ?
+                """,
+                (record.message_id,),
+            ).fetchone()
+            if stored is None:
+                raise StudioEmailDeliveryNotFound("sent email record disappeared")
     except (OSError, sqlite3.DatabaseError) as exc:
         raise StudioEmailDeliveryError("could not finalize the sent invitation email") from exc
-    return _replace_record(record, status="sent", sent_at=sent_at)
+    return _record_from_row(stored)
 
 
 def _mark_retry_or_failed(
@@ -878,6 +1056,8 @@ def _replace_record(
     sent_at: str | None = None,
     failed_at: str | None = None,
     last_error_code: str | None = None,
+    provider_status: str | None = None,
+    provider_event_at: str | None = None,
 ) -> StudioEmailDeliveryRecord:
     return StudioEmailDeliveryRecord(
         message_id=record.message_id,
@@ -891,6 +1071,8 @@ def _replace_record(
         sent_at=sent_at,
         failed_at=failed_at,
         last_error_code=last_error_code,
+        provider_status=provider_status or record.provider_status,
+        provider_event_at=provider_event_at or record.provider_event_at,
     )
 
 
@@ -936,6 +1118,69 @@ def _prepare_outbox_capacity(
     )
     if count >= MAX_STORED_EMAIL_MESSAGES_PER_WORKSPACE:
         raise StudioEmailDeliveryConflict("workspace email outbox is at its safe limit")
+
+
+def _prepare_webhook_capacity(connection: sqlite3.Connection) -> None:
+    oldest = connection.execute(
+        """
+        SELECT event_id FROM studio_email_webhook_events
+        ORDER BY received_at DESC, event_id DESC
+        LIMIT -1 OFFSET ?
+        """,
+        (MAX_STORED_WEBHOOK_EVENTS - 1,),
+    ).fetchall()
+    connection.executemany(
+        "DELETE FROM studio_email_webhook_events WHERE event_id = ?",
+        oldest,
+    )
+
+
+def _apply_provider_event(
+    connection: sqlite3.Connection,
+    *,
+    provider_message_id: str,
+    event_id: str,
+    provider_status: str,
+    event_created_at: str,
+) -> bool:
+    rows = connection.execute(
+        """
+        SELECT message_id, provider_status, provider_event_at
+        FROM studio_email_outbox WHERE provider_message_id = ?
+        """,
+        (provider_message_id,),
+    ).fetchall()
+    if not rows:
+        return False
+    if provider_status == "ignored":
+        return True
+    event_priority = _PROVIDER_STATUS_PRIORITY[provider_status]
+    event_datetime = _parse_timestamp(event_created_at)
+    for message_id, current_status, current_event_at in rows:
+        current_priority = _PROVIDER_STATUS_PRIORITY.get(str(current_status), -1)
+        current_datetime = (
+            None
+            if current_event_at is None
+            else _parse_timestamp(str(current_event_at))
+        )
+        should_apply = (
+            current_datetime is None
+            or current_datetime < event_datetime
+            or (
+                current_datetime == event_datetime
+                and event_priority >= current_priority
+            )
+        )
+        if should_apply:
+            connection.execute(
+                """
+                UPDATE studio_email_outbox
+                SET provider_status = ?, provider_event_at = ?, provider_event_id = ?
+                WHERE message_id = ?
+                """,
+                (provider_status, event_created_at, event_id, str(message_id)),
+            )
+    return True
 
 
 def _ensure_invitation_is_pending(
@@ -1064,7 +1309,66 @@ def _record_from_row(row: tuple[object, ...]) -> StudioEmailDeliveryRecord:
         sent_at=None if row[8] is None else str(row[8]),
         failed_at=None if row[9] is None else str(row[9]),
         last_error_code=None if row[10] is None else _error_code(str(row[10])),
+        provider_status=(
+            None if len(row) < 12 or row[11] is None else _provider_status(str(row[11]))
+        ),
+        provider_event_at=(
+            None if len(row) < 13 or row[12] is None else _timestamp(_parse_timestamp(str(row[12])))
+        ),
     )
+
+
+def _webhook_header(headers: Mapping[str, str], name: str, *, maximum: int) -> str:
+    value = next(
+        (str(item) for key, item in headers.items() if key.casefold() == name.casefold()),
+        "",
+    )
+    if not value or len(value) > maximum or any(character in value for character in "\r\n"):
+        raise StudioEmailWebhookInvalid(f"{name} header is missing or invalid")
+    return value
+
+
+def _provider_event(verified: object) -> tuple[str, str, str, str]:
+    if not isinstance(verified, dict):
+        raise StudioEmailWebhookInvalid("webhook payload is invalid")
+    event_type = verified.get("type")
+    created_at = verified.get("created_at")
+    data = verified.get("data")
+    if (
+        not isinstance(event_type, str)
+        or not event_type
+        or len(event_type) > 80
+        or not isinstance(created_at, str)
+        or not isinstance(data, dict)
+    ):
+        raise StudioEmailWebhookInvalid("webhook payload is invalid")
+    try:
+        provider_message_id = _provider_message_id(data.get("email_id"))
+        normalized_created_at = _timestamp(_parse_timestamp(created_at))
+    except (StudioEmailDeliveryError, ValueError) as exc:
+        raise StudioEmailWebhookInvalid("webhook event data is invalid") from exc
+    return (
+        event_type,
+        _PROVIDER_EVENT_STATUSES.get(event_type, "ignored"),
+        provider_message_id,
+        normalized_created_at,
+    )
+
+
+def _provider_message_id(value: object) -> str:
+    if (
+        not isinstance(value, str)
+        or _WEBHOOK_EVENT_ID_PATTERN.fullmatch(value) is None
+        or len(value) > MAX_PROVIDER_MESSAGE_ID_LENGTH
+    ):
+        raise StudioEmailDeliveryError("provider message ID is invalid")
+    return value
+
+
+def _provider_status(value: str) -> str:
+    if value not in _PROVIDER_STATUS_PRIORITY:
+        raise StudioEmailDeliveryError("stored provider delivery status is invalid")
+    return value
 
 
 def _mailbox(value: str, *, label: str) -> str:

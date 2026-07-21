@@ -65,11 +65,13 @@ def test_request_audit_is_structured_bounded_and_secret_safe(
     [
         ("/api/health", "GET", "health_check"),
         ("/api/metrics", "GET", "metrics_scrape"),
+        ("/api/webhooks/resend", "POST", "email_webhook_receive"),
         ("/api/browser-session", "POST", "browser_session_create"),
         ("/api/browser-session/logout", "POST", "browser_session_revoke"),
         ("/api/access-keys", "GET", "access_key_list"),
         ("/api/access-keys", "POST", "access_key_create"),
         ("/api/access-keys/key-secret", "DELETE", "access_key_revoke"),
+        ("/api/team/invitations/invite-secret/resend", "POST", "invitation_resend"),
         ("/api/traces/upload", "POST", "trace_upload"),
         ("/api/compare", "POST", "trace_compare"),
         ("/api/regression-cases", "POST", "case_create"),

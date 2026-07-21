@@ -48,11 +48,14 @@ from tracebisect.studio.auth import StudioAuthConfig
 from tracebisect.studio.email_delivery import (
     MAX_EMAIL_DELIVERY_ATTEMPTS,
     MAX_STORED_EMAIL_MESSAGES_PER_WORKSPACE,
+    MAX_STORED_WEBHOOK_EVENTS,
+    MAX_WEBHOOK_BODY_BYTES,
     StudioEmailDelivery,
     StudioEmailDeliveryConflict,
     StudioEmailDeliveryError,
     StudioEmailDeliveryNotFound,
     StudioEmailDeliveryRecord,
+    StudioEmailWebhookInvalid,
 )
 from tracebisect.studio.error_reporting import StudioErrorReporter
 from tracebisect.studio.identity import (
@@ -210,6 +213,7 @@ IDENTITY_INVITATION_ACCEPT_PATH = "/api/identity/invitations/accept"
 IDENTITY_RECOVERY_PATH = "/api/identity/recover"
 TEAM_MEMBERS_API_PATH = "/api/team/members"
 TEAM_INVITATIONS_API_PATH = "/api/team/invitations"
+RESEND_WEBHOOK_API_PATH = "/api/webhooks/resend"
 PUBLIC_API_PATHS = frozenset(
     {
         "/api/health",
@@ -219,6 +223,7 @@ PUBLIC_API_PATHS = frozenset(
         IDENTITY_INVITATION_PREVIEW_PATH,
         IDENTITY_INVITATION_ACCEPT_PATH,
         IDENTITY_RECOVERY_PATH,
+        RESEND_WEBHOOK_API_PATH,
     }
 )
 VIEWER_BLOCKED_GET_PATHS = frozenset({"/api/demo-report"})
@@ -657,6 +662,11 @@ def health() -> JsonObject:
             "max_stored_email_messages_per_workspace": (
                 MAX_STORED_EMAIL_MESSAGES_PER_WORKSPACE if EMAIL_DELIVERY.enabled else 0
             ),
+            "max_stored_email_webhook_events": (
+                MAX_STORED_WEBHOOK_EVENTS
+                if EMAIL_DELIVERY.config.webhooks_enabled
+                else 0
+            ),
         },
     }
 
@@ -670,6 +680,40 @@ def ready(response: Response) -> JsonObject:
     return {
         "ready": storage_ok,
         "checks": {"storage": "ok" if storage_ok else "unavailable"},
+    }
+
+
+@app.post(RESEND_WEBHOOK_API_PATH, response_model=None, include_in_schema=False)
+async def receive_resend_webhook(request: Request) -> JsonObject:
+    """Verify and reconcile a raw Resend/Svix delivery event."""
+    if not EMAIL_DELIVERY.config.webhooks_enabled:
+        raise HTTPException(status_code=404, detail="Webhook endpoint is not configured.")
+    content_type = request.headers.get("content-type", "").partition(";")[0].strip().lower()
+    if content_type != "application/json":
+        raise HTTPException(status_code=415, detail="Webhook content type must be JSON.")
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > MAX_WEBHOOK_BODY_BYTES:
+            raise HTTPException(status_code=413, detail="Webhook body is too large.")
+        chunks.append(chunk)
+    try:
+        result = EMAIL_DELIVERY.process_webhook(b"".join(chunks), request.headers)
+    except StudioEmailWebhookInvalid as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="Webhook signature or payload is invalid.",
+        ) from exc
+    except StudioEmailDeliveryError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Studio could not record the email delivery event.",
+        ) from exc
+    return {
+        "received": True,
+        "duplicate": result.duplicate,
+        "matched": result.matched,
     }
 
 
@@ -1628,12 +1672,16 @@ def _email_delivery_payload(record: StudioEmailDeliveryRecord | None) -> JsonObj
             "status": "not_queued",
             "attempt_count": 0,
             "last_error_code": None,
+            "provider_status": None,
+            "provider_event_at": None,
         }
     return {
         "mode": "automatic",
         "status": record.status,
         "attempt_count": record.attempt_count,
         "last_error_code": record.last_error_code,
+        "provider_status": record.provider_status,
+        "provider_event_at": record.provider_event_at,
     }
 
 
@@ -1702,10 +1750,19 @@ def _production_readiness(*, storage_ok: bool) -> JsonObject:
                     completed.append(
                         "encrypted transactional invitation email with bounded retries"
                     )
-                    blockers.insert(
-                        0,
-                        "email delivery webhooks, bounce handling, and domain operations",
-                    )
+                    if EMAIL_DELIVERY.config.webhooks_enabled:
+                        completed.append(
+                            "authenticated idempotent email delivery and bounce reconciliation"
+                        )
+                        blockers.insert(
+                            0,
+                            "sender-domain monitoring and email suppression operations",
+                        )
+                    else:
+                        blockers.insert(
+                            0,
+                            "email delivery webhooks and bounce handling",
+                        )
                 else:
                     blockers.insert(0, "transactional invitation email delivery")
         else:

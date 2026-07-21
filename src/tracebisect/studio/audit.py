@@ -90,6 +90,8 @@ def request_action(method: str, path: str) -> str:
         return "readiness_check"
     if path == "/api/metrics":
         return "metrics_scrape"
+    if path == "/api/webhooks/resend":
+        return "email_webhook_receive"
     if path == "/api/session":
         return "session_check"
     if path == "/api/browser-session/logout":

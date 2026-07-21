@@ -19,11 +19,18 @@ export TRACEBISECT_STUDIO_EMAIL_FROM='TraceBisect <invites@example.com>'
 export TRACEBISECT_STUDIO_EMAIL_REPLY_TO='support@example.com'
 export TRACEBISECT_STUDIO_PUBLIC_URL='https://studio.example.com'
 export RESEND_API_KEY='re_...'
+export RESEND_WEBHOOK_SECRET='whsec_...'
 ```
 
 Automatic delivery also requires SQLite storage and
 `TRACEBISECT_STUDIO_IDENTITY_SECRET`. Startup fails with a safe configuration
 error if a required setting is absent. Non-loopback public URLs must use HTTPS.
+
+In the Resend dashboard, register
+`https://studio.example.com/api/webhooks/resend` and subscribe to
+`email.sent`, `email.delivered`, `email.delivery_delayed`, `email.failed`,
+`email.suppressed`, `email.bounced`, and `email.complained`. Copy that endpoint's
+signing secret into `RESEND_WEBHOOK_SECRET`; it is different from the API key.
 
 ## Run the durable worker
 
@@ -58,8 +65,14 @@ The invitation token itself remains a keyed digest in the invitation table.
 The link puts the token in the browser URL fragment (`#invite=...`), which is
 not sent to the web server as part of the HTTP request target.
 
-Backups deliberately remove the entire email outbox as well as login sessions.
-This prevents a restored snapshot from sending an old invitation. Pending
+Webhook requests are verified against the unmodified raw body and Svix headers.
+Studio stores only the event ID, provider message ID, type, normalized status,
+and timestamps. Repeated `svix-id` values are ignored, and an older out-of-order
+event cannot replace newer delivery state. An event that races ahead of the API
+response is reconciled when the provider message ID is stored.
+
+Backups deliberately remove the email outbox and webhook event metadata as well
+as login sessions. This prevents a restored snapshot from sending an old invitation. Pending
 invitations remain, but an admin must revoke and recreate any invite that still
 needs delivery after a restore.
 
@@ -68,8 +81,11 @@ needs delivery after a restore.
 Settings shows one of these operator-friendly states:
 
 - **email queued / sending email / email will retry** — the worker still owns it;
-- **email accepted by provider** — Resend accepted the request, not proof that
-  the recipient opened or even received it;
+- **email accepted by provider** — Resend accepted the request but no delivery
+  webhook has been reconciled yet;
+- **delivered to their mail server** — Resend reported server-level delivery;
+- **delivery is delayed / bounced / suppressed / marked as spam** — signed
+  provider state that needs monitoring or an admin decision;
 - **email needs attention** — the provider rejected it or safe retries ended;
 - **share the private link manually** — automatic delivery was disabled or the
   durable queue could not accept the message.
@@ -82,10 +98,10 @@ longer has their plaintext token; revoke and create a new invitation.
 ## Current production boundary
 
 This release proves encrypted queueing, bounded retries, lease-safe workers,
-and provider request acceptance. It does not process Resend webhooks, reconcile
-delivered/bounced/complained events, verify recipient ownership again after an
-email change, or automate sender-domain health. Those remain production SaaS
-work, along with a managed multi-node job/database layer.
+provider request acceptance, signed webhook verification, deduplication, and
+ordered delivery/bounce reconciliation. It does not automatically manage
+sender-domain health or provider suppression lists, verify recipient ownership
+again after an email change, or provide a managed multi-node job/database layer.
 
 Provider reference: [Resend send-email API](https://resend.com/docs/api-reference/emails/send-email)
 and [Resend idempotency keys](https://resend.com/docs/dashboard/emails/idempotency-keys).

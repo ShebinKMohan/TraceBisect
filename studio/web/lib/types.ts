@@ -40,6 +40,7 @@ export type StudioHealth = {
     durable_outbox: boolean;
     encrypted_payloads: boolean;
     max_attempts: number;
+    webhooks: boolean;
   };
   metrics: {
     format: "prometheus_text_0.0.4";
@@ -78,6 +79,7 @@ export type StudioHealth = {
     identity_recovery_rate_limit_requests: number;
     max_email_delivery_attempts: number;
     max_stored_email_messages_per_workspace: number;
+    max_stored_email_webhook_events: number;
   };
 };
 
@@ -123,6 +125,8 @@ export type WorkspaceInvitationDelivery = {
   status: "pending" | "sending" | "retry" | "sent" | "failed" | "not_queued";
   attempt_count: number;
   last_error_code: string | null;
+  provider_status: "accepted" | "delivered" | "delayed" | "bounced" | "complained" | "failed" | "suppressed" | null;
+  provider_event_at: string | null;
 };
 
 export type IdentityWorkspaceChoice = {

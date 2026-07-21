@@ -124,7 +124,9 @@ sessions are stored only as keyed digests. Multi-workspace accounts choose a
 workspace only after password verification, and role/removal changes affect
 active sessions immediately. Optional Resend delivery encrypts the complete
 message payload in a durable outbox, hides the secret link from the API response,
-and retries temporary failures with a stable idempotency key. Without email
+and retries temporary failures with a stable idempotency key. An optional signed
+webhook reconciles delivered, delayed, bounced, suppressed, and complained
+provider events. Without email
 configuration, Studio shows the private link once for manual sharing. See
 [`docs/operations/studio-accounts.md`](docs/operations/studio-accounts.md) for
 account setup and
@@ -216,8 +218,9 @@ TRACEBISECT_STUDIO_SQLITE_PATH=.tracebisect/restored-studio.db \
 uvicorn tracebisect.studio.api:app --port 8000
 ```
 
-Backups intentionally remove key-derived sessions, human identity sessions, and
-the email outbox before they are published. A restored workspace keeps data, managed-key metadata,
+Backups intentionally remove key-derived sessions, human identity sessions,
+the email outbox, and webhook metadata before they are published. A restored
+workspace keeps data, managed-key metadata,
 Argon2id users, memberships, invitation hashes, and recovery-code hashes, but
 requires every browser to sign in again. Restoring an older backup also restores
 older credential state, so production recovery must include a security review
@@ -319,9 +322,9 @@ V1 will ship:
 V1 Studio is still intentionally narrow: it has opt-in role-scoped workspace
 keys plus invitation-only human accounts, saved-code recovery, browser team
 membership administration, and optional encrypted Resend invitation delivery.
-It does not yet include delivery/bounce webhooks, multi-factor or
-identity-provider sign-in, billing, vendor-native direct importers, or
-git-history bisection.
+It does not yet include automated sender-domain/suppression operations,
+multi-factor or identity-provider sign-in, billing, vendor-native direct
+importers, or git-history bisection.
 
 See [spec/production-spec.md](spec/production-spec.md) for the locked product
 specification.

@@ -26,7 +26,7 @@ from tracebisect.studio.service import (
     StudioStore,
 )
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 _WORKSPACE_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 _STORAGE_SETTING_NAMES = (
     "TRACEBISECT_STUDIO_STORAGE",
@@ -365,7 +365,7 @@ def ensure_studio_schema(connection: sqlite3.Connection) -> None:
                 "INSERT INTO studio_schema (version) VALUES (?)",
                 (SCHEMA_VERSION,),
             )
-        elif not isinstance(row[0], int) or row[0] not in {1, 2, 3, 4, 5, SCHEMA_VERSION}:
+        elif not isinstance(row[0], int) or row[0] not in {1, 2, 3, 4, 5, 6, SCHEMA_VERSION}:
             raise StudioPersistenceError(f"unsupported Studio database schema version {row[0]!r}")
         else:
             database_version = row[0]
@@ -587,6 +587,9 @@ def ensure_studio_schema(connection: sqlite3.Connection) -> None:
                 failed_at TEXT,
                 provider_message_id TEXT,
                 last_error_code TEXT,
+                provider_status TEXT,
+                provider_event_at TEXT,
+                provider_event_id TEXT,
                 FOREIGN KEY (invitation_id)
                     REFERENCES studio_invitations (invitation_id) ON DELETE CASCADE
             )
@@ -598,6 +601,12 @@ def ensure_studio_schema(connection: sqlite3.Connection) -> None:
         }
         if "lease_token" not in email_columns:
             connection.execute("ALTER TABLE studio_email_outbox ADD COLUMN lease_token TEXT")
+        if "provider_status" not in email_columns:
+            connection.execute("ALTER TABLE studio_email_outbox ADD COLUMN provider_status TEXT")
+        if "provider_event_at" not in email_columns:
+            connection.execute("ALTER TABLE studio_email_outbox ADD COLUMN provider_event_at TEXT")
+        if "provider_event_id" not in email_columns:
+            connection.execute("ALTER TABLE studio_email_outbox ADD COLUMN provider_event_id TEXT")
         connection.execute(
             """
             CREATE INDEX IF NOT EXISTS studio_email_outbox_due_idx
@@ -606,8 +615,32 @@ def ensure_studio_schema(connection: sqlite3.Connection) -> None:
         )
         connection.execute(
             """
+            CREATE TABLE IF NOT EXISTS studio_email_webhook_events (
+                event_id TEXT PRIMARY KEY,
+                provider_message_id TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                provider_status TEXT NOT NULL,
+                event_created_at TEXT NOT NULL,
+                received_at TEXT NOT NULL
+            )
+            """,
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS studio_email_webhook_provider_idx
+            ON studio_email_webhook_events (provider_message_id, event_created_at)
+            """,
+        )
+        connection.execute(
+            """
             CREATE INDEX IF NOT EXISTS studio_email_outbox_invitation_idx
             ON studio_email_outbox (workspace_id, invitation_id, created_at)
+            """,
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS studio_email_outbox_provider_idx
+            ON studio_email_outbox (provider_message_id)
             """,
         )
         if database_version < SCHEMA_VERSION:

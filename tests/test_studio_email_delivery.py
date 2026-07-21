@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import json
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from svix.webhooks import Webhook
 
 import tracebisect.studio.api as studio_api
 import tracebisect.studio.email_delivery as email_delivery
@@ -25,6 +28,9 @@ from tracebisect.studio.storage import StudioConfigurationError, StudioStoreRegi
 
 IDENTITY_SECRET = "email-test-identity-secret-with-more-than-thirty-two-characters"
 PEPPER = "email-test-api-key-pepper-with-more-than-thirty-two-characters"
+WEBHOOK_SECRET = "whsec_" + base64.b64encode(
+    b"tracebisect-test-webhook-signing-secret"
+).decode()
 
 
 def _env(database: Path) -> dict[str, str]:
@@ -52,6 +58,29 @@ def _issued_invitation(database: Path):
         expires_in_days=7,
         identity_secret_value=IDENTITY_SECRET,
     )
+
+
+def _webhook(
+    *,
+    event_id: str,
+    event_type: str,
+    provider_message_id: str,
+    event_created_at: datetime,
+    signed_at: datetime,
+) -> tuple[bytes, dict[str, str]]:
+    body = json.dumps(
+        {
+            "type": event_type,
+            "created_at": event_created_at.isoformat().replace("+00:00", "Z"),
+            "data": {"email_id": provider_message_id},
+        },
+        separators=(",", ":"),
+    )
+    return body.encode(), {
+        "svix-id": event_id,
+        "svix-timestamp": str(int(signed_at.timestamp())),
+        "svix-signature": Webhook(WEBHOOK_SECRET).sign(event_id, signed_at, body),
+    }
 
 
 class _SuccessfulTransport:
@@ -205,6 +234,114 @@ def test_failed_email_can_be_requeued_without_exposing_the_invitation(tmp_path: 
     assert issued.invitation_token not in str(ciphertext[0])
 
 
+def test_signed_webhooks_are_deduplicated_and_ordered_by_event_time(tmp_path: Path) -> None:
+    database = tmp_path / "studio.db"
+    env = _env(database)
+    env["RESEND_WEBHOOK_SECRET"] = WEBHOOK_SECRET
+    delivery = StudioEmailDelivery.from_env(env)
+    queued = delivery.queue_invitation(_issued_invitation(database))
+    sent = delivery.deliver_message(queued.message_id, transport=_SuccessfulTransport())
+    assert sent is not None
+    assert sent.provider_status == "accepted"
+    signed_at = datetime.now(timezone.utc)
+    delivered_body, delivered_headers = _webhook(
+        event_id="msg_webhook_delivered_123",
+        event_type="email.delivered",
+        provider_message_id="provider-message-123",
+        event_created_at=signed_at,
+        signed_at=signed_at,
+    )
+
+    delivered = delivery.process_webhook(delivered_body, delivered_headers)
+    duplicate = delivery.process_webhook(delivered_body, delivered_headers)
+    delayed_body, delayed_headers = _webhook(
+        event_id="msg_webhook_delayed_123",
+        event_type="email.delivery_delayed",
+        provider_message_id="provider-message-123",
+        event_created_at=signed_at - timedelta(minutes=1),
+        signed_at=signed_at,
+    )
+    delayed = delivery.process_webhook(delayed_body, delayed_headers)
+
+    assert delivered.matched is True
+    assert duplicate.duplicate is True
+    assert delayed.matched is True
+    record = delivery.latest_for_workspace("workspace-a")[queued.invitation_id]
+    assert record.provider_status == "delivered"
+    with sqlite3.connect(database) as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM studio_email_webhook_events"
+        ).fetchone() == (2,)
+
+
+def test_webhook_received_before_send_is_reconciled_after_provider_acceptance(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "studio.db"
+    env = _env(database)
+    env["RESEND_WEBHOOK_SECRET"] = WEBHOOK_SECRET
+    delivery = StudioEmailDelivery.from_env(env)
+    queued = delivery.queue_invitation(_issued_invitation(database))
+    signed_at = datetime.now(timezone.utc)
+    body, headers = _webhook(
+        event_id="msg_webhook_early_123",
+        event_type="email.delivered",
+        provider_message_id="provider-message-123",
+        event_created_at=signed_at,
+        signed_at=signed_at,
+    )
+
+    assert delivery.process_webhook(body, headers).matched is False
+    sent = delivery.deliver_message(queued.message_id, transport=_SuccessfulTransport())
+    assert sent is not None
+    assert sent.provider_status == "delivered"
+
+
+def test_public_webhook_endpoint_requires_a_valid_raw_signature(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database = tmp_path / "studio.db"
+    _issued_invitation(database)
+    env = _env(database)
+    env["RESEND_WEBHOOK_SECRET"] = WEBHOOK_SECRET
+    registry = StudioStoreRegistry(env)
+    monkeypatch.setattr(studio_api, "AUTH_CONFIG", StudioAuthConfig.from_env(env))
+    monkeypatch.setattr(studio_api, "EMAIL_DELIVERY", StudioEmailDelivery.from_env(env))
+    monkeypatch.setattr(studio_api, "STORE_REGISTRY", registry)
+    monkeypatch.setattr(studio_api, "STORE", registry.default_store)
+    asyncio.run(studio_api.RATE_LIMITER.reset())
+    client = TestClient(studio_api.app)
+    signed_at = datetime.now(timezone.utc)
+    body, headers = _webhook(
+        event_id="msg_webhook_api_123",
+        event_type="email.bounced",
+        provider_message_id="unknown-provider-message",
+        event_created_at=signed_at,
+        signed_at=signed_at,
+    )
+
+    accepted = client.post(
+        studio_api.RESEND_WEBHOOK_API_PATH,
+        content=body,
+        headers={**headers, "Content-Type": "application/json"},
+    )
+    rejected = client.post(
+        studio_api.RESEND_WEBHOOK_API_PATH,
+        content=body,
+        headers={**headers, "svix-signature": "v1,invalid", "Content-Type": "application/json"},
+    )
+    assert accepted.status_code == 200
+    assert accepted.json() == {"received": True, "duplicate": False, "matched": False}
+    assert rejected.status_code == 400
+    health = client.get("/api/health").json()
+    assert health["email"]["webhooks"] is True
+    assert "authenticated idempotent email delivery" in " ".join(
+        health["readiness"]["completed"]
+    )
+    assert "sender-domain monitoring" in " ".join(health["readiness"]["blockers"])
+
+
 def test_api_queues_email_without_returning_the_secret_link(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -240,6 +377,7 @@ def test_api_queues_email_without_returning_the_secret_link(
         "durable_outbox": True,
         "encrypted_payloads": True,
         "max_attempts": email_delivery.MAX_EMAIL_DELIVERY_ATTEMPTS,
+        "webhooks": False,
     }
     assert "encrypted transactional invitation email" in " ".join(
         health.json()["readiness"]["completed"]
@@ -276,6 +414,8 @@ def test_api_queues_email_without_returning_the_secret_link(
         "status": "not_queued",
         "attempt_count": 0,
         "last_error_code": None,
+        "provider_status": None,
+        "provider_event_at": None,
     }
 
 

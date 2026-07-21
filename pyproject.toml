@@ -35,6 +35,7 @@ studio = [
   "cryptography>=42",
   "fastapi>=0.115",
   "python-multipart>=0.0.9",
+  "svix>=1.98,<2",
   "uvicorn[standard]>=0.30",
 ]
 dev = [
@@ -48,6 +49,7 @@ dev = [
   "pytest-cov>=5.0",
   "python-multipart>=0.0.9",
   "ruff>=0.6",
+  "svix>=1.98,<2",
   "types-colorama>=0.4",
   "twine>=5.0",
   "uvicorn[standard]>=0.30",
