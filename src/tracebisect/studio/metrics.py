@@ -110,7 +110,7 @@ class StudioMetrics:
                     self._duration_buckets[(action, bucket)] += 1
             self._auth_outcomes[auth_outcome] += 1
 
-    def render_prometheus(self) -> str:
+    def render_prometheus(self, *, storage_ready: bool) -> str:
         """Render Prometheus text format 0.0.4 with deterministic ordering."""
         with self._lock:
             requests = self._requests.copy()
@@ -141,6 +141,9 @@ class StudioMetrics:
             ),
             "# TYPE tracebisect_studio_http_requests_in_flight gauge",
             f"tracebisect_studio_http_requests_in_flight {in_flight}",
+            "# HELP tracebisect_studio_storage_ready Whether configured storage is reachable.",
+            "# TYPE tracebisect_studio_storage_ready gauge",
+            f"tracebisect_studio_storage_ready {1 if storage_ready else 0}",
             (
                 "# HELP tracebisect_studio_http_requests_total "
                 "Completed HTTP requests by bounded action and result."

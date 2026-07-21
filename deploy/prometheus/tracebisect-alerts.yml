@@ -1,0 +1,122 @@
+groups:
+  - name: tracebisect-studio
+    interval: 30s
+    rules:
+      - alert: TraceBisectStudioUnavailable
+        expr: up{job="tracebisect-studio"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          service: tracebisect-studio
+        annotations:
+          summary: TraceBisect Studio cannot be scraped
+          description: Prometheus has been unable to reach a configured Studio instance for five minutes.
+          action: Confirm the process and network path before restarting anything.
+          runbook: docs/operations/studio-alert-runbook.md#tracebisectstudiounavailable
+
+      - alert: TraceBisectStudioStorageUnavailable
+        expr: tracebisect_studio_storage_ready < 1
+        for: 2m
+        labels:
+          severity: critical
+          service: tracebisect-studio
+        annotations:
+          summary: TraceBisect Studio storage is unavailable
+          description: At least one scraped Studio process cannot reach its configured workspace store.
+          action: Protect the database and check readiness before changing or restarting storage.
+          runbook: docs/operations/studio-alert-runbook.md#tracebisectstudiostorageunavailable
+
+      - alert: TraceBisectStudioServerErrorRateHigh
+        expr: |
+          (
+            sum by (action) (rate(tracebisect_studio_http_requests_total{result="server_error"}[10m]))
+            /
+            clamp_min(sum by (action) (rate(tracebisect_studio_http_requests_total[10m])), 0.001)
+          ) > 0.05
+          and
+          sum by (action) (increase(tracebisect_studio_http_requests_total[10m])) >= 20
+        for: 10m
+        labels:
+          severity: critical
+          service: tracebisect-studio
+        annotations:
+          summary: TraceBisect Studio {{ $labels.action }} errors exceed 5 percent
+          description: More than 5 percent of at least 20 {{ $labels.action }} requests failed with a server error over ten minutes.
+          action: Use the action label and request IDs from audit logs to isolate the failing path.
+          runbook: docs/operations/studio-alert-runbook.md#tracebisectstudioservererrorratehigh
+
+      - alert: TraceBisectStudioInteractiveLatencyHigh
+        expr: |
+          (
+            sum by (action) (rate(tracebisect_studio_http_request_duration_seconds_bucket{
+              action=~"session_check|trace_list|run_list|run_read|case_list|case_read",
+              le="1"
+            }[10m]))
+            /
+            clamp_min(sum by (action) (rate(tracebisect_studio_http_request_duration_seconds_count{
+              action=~"session_check|trace_list|run_list|run_read|case_list|case_read"
+            }[10m])), 0.001)
+          ) < 0.95
+          and
+          sum by (action) (increase(tracebisect_studio_http_request_duration_seconds_count{
+            action=~"session_check|trace_list|run_list|run_read|case_list|case_read"
+          }[10m])) >= 20
+        for: 10m
+        labels:
+          severity: warning
+          service: tracebisect-studio
+        annotations:
+          summary: TraceBisect Studio {{ $labels.action }} reads are slow
+          description: Fewer than 95 percent of at least 20 {{ $labels.action }} requests completed within one second.
+          action: Check storage readiness and instance health before scaling or restarting.
+          runbook: docs/operations/studio-alert-runbook.md#tracebisectstudiointeractivelatencyhigh
+
+      - alert: TraceBisectStudioWorkflowLatencyHigh
+        expr: |
+          (
+            sum by (action) (rate(tracebisect_studio_http_request_duration_seconds_bucket{
+              action=~"demo_seed|trace_upload|trace_compare|case_create|case_run",
+              le="5"
+            }[15m]))
+            /
+            clamp_min(sum by (action) (rate(tracebisect_studio_http_request_duration_seconds_count{
+              action=~"demo_seed|trace_upload|trace_compare|case_create|case_run"
+            }[15m])), 0.001)
+          ) < 0.95
+          and
+          sum by (action) (increase(tracebisect_studio_http_request_duration_seconds_count{
+            action=~"demo_seed|trace_upload|trace_compare|case_create|case_run"
+          }[15m])) >= 10
+        for: 15m
+        labels:
+          severity: warning
+          service: tracebisect-studio
+        annotations:
+          summary: TraceBisect Studio {{ $labels.action }} workflows are slow
+          description: Fewer than 95 percent of at least 10 {{ $labels.action }} requests completed within five seconds.
+          action: Check trace size, storage health, and process saturation for the affected action.
+          runbook: docs/operations/studio-alert-runbook.md#tracebisectstudioworkflowlatencyhigh
+
+      - alert: TraceBisectStudioRateLimitingHigh
+        expr: sum by (action) (increase(tracebisect_studio_http_requests_total{result="rate_limited"}[10m])) > 20
+        for: 5m
+        labels:
+          severity: warning
+          service: tracebisect-studio
+        annotations:
+          summary: TraceBisect Studio is repeatedly rate limiting {{ $labels.action }}
+          description: More than 20 {{ $labels.action }} requests were rate limited in ten minutes and the condition persisted.
+          action: Check for a looping client or abusive source before raising limits.
+          runbook: docs/operations/studio-alert-runbook.md#tracebisectstudioratelimitinghigh
+
+      - alert: TraceBisectStudioAuthenticationFailuresHigh
+        expr: sum(increase(tracebisect_studio_auth_outcomes_total{outcome="rejected"}[10m])) > 25
+        for: 5m
+        labels:
+          severity: warning
+          service: tracebisect-studio
+        annotations:
+          summary: TraceBisect Studio is rejecting many credentials
+          description: More than 25 requests used missing, invalid, expired, or revoked credentials in ten minutes.
+          action: Check recent key rotation and source network data without copying credentials into incident notes.
+          runbook: docs/operations/studio-alert-runbook.md#tracebisectstudioauthenticationfailureshigh

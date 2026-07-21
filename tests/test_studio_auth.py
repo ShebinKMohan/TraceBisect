@@ -388,7 +388,11 @@ def test_secured_metrics_require_a_dedicated_scrape_token(
         in health.json()["readiness"]["completed"]
     )
     assert (
-        "centralized metrics collection, alerts, and error tracking"
+        "vendor-neutral alert rules and beginner incident runbook"
+        in health.json()["readiness"]["completed"]
+    )
+    assert (
+        "deployment wiring for metrics collection and alerts, plus error tracking"
         in health.json()["readiness"]["blockers"]
     )
     assert "workspace-a" not in accepted.text

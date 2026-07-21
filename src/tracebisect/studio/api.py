@@ -437,7 +437,7 @@ def ready(response: Response) -> JsonObject:
 def metrics() -> Response:
     """Expose low-cardinality service metrics without workspace or resource labels."""
     return Response(
-        content=METRICS.render_prometheus(),
+        content=METRICS.render_prometheus(storage_ready=STORE.check_health()),
         media_type=PROMETHEUS_CONTENT_TYPE,
     )
 
@@ -778,9 +778,14 @@ def _production_readiness(*, storage_ok: bool) -> JsonObject:
         blockers.insert(0, "structured request audit logs")
     metrics_access = METRICS_ACCESS.access_mode(auth_required=AUTH_CONFIG.required)
     if metrics_access == "bearer_token":
-        completed.append("low-cardinality Prometheus metrics with dedicated scrape access")
+        completed.extend(
+            [
+                "low-cardinality Prometheus metrics with dedicated scrape access",
+                "vendor-neutral alert rules and beginner incident runbook",
+            ]
+        )
         blockers[blockers.index("hosted deployment observability")] = (
-            "centralized metrics collection, alerts, and error tracking"
+            "deployment wiring for metrics collection and alerts, plus error tracking"
         )
     else:
         blockers.insert(0, "dedicated production metrics scrape access")

@@ -10,6 +10,7 @@ const recordCommand = "tracebisect record --output run.tbtrace -- python your_ag
 const durableCommand = "TRACEBISECT_STUDIO_STORAGE=sqlite TRACEBISECT_STUDIO_SQLITE_PATH=.tracebisect/studio.db uvicorn tracebisect.studio.api:app --port 8000";
 const listKeysCommand = "tracebisect studio keys list --database .tracebisect/studio.db";
 const generateMetricsTokenCommand = "tracebisect studio metrics generate-token";
+const validateAlertRulesCommand = "promtool check rules deploy/prometheus/tracebisect-alerts.yml";
 
 function CopyCommand({ command, label }: { command: string; label: string }) {
   const [copied, setCopied] = useState(false);
@@ -181,10 +182,11 @@ export function SettingsPanel({ health, workspaceRole }: { health: StudioHealth 
           <h2>{metricsAccess === "bearer_token" ? "Service monitoring is protected" : "Connect service monitoring"}</h2>
           <p>
             {metricsAccess === "bearer_token"
-              ? "The Prometheus metrics endpoint uses its own read-only bearer token. Workspace keys are rejected, so your monitoring service cannot open or change product data."
+              ? <>The Prometheus endpoint uses its own read-only token. Workspace keys are rejected. Starter alerts and safe response steps are documented in <code>docs/operations/studio-alert-runbook.md</code>.</>
               : "Protected Studio keeps the metrics endpoint unavailable until you create a separate scraper token. Generate one, save it as TRACEBISECT_STUDIO_METRICS_TOKEN, then restart the API."}
           </p>
           {metricsAccess !== "bearer_token" ? <CopyCommand command={generateMetricsTokenCommand} label="generate metrics token command" /> : null}
+          {metricsAccess === "bearer_token" ? <CopyCommand command={validateAlertRulesCommand} label="validate alert rules command" /> : null}
         </div>
       ) : null}
 

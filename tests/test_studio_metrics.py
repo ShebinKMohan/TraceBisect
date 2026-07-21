@@ -52,11 +52,13 @@ def test_prometheus_metrics_are_bounded_and_secret_safe() -> None:
     )
     now[0] = 105.0
 
-    output = metrics.render_prometheus()
+    output = metrics.render_prometheus(storage_ready=True)
 
     assert "tracebisect_studio_process_start_time_seconds 1700000000" in output
     assert "tracebisect_studio_process_uptime_seconds 5" in output
     assert "tracebisect_studio_http_requests_in_flight 0" in output
+    assert "tracebisect_studio_storage_ready 1" in output
+    assert "tracebisect_studio_storage_ready 0" in metrics.render_prometheus(storage_ready=False)
     assert (
         'tracebisect_studio_http_requests_total{action="run_read",result="client_error"} 1'
         in output

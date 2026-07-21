@@ -337,6 +337,7 @@ def test_open_local_metrics_endpoint_exposes_prometheus_contract() -> None:
     assert response.headers["cache-control"] == "no-store"
     assert response.headers["x-content-type-options"] == "nosniff"
     assert "# TYPE tracebisect_studio_http_requests_total counter" in response.text
+    assert "tracebisect_studio_storage_ready 1" in response.text
     assert (
         'tracebisect_studio_http_requests_total{action="health_check",result="success"} 1'
         in response.text

@@ -113,8 +113,9 @@ keys, headers, request bodies, query values, filenames, and resource IDs. Set
 `TRACEBISECT_STUDIO_AUDIT_LOG_ENABLED=false` only when another layer provides an
 equivalent request audit trail.
 
-`/api/metrics` exposes Prometheus text metrics for request volume, result class,
-latency, authentication outcomes, in-flight work, and process uptime. It never
+`/api/metrics` exposes Prometheus text metrics for storage readiness, request
+volume, result class, latency, authentication outcomes, in-flight work, and
+process uptime. It never
 uses workspace, user, resource, filename, or request identifiers as labels. In
 protected mode, a dedicated `TRACEBISECT_STUDIO_METRICS_TOKEN` is required; do
 not give a monitoring scraper a workspace key:
@@ -129,6 +130,20 @@ Open-local mode permits local scrapes without a token. Protected mode returns a
 clear unavailable response until the dedicated token is configured. Metrics are
 per API process and reset when that process restarts; the monitoring system owns
 retention and multi-instance aggregation.
+
+Production-ready starter alerts live in
+[`deploy/prometheus/tracebisect-alerts.yml`](deploy/prometheus/tracebisect-alerts.yml).
+They cover reachability, storage, server errors, latency, rate limiting, and
+authentication failures without putting customer identifiers into labels. The
+plain-English response steps and provisional service objectives are in
+[`docs/operations/studio-alert-runbook.md`](docs/operations/studio-alert-runbook.md).
+Validate both the rules and your deployment configuration before reloading
+Prometheus:
+
+```bash
+promtool check rules deploy/prometheus/tracebisect-alerts.yml
+promtool check config /etc/prometheus/prometheus.yml
+```
 
 ### Back up and restore Studio data
 

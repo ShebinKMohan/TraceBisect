@@ -58,6 +58,10 @@ temporary files out of the web root, and throttle repeated API calls.
 - Protected deployments require a separate
   `TRACEBISECT_STUDIO_METRICS_TOKEN` for scrapes. Workspace keys are rejected so
   a monitoring agent never needs permission to read or mutate product data.
+- The repository includes low-noise Prometheus alert rules with minimum-traffic
+  gates, sustained `for` windows, safe first actions, and a beginner-readable
+  incident runbook. Targets are provisional operating goals, not an advertised
+  SLA.
 - `tracebisect studio backup`, `verify`, and `restore` provide an integrity-
   checked recovery workflow. Backups use SQLite's online snapshot API, and
   restore refuses to overwrite an existing database.
@@ -89,17 +93,18 @@ Studio a real multi-tenant SaaS:
 - Scheduled encrypted off-site backups, retention policy, and deployment-level
   recovery drills. The local CLI proves snapshot and restore mechanics only.
 - Object storage and antivirus/sandbox scanning for untrusted uploads.
-- Centralized metrics collection, alert rules, dashboards, and error tracking.
-  The process now exposes scrapeable low-cardinality metrics, but does not
-  configure the hosting platform around them.
+- Deployment wiring for centralized metrics collection, alert delivery,
+  dashboards, and error tracking. The process now exposes scrapeable metrics and
+  ships starter alert rules, but does not configure the hosting platform around
+  them.
 - Deployment-specific TLS, reverse-proxy, and extended security-header
   configuration.
 
 The current build has restart-safe single-node persistence plus fail-closed
 workspace API-key authorization, not a finished hosted SaaS. The next
 production step is managed identity, browser key lifecycle, and deployment-level
-collection/alerting; do not add Langfuse-scale ClickHouse or queues until the
-comparison workflow needs them.
+monitoring/error-tracking wiring; do not add Langfuse-scale ClickHouse or queues
+until the comparison workflow needs them.
 
 ## References
 
@@ -111,3 +116,7 @@ comparison workflow needs them.
   https://prometheus.io/docs/instrumenting/exposition_formats/
 - Prometheus instrumentation and label-cardinality guidance:
   https://prometheus.io/docs/practices/instrumentation/
+- Prometheus alerting practices:
+  https://prometheus.io/docs/practices/alerting/
+- Prometheus rule-file syntax:
+  https://prometheus.io/docs/prometheus/latest/configuration/recording_rules/

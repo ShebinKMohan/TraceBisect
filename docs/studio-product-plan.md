@@ -132,10 +132,11 @@ Langfuse wholesale.
 See `docs/studio-production-hardening.md` for the current API, upload,
 throttling, and security boundary. The local MVP is hardened against obvious
 bad inputs and now supports durable API-key-scoped workspaces. Managed identity,
-browser key lifecycle, centralized metrics/alerts, error tracking, and
-distributed rate limiting remain separate SaaS milestones. The API already
-provides operator-managed expiring keys and a protected Prometheus scrape
-endpoint; hosting-platform collection is still required.
+browser key lifecycle, hosted monitoring/error-tracking wiring, and distributed
+rate limiting remain separate SaaS milestones. The API already provides
+operator-managed expiring keys, a protected Prometheus scrape endpoint, starter
+alert rules, and an incident runbook; hosting-platform collection and delivery
+are still required.
 
 ## Out Of Scope For This Slice
 
