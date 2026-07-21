@@ -18,7 +18,7 @@ const primary = [
 
 const more = [
   { id: "sessions" as const, label: "Sessions", description: "Related runs grouped together", icon: MessagesSquare },
-  { id: "divergences" as const, label: "Repeated issues", description: "Behavior changes that keep returning", icon: CircleAlert },
+  { id: "divergences" as const, label: "Issue patterns", description: "Failures grouped by where they first changed", icon: CircleAlert },
   { id: "setup" as const, label: "Workspace setup", description: "Connect data and manage access", icon: BookOpen },
 ];
 

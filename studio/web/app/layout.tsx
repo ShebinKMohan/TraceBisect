@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "TraceBisect Studio",
-  description: "Compare AI-agent traces, find the first regression, and export pytest guardrails.",
+  description: "Compare AI-agent runs, understand the first behavior change, and save automated guardrails.",
 };
 
 export const viewport: Viewport = {

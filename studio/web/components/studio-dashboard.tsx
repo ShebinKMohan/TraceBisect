@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, GitCompare, ShieldCheck } from "lucide-react";
+import { AlertTriangle, ArrowRight, GitCompare, ShieldCheck, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   compareTraces,
@@ -29,7 +29,7 @@ import { IssuesPanel } from "@/components/issues-panel";
 import { MobileNav } from "@/components/mobile-nav";
 import { RegressionCaseLibrary } from "@/components/regression-case-library";
 import { RunList } from "@/components/run-list";
-import { SectionOverview, sectionContent } from "@/components/section-overview";
+import { sectionContent } from "@/components/section-overview";
 import { SettingsPanel } from "@/components/settings-panel";
 import { SessionsPanel } from "@/components/sessions-panel";
 import { Sidebar } from "@/components/sidebar";
@@ -38,7 +38,7 @@ import { TraceList } from "@/components/trace-list";
 import { TraceWorkbench } from "@/components/trace-workbench";
 import { UploadComparePanel } from "@/components/upload-compare-panel";
 import { WorkflowSteps } from "@/components/workflow-steps";
-import { WorkspaceConnecting, WorkspaceUnlock } from "@/components/workspace-unlock";
+import { WorkspaceConnecting, WorkspaceConnectionError, WorkspaceUnlock } from "@/components/workspace-unlock";
 import { friendlyTraceName } from "@/lib/format";
 import {
   searchableStudioSections,
@@ -87,9 +87,15 @@ export function StudioDashboard() {
 
   useEffect(() => {
     function restoreSectionFromHistory() {
+      const nextSection = studioSectionFromUrl(window.location.href);
       setSearchQuery("");
+      if (nextSection !== "runs") {
+        setStatusFilter("all");
+        setSeverityFilter("all");
+      }
       setNotice(null);
-      setActiveSection(studioSectionFromUrl(window.location.href));
+      setError(null);
+      setActiveSection(nextSection);
     }
 
     window.addEventListener("popstate", restoreSectionFromHistory);
@@ -144,10 +150,23 @@ export function StudioDashboard() {
   useEffect(() => {
     if (loading) return;
     if (locked) return;
-    void refreshRuns().catch((err: unknown) => {
-      presentApiError(err, "Failed to refresh comparison history.");
-    });
-  }, [loading, searchQuery, severityFilter, statusFilter]);
+    if (activeSection !== "runs") return;
+    const refreshTimer = window.setTimeout(() => {
+      void refreshRuns().catch((err: unknown) => {
+        presentApiError(err, "Failed to refresh comparison history.");
+      });
+    }, 180);
+    return () => window.clearTimeout(refreshTimer);
+  }, [activeSection, loading, locked, searchQuery, severityFilter, statusFilter]);
+
+  useEffect(() => {
+    if (loading || locked || activeSection !== "divergences") return;
+    void fetchRuns()
+      .then(setRuns)
+      .catch((err: unknown) => {
+        presentApiError(err, "Failed to refresh issue patterns.");
+      });
+  }, [activeSection, loading, locked]);
 
   function toggleTheme() {
     const nextTheme = theme === "light" ? "dark" : "light";
@@ -158,6 +177,11 @@ export function StudioDashboard() {
 
   function handleSectionChange(section: StudioSection) {
     setSearchQuery("");
+    if (section !== "runs") {
+      setStatusFilter("all");
+      setSeverityFilter("all");
+    }
+    setError(null);
     setNotice(null);
     setActiveSection(section);
     const nextUrl = studioSectionUrl(section, window.location.href);
@@ -483,6 +507,10 @@ export function StudioDashboard() {
     return <WorkspaceConnecting />;
   }
 
+  if (health === null) {
+    return <WorkspaceConnectionError error={error} onRetry={() => void initializeStudio()} />;
+  }
+
   if (locked) {
     return (
       <WorkspaceUnlock
@@ -498,7 +526,7 @@ export function StudioDashboard() {
   }
 
   return (
-    <main className="studio-shell" data-active-section={activeSection}>
+    <main aria-busy={busy} className="studio-shell" data-active-section={activeSection}>
       <div className={sidebarCollapsed ? "dashboard-frame dashboard-frame-sidebar-collapsed" : "dashboard-frame"}>
         <Sidebar
           activeSection={activeSection}
@@ -534,14 +562,12 @@ export function StudioDashboard() {
               <h1 data-testid="studio-title">{content.title}</h1>
               <p>{content.description}</p>
             </div>
-            {comparisonContextSections.has(activeSection) ? (
+            {comparisonContextSections.has(activeSection) && report ? (
               <div className="page-header-actions">
                 <div className="header-action" data-testid="comparison-summary">
                   <GitCompare size={15} aria-hidden />
                   <span>
-                    {report
-                      ? `${friendlyTraceName(report.baseline.display_name)} → ${friendlyTraceName(report.candidate.display_name)}`
-                      : "Loading comparison"}
+                    {friendlyTraceName(report.baseline.display_name)} → {friendlyTraceName(report.candidate.display_name)}
                   </span>
                 </div>
                 {activeSection === "runs" ? (
@@ -562,6 +588,9 @@ export function StudioDashboard() {
             <section className="error-band" role="alert">
               <AlertTriangle size={18} aria-hidden />
               <span>{error}</span>
+              <button aria-label="Dismiss error" onClick={() => setError(null)} type="button">
+                <X size={15} aria-hidden />
+              </button>
             </section>
           ) : null}
 
@@ -583,48 +612,58 @@ export function StudioDashboard() {
             </section>
           ) : null}
 
-          <SectionOverview
-            report={report}
-            section={activeSection}
-          />
-
           {activeSection === "home" ? (
             <HomePanel authRequired={health?.auth.required ?? false} canEdit={canEdit} cases={cases} onSectionChange={handleSectionChange} report={report} runtime={health?.runtime ?? null} traces={traces} />
           ) : null}
 
           {activeSection === "runs" ? (
-            <div className="comparison-workbench" data-testid="comparison-workbench">
-              <RunList
-                first={first}
-                onSearchReset={() => setSearchQuery("")}
-                onSelectRun={(reportId) => void handleSelectRun(reportId)}
-                onSeverityFilterChange={setSeverityFilter}
-                onStatusFilterChange={setStatusFilter}
-                report={report}
-                runs={runs}
-                searchQuery={searchQuery}
-                selectedReportId={selectedReportId}
-                severityFilter={severityFilter}
-                statusFilter={statusFilter}
-              />
-              <EventDetailsPanel
-                divergence={first}
-                event={selectedEvent}
-                events={activeEvents}
-                highlightedIds={highlightedIds}
-                onSelectEvent={handleSelectEvent}
-                side={activeSide}
-                trace={activeTrace}
-              />
-              <TraceWorkbench
-                events={activeEvents}
-                highlightedIds={highlightedIds}
-                onSelectEvent={handleSelectEvent}
-                selectedEventId={selectedEvent?.id ?? null}
-                side={activeSide}
-                trace={activeTrace}
-              />
-            </div>
+            report ? (
+              <div className="comparison-workbench" data-testid="comparison-workbench">
+                <RunList
+                  onSearchReset={() => setSearchQuery("")}
+                  onSelectRun={(reportId) => void handleSelectRun(reportId)}
+                  onSeverityFilterChange={setSeverityFilter}
+                  onStatusFilterChange={setStatusFilter}
+                  report={report}
+                  runs={runs}
+                  searchQuery={searchQuery}
+                  selectedReportId={selectedReportId}
+                  severityFilter={severityFilter}
+                  statusFilter={statusFilter}
+                />
+                <EventDetailsPanel
+                  divergence={first}
+                  event={selectedEvent}
+                  events={activeEvents}
+                  highlightedIds={highlightedIds}
+                  onSelectEvent={handleSelectEvent}
+                  side={activeSide}
+                  trace={activeTrace}
+                />
+                <TraceWorkbench
+                  events={activeEvents}
+                  highlightedIds={highlightedIds}
+                  onSelectEvent={handleSelectEvent}
+                  selectedEventId={selectedEvent?.id ?? null}
+                  side={activeSide}
+                  trace={activeTrace}
+                />
+              </div>
+            ) : (
+              <section className="panel comparison-empty-state" data-testid="comparison-empty-state">
+                <span aria-hidden><GitCompare size={22} /></span>
+                <div>
+                  <h2>No comparison yet</h2>
+                  <p>
+                    Choose one run whose behavior you trust and one newer run to check. TraceBisect will open the first important difference here.
+                  </p>
+                </div>
+                <button onClick={() => handleSectionChange("sources")} type="button">
+                  {canEdit ? "Choose two traces" : "Browse workspace traces"}
+                  <ArrowRight size={15} aria-hidden />
+                </button>
+              </section>
+            )
           ) : null}
 
           {activeSection === "divergences" ? (
@@ -634,6 +673,8 @@ export function StudioDashboard() {
                   handleSectionChange("runs");
                   void handleSelectRun(reportId);
                 }}
+                onReviewComparisons={() => handleSectionChange("runs")}
+                onSearchReset={() => setSearchQuery("")}
                 runs={runs}
                 searchQuery={searchQuery}
               />
@@ -657,11 +698,16 @@ export function StudioDashboard() {
                   readOnly={!canEdit}
                   onRunCase={(item) => void handleRunCase(item)}
                   onSaveCase={() => void handleSaveCase()}
+                  onReviewComparisons={() => handleSectionChange("runs")}
                   report={report}
                 />
               ) : null}
               {activeSection === "setup" ? (
-                <SettingsPanel health={health} workspaceRole={workspaceRole} />
+                <SettingsPanel
+                  health={health}
+                  onSectionChange={handleSectionChange}
+                  workspaceRole={workspaceRole}
+                />
               ) : null}
               {activeSection === "sources" ? (
                 <>
@@ -679,11 +725,22 @@ export function StudioDashboard() {
                     />
                     <IntegrationPanel integrations={report?.integrations ?? []} />
                   </div>
-                  <TraceList traces={traces} searchQuery={searchQuery} />
+                  <TraceList
+                    onSearchReset={() => setSearchQuery("")}
+                    readOnly={!canEdit}
+                    searchQuery={searchQuery}
+                    traces={traces}
+                  />
                 </>
               ) : null}
               {activeSection === "sessions" ? (
-                <SessionsPanel traces={traces} searchQuery={searchQuery} />
+                <SessionsPanel
+                  onChooseTraces={() => handleSectionChange("sources")}
+                  onSearchReset={() => setSearchQuery("")}
+                  readOnly={!canEdit}
+                  searchQuery={searchQuery}
+                  traces={traces}
+                />
               ) : null}
             </div>
 

@@ -4,10 +4,12 @@ import {
   Braces,
   Check,
   Clipboard,
+  CircleAlert,
   KeyRound,
   LifeBuoy,
   LockKeyhole,
   Mail,
+  RefreshCw,
   ShieldCheck,
   UserPlus,
 } from "lucide-react";
@@ -51,6 +53,40 @@ export function WorkspaceConnecting() {
           <h1>Checking your workspace</h1>
           <p>Studio is confirming the API, storage mode, and access requirements.</p>
         </div>
+      </section>
+    </main>
+  );
+}
+
+export function WorkspaceConnectionError({
+  error,
+  onRetry,
+}: {
+  error: string | null;
+  onRetry: () => void;
+}) {
+  return (
+    <main className="unlock-page">
+      <section className="unlock-card unlock-connection-error" aria-labelledby="connection-error-title">
+        <Brand />
+        <div className="unlock-icon unlock-icon-error" aria-hidden>
+          <CircleAlert size={25} />
+        </div>
+        <div className="unlock-copy">
+          <p className="unlock-eyebrow">Connection problem</p>
+          <h1 id="connection-error-title">Studio could not open this workspace</h1>
+          <p>The service behind this workspace did not respond. Your data was not changed.</p>
+        </div>
+        <button className="unlock-continue-button" onClick={onRetry} type="button">
+          <RefreshCw size={16} aria-hidden />
+          Try again
+        </button>
+        {error ? (
+          <details className="unlock-technical-details">
+            <summary>Technical details</summary>
+            <code>{error}</code>
+          </details>
+        ) : null}
       </section>
     </main>
   );
@@ -205,8 +241,8 @@ export function WorkspaceUnlock({
   function showAccount() {
     setMode("account");
     setWorkspaces([]);
-      setRecoveryCodes([]);
-      setConfirmPassword("");
+    setRecoveryCodes([]);
+    setConfirmPassword("");
     setLocalError(null);
   }
 

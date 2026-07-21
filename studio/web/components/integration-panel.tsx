@@ -33,6 +33,15 @@ export function IntegrationPanel({ integrations }: IntegrationPanelProps) {
             </article>
           );
         })}
+        {integrations.length === 0 ? (
+          <div className="integration-empty" role="status">
+            <Cable size={18} aria-hidden />
+            <div>
+              <strong>No import summary yet.</strong>
+              <p>Choose or upload two traces. Studio will show which trace formats were recognized.</p>
+            </div>
+          </div>
+        ) : null}
       </div>
     </section>
   );

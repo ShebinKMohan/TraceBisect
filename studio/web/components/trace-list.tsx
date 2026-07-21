@@ -25,6 +25,8 @@ import {
 type TraceListProps = {
   traces: TraceSummary[];
   searchQuery: string;
+  readOnly: boolean;
+  onSearchReset: () => void;
 };
 
 type TraceStatusFilter = "all" | TraceSummary["status"];
@@ -74,7 +76,7 @@ function traceSearchText(trace: TraceSummary): string {
     .toLowerCase();
 }
 
-export function TraceList({ traces, searchQuery }: TraceListProps) {
+export function TraceList({ traces, searchQuery, readOnly, onSearchReset }: TraceListProps) {
   const [statusFilter, setStatusFilter] = useState<TraceStatusFilter>("all");
   const [sourceFilter, setSourceFilter] = useState("all");
   const [modelFilter, setModelFilter] = useState("all");
@@ -122,6 +124,9 @@ export function TraceList({ traces, searchQuery }: TraceListProps) {
   const totalTokens = traces.reduce((total, trace) => total + trace.total_tokens, 0);
   const totalCost = traces.reduce((total, trace) => total + trace.total_cost_usd, 0);
   const sourceCount = new Set(traces.map((trace) => trace.source_convention)).size;
+  const hasActiveFilters = Boolean(
+    searchQuery.trim() || statusFilter !== "all" || sourceFilter !== "all" || modelFilter !== "all",
+  );
   const matchingText =
     sorted.length === traces.length
       ? `${traces.length} total`
@@ -244,7 +249,7 @@ export function TraceList({ traces, searchQuery }: TraceListProps) {
             >
               <span className="trace-main-cell">
                 <strong>{friendlyTraceName(trace.display_name)}</strong>
-                <small>{trace.trace_id}</small>
+                <small>{trace.agent_name ? friendlyTraceName(trace.agent_name) : "Captured AI run"}</small>
               </span>
               <span>
                 <em className={`tier-pill tier-${trace.status === "error" ? "failing" : "passing"}`}>
@@ -263,19 +268,32 @@ export function TraceList({ traces, searchQuery }: TraceListProps) {
             </button>
           ))}
           {sorted.length === 0 ? (
-            <div className="run-empty" role="status">
-              <span>No traces match the current filters.</span>
-              <button
-                className="inline-action"
-                onClick={() => {
-                  setStatusFilter("all");
-                  setSourceFilter("all");
-                  setModelFilter("all");
-                }}
-                type="button"
-              >
-                Clear trace filters
-              </button>
+            <div className="table-empty-state" role="status">
+              <Database size={18} aria-hidden />
+              <div>
+                <strong>{traces.length === 0 ? "No traces in this workspace yet." : "No traces match your search or filters."}</strong>
+                <p>
+                  {traces.length === 0
+                    ? readOnly
+                      ? "An editor can upload the first trace. It will appear here automatically."
+                      : "Upload a known-good run and a new run with the controls above."
+                    : "Clear the search and filters to return to the full trace library."}
+                </p>
+              </div>
+              {hasActiveFilters ? (
+                <button
+                  className="inline-action"
+                  onClick={() => {
+                    setStatusFilter("all");
+                    setSourceFilter("all");
+                    setModelFilter("all");
+                    onSearchReset();
+                  }}
+                  type="button"
+                >
+                  Clear search and filters
+                </button>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -349,9 +367,13 @@ export function TraceList({ traces, searchQuery }: TraceListProps) {
           </>
         ) : (
           <div className="trace-detail-empty" role="status">
-            <Search size={18} aria-hidden />
-            <strong>No trace selected</strong>
-            <span>Adjust filters or search to find a captured trace.</span>
+            <Database size={18} aria-hidden />
+            <strong>{traces.length === 0 ? "Trace details will appear here." : "No trace selected."}</strong>
+            <span>
+              {traces.length === 0
+                ? "Add a trace above to see its model, timing, token, and source details."
+                : "Clear the current search or choose a trace from the table."}
+            </span>
           </div>
         )}
       </aside>

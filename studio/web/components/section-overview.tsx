@@ -1,9 +1,4 @@
-import type { Report, StudioSection } from "@/lib/types";
-
-type SectionOverviewProps = {
-  section: StudioSection;
-  report: Report | null;
-};
+import type { StudioSection } from "@/lib/types";
 
 const sectionCopy: Record<StudioSection, { title: string; description: string }> = {
   home: {
@@ -26,14 +21,14 @@ const sectionCopy: Record<StudioSection, { title: string; description: string }>
       "See related runs together when they came from the same conversation, thread, or scenario.",
   },
   divergences: {
-    title: "Review repeated issues",
+    title: "Review issue patterns",
     description:
-      "Find behavior changes that keep returning and decide which ones need a permanent guardrail.",
+      "See failing comparisons grouped by where they first changed, then open the latest example.",
   },
   cases: {
     title: "Protect fixed behavior",
     description:
-      "A guardrail is a saved regression check. Copy its generated pytest test into your repository to catch the bug in CI.",
+      "A guardrail is a saved automated check. Recheck it here, or copy its generated test into your project.",
   },
   setup: {
     title: "Workspace setup",
@@ -44,13 +39,4 @@ const sectionCopy: Record<StudioSection, { title: string; description: string }>
 
 export function sectionContent(section: StudioSection) {
   return sectionCopy[section];
-}
-
-export function SectionOverview({
-  section,
-  report: _report,
-}: SectionOverviewProps) {
-  if (section !== "setup") return null;
-
-  return null;
 }

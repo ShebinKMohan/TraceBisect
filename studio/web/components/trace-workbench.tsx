@@ -3,14 +3,11 @@ import {
   Braces,
   CheckCircle2,
   CircleAlert,
-  ChevronsUpDown,
   Database,
-  Filter,
   GitBranch,
   MousePointer2,
   Play,
   RadioTower,
-  SlidersHorizontal,
   Wrench,
 } from "lucide-react";
 import type { TraceEvent, TraceSummary } from "@/lib/types";
@@ -163,21 +160,6 @@ export function TraceWorkbench({
         </div>
         <span>{friendlySourceConvention(trace?.source_convention)}</span>
       </div>
-      <div className="trace-tree-controls" aria-label="Trace view controls">
-        <button type="button">
-          <Filter size={13} aria-hidden />
-          Collapse
-        </button>
-        <button type="button">
-          <SlidersHorizontal size={13} aria-hidden />
-          Stats
-        </button>
-        <button type="button">
-          <ChevronsUpDown size={13} aria-hidden />
-          Show all
-        </button>
-      </div>
-
       <ol className="trace-tree-list">
         {events.map((event) => {
           const Icon = iconFor(event.type);

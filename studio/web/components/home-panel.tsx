@@ -17,7 +17,7 @@ const glossary = [
   ["Baseline", "The known-good run you expect the agent to match."],
   ["Candidate", "The new run you want to check for changes."],
   ["First change", "The earliest meaningful point where the two runs differ."],
-  ["Guardrail", "A saved pytest check that helps stop the same bug returning."],
+  ["Guardrail", "A saved automated check that helps stop the same problem returning."],
 ];
 
 export function HomePanel({ authRequired, canEdit, cases, report, runtime, traces, onSectionChange }: HomePanelProps) {
@@ -46,11 +46,11 @@ export function HomePanel({ authRequired, canEdit, cases, report, runtime, trace
               <ArrowRight size={16} aria-hidden />
             </button>
             <button className="home-secondary-action" onClick={() => onSectionChange("runs")} type="button">
-              Review the demo
+              {report ? "Review latest comparison" : "Browse comparisons"}
             </button>
           </div>
         </div>
-        <div className="home-demo-summary" aria-label="Loaded demo summary">
+        <div className="home-demo-summary" aria-label="Latest comparison summary">
           <span className="home-demo-icon"><GitCompare size={19} aria-hidden /></span>
           <div>
             <small>{report ? "Comparison ready" : canEdit ? "Preparing demo" : "Read-only workspace"}</small>
@@ -63,7 +63,9 @@ export function HomePanel({ authRequired, canEdit, cases, report, runtime, trace
                   : "An editor can add the first comparison; viewer access never creates demo data."}
             </p>
           </div>
-          <button onClick={() => onSectionChange("runs")} type="button">Open result</button>
+          <button onClick={() => onSectionChange(report ? "runs" : "sources")} type="button">
+            {report ? "Open result" : canEdit ? "Choose traces" : "Browse traces"}
+          </button>
         </div>
       </section>
 
@@ -95,8 +97,8 @@ export function HomePanel({ authRequired, canEdit, cases, report, runtime, trace
             <span>3</span>
             <div>
               <ShieldCheck size={18} aria-hidden />
-              <h3>Save the fix</h3>
-              <p>Turn the important behavior into a pytest guardrail for your CI pipeline.</p>
+              <h3>Prevent the same problem</h3>
+              <p>Save the behavior you fixed as an automated check before the next release.</p>
               <button onClick={() => onSectionChange("cases")} type="button">View guardrails <ArrowRight size={14} aria-hidden /></button>
             </div>
           </li>
@@ -124,9 +126,9 @@ export function HomePanel({ authRequired, canEdit, cases, report, runtime, trace
             <p>Everything here is honest about what is running now.</p>
           </div>
           <ul>
-            <li><CheckCircle2 size={16} aria-hidden /> {traces.length} demo or uploaded traces ready</li>
+            <li><CheckCircle2 size={16} aria-hidden /> {traces.length} traces ready to compare</li>
             <li><CheckCircle2 size={16} aria-hidden /> {cases.length} saved guardrails {runtime ? (durable ? "in this workspace" : "in this session") : "ready"}</li>
-            <li><CheckCircle2 size={16} aria-hidden /> Files are parsed by the local Studio API</li>
+            <li><CheckCircle2 size={16} aria-hidden /> Files are parsed by this Studio workspace</li>
           </ul>
           <div className="local-boundary-note">
             <Braces size={17} aria-hidden />
@@ -139,7 +141,7 @@ export function HomePanel({ authRequired, canEdit, cases, report, runtime, trace
                     ? "Managed core storage:"
                   : durable
                       ? "Durable local mode:"
-                      : "Local MVP:"
+                      : "Temporary local mode:"
                   : "Checking storage mode:"}
               </strong>{" "}
               {runtime
@@ -153,7 +155,7 @@ export function HomePanel({ authRequired, canEdit, cases, report, runtime, trace
                 : "the API will report whether this workspace survives a restart."}
             </p>
           </div>
-          <button onClick={() => onSectionChange("setup")} type="button">Open the setup guide</button>
+          <button onClick={() => onSectionChange("setup")} type="button">Open workspace setup</button>
         </article>
       </section>
     </div>

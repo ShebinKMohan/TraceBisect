@@ -1,4 +1,4 @@
-import { CalendarDays, CheckCircle2, ChevronDown, ChevronRight, Clock3, MessagesSquare, TriangleAlert } from "lucide-react";
+import { CalendarDays, CheckCircle2, ChevronDown, ChevronRight, MessagesSquare, TriangleAlert, UploadCloud } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { TraceSummary } from "@/lib/types";
 import {
@@ -11,6 +11,9 @@ import {
 type SessionsPanelProps = {
   traces: TraceSummary[];
   searchQuery: string;
+  readOnly: boolean;
+  onChooseTraces: () => void;
+  onSearchReset: () => void;
 };
 
 type SessionGroup = {
@@ -66,7 +69,7 @@ function buildSessionGroups(traces: TraceSummary[]): SessionGroup[] {
     .sort((left, right) => Date.parse(right.latestCreatedAt) - Date.parse(left.latestCreatedAt));
 }
 
-export function SessionsPanel({ traces, searchQuery }: SessionsPanelProps) {
+export function SessionsPanel({ traces, searchQuery, readOnly, onChooseTraces, onSearchReset }: SessionsPanelProps) {
   const [statusFilter, setStatusFilter] = useState<SessionStatusFilter>("all");
   const [sortKey, setSortKey] = useState<SessionSortKey>("recent");
   const groups = useMemo(() => buildSessionGroups(traces), [traces]);
@@ -96,8 +99,8 @@ export function SessionsPanel({ traces, searchQuery }: SessionsPanelProps) {
   const traceCount = traces.length;
   const successCount = traces.filter((trace) => trace.status !== "error").length;
   const successRate = traceCount > 0 ? (successCount / traceCount) * 100 : 0;
-  const totalTokens = traces.reduce((total, trace) => total + trace.total_tokens, 0);
   const totalDuration = traces.reduce((total, trace) => total + trace.duration_ms, 0);
+  const hasActiveFilters = Boolean(searchQuery.trim() || statusFilter !== "all");
 
   useEffect(() => {
     setExpandedIds((current) => {
@@ -126,8 +129,8 @@ export function SessionsPanel({ traces, searchQuery }: SessionsPanelProps) {
     <section className="panel session-panel" data-testid="sessions-table">
       <div className="section-heading session-page-heading">
         <div>
-          <p>Session groups</p>
-          <h2>Grouped traces by scenario, session, or thread ID.</h2>
+          <p>Related runs</p>
+          <h2>Runs that belong to the same conversation or task.</h2>
         </div>
         <div className="session-actions">
           <span className="filter-chip filter-chip-static">
@@ -190,7 +193,7 @@ export function SessionsPanel({ traces, searchQuery }: SessionsPanelProps) {
 
       <div className="trace-table session-table" role="table" aria-label="Trace sessions">
         <div className="session-table-head" role="row">
-          <span>Scenario / Session ID</span>
+          <span>Conversation / task</span>
           <span>Traces</span>
           <span>Success rate</span>
           <span>Models / sources</span>
@@ -216,7 +219,7 @@ export function SessionsPanel({ traces, searchQuery }: SessionsPanelProps) {
                   <MessagesSquare size={14} aria-hidden />
                   <span>
                     <strong>{group.label}</strong>
-                    <small>{group.id}</small>
+                    <small>{group.traces.length} related run{group.traces.length === 1 ? "" : "s"}</small>
                   </span>
                 </span>
                 <span>{group.traces.length.toLocaleString()}</span>
@@ -272,15 +275,32 @@ export function SessionsPanel({ traces, searchQuery }: SessionsPanelProps) {
           );
         })}
         {filtered.length === 0 ? (
-          <div className="run-empty" role="status">
-            <span>No sessions match the current search.</span>
-            <button
-              className="inline-action"
-              onClick={() => setStatusFilter("all")}
-              type="button"
-            >
-              Clear session filters
-            </button>
+          <div className="table-empty-state" role="status">
+            {traces.length === 0 ? <UploadCloud size={18} aria-hidden /> : <MessagesSquare size={18} aria-hidden />}
+            <div>
+              <strong>{traces.length === 0 ? "No sessions yet." : "No sessions match your search or filters."}</strong>
+              <p>
+                {traces.length === 0
+                  ? "Sessions appear automatically when related traces share a conversation, thread, or scenario."
+                  : "Clear the search and filters to return to all saved sessions."}
+              </p>
+            </div>
+            {traces.length === 0 ? (
+              <button className="inline-action" onClick={onChooseTraces} type="button">
+                {readOnly ? "Browse traces" : "Choose traces"}
+              </button>
+            ) : hasActiveFilters ? (
+              <button
+                className="inline-action"
+                onClick={() => {
+                  setStatusFilter("all");
+                  onSearchReset();
+                }}
+                type="button"
+              >
+                Clear search and filters
+              </button>
+            ) : null}
           </div>
         ) : null}
       </div>

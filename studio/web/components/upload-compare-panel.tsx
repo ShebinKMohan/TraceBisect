@@ -25,7 +25,19 @@ export function UploadComparePanel({
   onUpload,
   onCompare,
 }: UploadComparePanelProps) {
-  const disabled = readOnly || busy || !baselineId || !candidateId;
+  const sameTraceSelected = Boolean(baselineId && candidateId && baselineId === candidateId);
+  const disabled = readOnly || busy || !baselineId || !candidateId || sameTraceSelected;
+  const selectionHelp = readOnly
+    ? "Viewer access can browse traces but cannot start a comparison."
+    : !baselineId && !candidateId
+      ? "Choose a known-good run and a new run to continue."
+      : !baselineId
+        ? "Choose the known-good run to continue."
+        : !candidateId
+          ? "Choose the new run you want to check."
+          : sameTraceSelected
+            ? "Choose two different runs so TraceBisect can find what changed."
+            : "Both runs are ready to compare.";
   return (
     <section className="panel upload-panel">
       <div className="section-heading compact">
@@ -45,7 +57,7 @@ export function UploadComparePanel({
       <div className="upload-grid">
         <TraceUpload
           id="baseline-upload"
-          disabled={readOnly}
+          disabled={readOnly || busy}
           description="Choose the run whose behavior you trust. This is what TraceBisect treats as expected."
           label="Known-good run"
           selectedId={baselineId}
@@ -55,7 +67,7 @@ export function UploadComparePanel({
         />
         <TraceUpload
           id="candidate-upload"
-          disabled={readOnly}
+          disabled={readOnly || busy}
           description="Choose the newer run you want to check for behavior changes."
           label="New run to check"
           selectedId={candidateId}
@@ -66,15 +78,19 @@ export function UploadComparePanel({
       </div>
 
       <button
+        aria-describedby="comparison-selection-help"
         className="primary-action"
         type="button"
         data-testid="compare-button"
         disabled={disabled}
         onClick={onCompare}
-        title={readOnly ? "Editor access is required" : "Compare the selected traces"}
+        title={selectionHelp}
       >
         {readOnly ? "Editor access required" : busy ? "Comparing..." : "Find first behavior change"}
       </button>
+      <p className={disabled ? "comparison-selection-help" : "comparison-selection-help comparison-selection-ready"} id="comparison-selection-help" role="status">
+        {selectionHelp}
+      </p>
     </section>
   );
 }
@@ -123,7 +139,10 @@ function TraceUpload({ id, disabled, description, label, selectedId, traces, onS
         disabled={disabled}
         onChange={(event) => {
           const file = event.currentTarget.files?.[0];
-          if (file) onUpload(file);
+          if (file) {
+            onUpload(file);
+            event.currentTarget.value = "";
+          }
         }}
       />
       <small><code>.tbtrace</code> or OTel/OpenInference JSON · 5 MB maximum</small>

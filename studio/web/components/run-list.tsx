@@ -1,5 +1,5 @@
 import { CheckCircle2, CircleAlert, GitCompare, Search } from "lucide-react";
-import type { Divergence, Report, RunSummary, RunStatus } from "@/lib/types";
+import type { Report, RunSummary, RunStatus } from "@/lib/types";
 import {
   friendlyDivergenceType,
   friendlySeverity,
@@ -15,7 +15,6 @@ type RunFilterSeverity = "all" | "INFO" | "LOW" | "MEDIUM" | "HIGH" | "CRITICAL"
 type RunListProps = {
   report: Report | null;
   runs: RunSummary[];
-  first: Divergence | null;
   searchQuery: string;
   statusFilter: RunFilterStatus;
   severityFilter: RunFilterSeverity;
@@ -164,7 +163,6 @@ export function RunList({
               type="button"
             >
               <span className="run-meta-line">
-                <code>{run.report_id.slice(0, 10)}</code>
                 <small>{formatRunDate(run.created_at)}</small>
               </span>
               <span className="run-content">

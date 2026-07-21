@@ -1,8 +1,8 @@
 "use client";
 
-import { Activity, Check, Clipboard, FileJson2, PlayCircle, ShieldCheck, TerminalSquare, UploadCloud } from "lucide-react";
+import { Activity, ArrowRight, Check, ChevronDown, Clipboard, FileJson2, PlayCircle, ShieldCheck, TerminalSquare, UploadCloud } from "lucide-react";
 import { useState } from "react";
-import type { StudioHealth, WorkspaceRole } from "@/lib/types";
+import type { StudioHealth, StudioSection, WorkspaceRole } from "@/lib/types";
 import { AccessManagementPanel } from "@/components/access-management-panel";
 import { TeamManagementPanel } from "@/components/team-management-panel";
 
@@ -43,86 +43,139 @@ function CopyCommand({ command, label }: { command: string; label: string }) {
   );
 }
 
-export function SettingsPanel({ health, workspaceRole }: { health: StudioHealth | null; workspaceRole: WorkspaceRole | null }) {
+export function SettingsPanel({
+  health,
+  workspaceRole,
+  onSectionChange,
+}: {
+  health: StudioHealth | null;
+  workspaceRole: WorkspaceRole | null;
+  onSectionChange: (section: StudioSection) => void;
+}) {
   const durable = health?.runtime.durable ?? false;
   const postgres = health?.runtime.kind === "postgres";
   const authRequired = health?.auth.required ?? false;
   const credentialSource = health?.auth.credential_source ?? "none";
-  const browserSessions = health?.auth.browser_sessions ?? false;
   const humanAccounts = health?.auth.human_accounts ?? false;
   const emailDelivery = health?.email.enabled ?? false;
   const emailWebhooks = health?.email.webhooks ?? false;
   const metricsAccess = health?.metrics.access ?? null;
+  const workspaceStatusTitle = !health
+    ? "Checking workspace storage"
+    : !durable
+      ? "Local workspace with temporary storage"
+      : postgres
+        ? "This workspace saves and shares your work"
+        : "This workspace saves your work";
+  const workspaceStatusDescription = !health
+    ? "TraceBisect is confirming how this workspace stores data."
+    : !durable
+      ? "No sign-in is required, but traces, comparisons, and guardrails reset when the Studio service stops."
+      : postgres
+        ? humanAccounts
+          ? `Work in ${health.runtime.workspace_id} stays available after restarts. Account sign-in and team access are enabled.`
+          : `Work in ${health.runtime.workspace_id} stays available after restarts and can be shared by multiple Studio services. Account sign-in is not enabled.`
+        : authRequired
+          ? `Your ${workspaceRole ?? "workspace"} access opens ${health.runtime.workspace_id}. Its traces, comparisons, and guardrails stay available after restarts.`
+          : `Traces, comparisons, and guardrails in ${health.runtime.workspace_id} stay available after restarts.`;
   return (
     <section className="setup-guide" data-testid="setup-section">
       <div className="setup-mode-banner">
         <span className="local-status-dot" aria-hidden />
         <div>
-          <strong>
-            {health
-              ? durable
-                ? postgres
-                  ? "Running with managed PostgreSQL workspace storage"
-                  : authRequired
-                  ? "Running with protected durable storage"
-                  : "Running with durable workspace storage"
-                : "Running as a local workspace"
-              : "Checking workspace storage"}
-          </strong>
-          <p>
-            {health
-              ? durable
-                ? postgres
-                  ? humanAccounts
-                    ? `Traces, comparisons, guardrails, managed keys, human accounts, and team access for ${health.runtime.workspace_id} can be shared by multiple API instances. Invitation links are manual until the PostgreSQL email outbox is available.`
-                    : `Traces, comparisons, guardrails, managed keys, and browser sessions for ${health.runtime.workspace_id} can be shared by multiple API instances. An operator can enable human accounts with the identity secret.`
-                  : authRequired
-                  ? browserSessions
-                    ? `Your short-lived browser session grants ${workspaceRole ?? "workspace"} access to ${health.runtime.workspace_id}. Its traces, comparisons, and guardrails are saved across API restarts.`
-                    : `Your ${workspaceRole ?? "workspace"} key grants access to ${health.runtime.workspace_id}. Its traces, comparisons, and guardrails are saved across API restarts.`
-                  : `Traces, comparisons, and guardrails for ${health.runtime.workspace_id} are saved across API restarts.`
-                : "No account or API key is required. Uploaded data is held in memory and resets with the API process."
-              : "Waiting for the API to confirm whether this workspace is temporary or durable."}
-          </p>
+          <strong>{workspaceStatusTitle}</strong>
+          <p>{workspaceStatusDescription}</p>
         </div>
       </div>
 
       <div className="setup-heading">
-        <h2>Choose the easiest way to start</h2>
-        <p>Use the demo first. Connect your own application only when the comparison workflow feels familiar.</p>
+        <h2>Start here — no terminal required</h2>
+        <p>Use the Studio screens first. Open the advanced section only when you are ready to connect an application or manage the workspace.</p>
       </div>
 
-      <div className="setup-paths">
+      <div className="setup-paths setup-paths-beginner">
         <article>
           <span className="setup-path-number">1</span>
           <PlayCircle size={21} aria-hidden />
           <div>
-            <h3>Try the built-in demo</h3>
-            <p>Creates two refund-agent runs and shows a changed tool argument. No files or configuration needed.</p>
+            <h3>Review a ready-made comparison</h3>
+            <p>See how TraceBisect explains a changed tool argument before adding your own data.</p>
           </div>
-          <CopyCommand command={demoCommand} label="demo command" />
+          <button className="setup-path-action" onClick={() => onSectionChange("runs")} type="button">
+            Open comparisons <ArrowRight size={14} aria-hidden />
+          </button>
         </article>
 
         <article>
           <span className="setup-path-number">2</span>
           <UploadCloud size={21} aria-hidden />
           <div>
-            <h3>Upload exported traces</h3>
-            <p>Open Choose traces for the simplest path, or send a <code>.tbtrace</code> or OTel/OpenInference JSON file to the local API.</p>
+            <h3>Compare your own runs</h3>
+            <p>Choose the run that worked, then the newer run you want to check.</p>
           </div>
-          <CopyCommand command={uploadCommand} label="upload command" />
+          <button className="setup-path-action" onClick={() => onSectionChange("sources")} type="button">
+            Choose traces <ArrowRight size={14} aria-hidden />
+          </button>
         </article>
 
         <article>
           <span className="setup-path-number">3</span>
-          <TerminalSquare size={21} aria-hidden />
+          <ShieldCheck size={21} aria-hidden />
           <div>
-            <h3>Record a Python scenario</h3>
-            <p>TraceBisect gives your command an output path. Your scenario writes one canonical trace to that path.</p>
+            <h3>Keep the behavior you fixed</h3>
+            <p>Save the comparison as a guardrail so the same problem is easier to catch next time.</p>
           </div>
-          <CopyCommand command={recordCommand} label="record command" />
+          <button className="setup-path-action" onClick={() => onSectionChange("cases")} type="button">
+            Open guardrails <ArrowRight size={14} aria-hidden />
+          </button>
         </article>
       </div>
+
+      <details className="setup-advanced">
+        <summary>
+          <span>
+            <strong>Advanced setup and workspace administration</strong>
+            <small>Application integration, file formats, storage, access, team members, and monitoring</small>
+          </span>
+          <ChevronDown size={18} aria-hidden />
+        </summary>
+        <div className="setup-advanced-body">
+          <div className="setup-heading">
+            <h2>Connect TraceBisect to your application</h2>
+            <p>These commands are for developers or workspace operators. They are not required to understand the comparison workflow.</p>
+          </div>
+
+          <div className="setup-paths setup-paths-advanced">
+            <article>
+              <span className="setup-path-number">1</span>
+              <PlayCircle size={21} aria-hidden />
+              <div>
+                <h3>Run the example from a terminal</h3>
+                <p>Creates two refund-agent runs and a ready-to-review behavior change.</p>
+              </div>
+              <CopyCommand command={demoCommand} label="demo command" />
+            </article>
+
+            <article>
+              <span className="setup-path-number">2</span>
+              <UploadCloud size={21} aria-hidden />
+              <div>
+                <h3>Upload through the Studio API</h3>
+                <p>Send a <code>.tbtrace</code> or OTel/OpenInference JSON file directly to the service.</p>
+              </div>
+              <CopyCommand command={uploadCommand} label="upload command" />
+            </article>
+
+            <article>
+              <span className="setup-path-number">3</span>
+              <TerminalSquare size={21} aria-hidden />
+              <div>
+                <h3>Record a Python scenario</h3>
+                <p>TraceBisect gives your command an output path. Your scenario writes one canonical trace to that path.</p>
+              </div>
+              <CopyCommand command={recordCommand} label="record command" />
+            </article>
+          </div>
 
       <div className="setup-facts">
         <article>
@@ -217,6 +270,8 @@ export function SettingsPanel({ health, workspaceRole }: { health: StudioHealth 
             : "Authentication, request-scoped workspace access, hosted ingestion, team access, billing, and API keys are future production milestones—not active features in this build."}
         </p>
       </div>
+        </div>
+      </details>
     </section>
   );
 }

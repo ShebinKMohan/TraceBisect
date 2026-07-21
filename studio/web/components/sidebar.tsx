@@ -25,7 +25,7 @@ const navItems = [
   { id: "runs", label: "Review changes", icon: GitCompare },
   { id: "cases", label: "Guardrails", icon: ShieldCheck },
   { id: "sessions", label: "Sessions", icon: MessagesSquare },
-  { id: "divergences", label: "Repeated issues", icon: CircleAlert },
+  { id: "divergences", label: "Issue patterns", icon: CircleAlert },
   { id: "setup", label: "Workspace setup", icon: BookOpen },
 ] satisfies { id: StudioSection; label: string; icon: LucideIcon }[];
 

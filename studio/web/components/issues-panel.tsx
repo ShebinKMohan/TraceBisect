@@ -12,6 +12,8 @@ type IssuesPanelProps = {
   runs: RunSummary[];
   searchQuery: string;
   onOpenComparison: (reportId: string) => void;
+  onReviewComparisons: () => void;
+  onSearchReset: () => void;
 };
 
 type IssueGroup = {
@@ -86,7 +88,13 @@ function buildIssueGroups(runs: RunSummary[]): IssueGroup[] {
   );
 }
 
-export function IssuesPanel({ runs, searchQuery, onOpenComparison }: IssuesPanelProps) {
+export function IssuesPanel({
+  runs,
+  searchQuery,
+  onOpenComparison,
+  onReviewComparisons,
+  onSearchReset,
+}: IssuesPanelProps) {
   const [severityFilter, setSeverityFilter] = useState<IssueSeverityFilter>("all");
   const [sortKey, setSortKey] = useState<IssueSortKey>("severity");
   const issues = useMemo(() => buildIssueGroups(runs), [runs]);
@@ -110,13 +118,14 @@ export function IssuesPanel({ runs, searchQuery, onOpenComparison }: IssuesPanel
   const totalChanges = issues.reduce((total, issue) => total + issue.changeCount, 0);
   const failingComparisons = runs.filter((run) => run.status === "failing").length;
   const highestSeverity = issues[0]?.severity ?? "INFO";
+  const hasActiveFilters = Boolean(query || severityFilter !== "all");
 
   return (
     <section className="panel issues-panel" data-testid="issues-table">
       <div className="section-heading issues-page-heading">
         <div>
-          <p>Issue clusters</p>
-          <h2>Repeated failures grouped by first behavior change.</h2>
+          <p>Grouped failures</p>
+          <h2>Failures grouped by where their behavior first changed.</h2>
         </div>
         <div className="session-actions">
           <span className="filter-chip filter-chip-static">
@@ -128,7 +137,7 @@ export function IssuesPanel({ runs, searchQuery, onOpenComparison }: IssuesPanel
 
       <div className="issue-summary-strip" aria-label="Issue summary">
         <article>
-          <span>Open issues</span>
+          <span>Issue types</span>
           <strong>{issues.length}</strong>
         </article>
         <article>
@@ -196,12 +205,12 @@ export function IssuesPanel({ runs, searchQuery, onOpenComparison }: IssuesPanel
                 <span>{friendlySeverity(issue.severity)}</span>
               </div>
               <p>
-                Repeated first-change cluster across {issue.comparisonCount} comparison
-                {issue.comparisonCount === 1 ? "" : "s"}. Latest occurrence was{" "}
+                Seen in {issue.comparisonCount} comparison
+                {issue.comparisonCount === 1 ? "" : "s"}. The most recent occurrence was{" "}
                 {formatShortDate(issue.latestCreatedAt)}.
               </p>
               <small>
-                Scenarios: {issue.scenarios.join(", ")} · cluster_id: {issue.key.slice(0, 8)}
+                Seen in: {issue.scenarios.join(", ")}
               </small>
             </div>
             <div className="issue-card-metric">
@@ -215,15 +224,28 @@ export function IssuesPanel({ runs, searchQuery, onOpenComparison }: IssuesPanel
           <div className="case-empty" role="status">
             <CheckCircle2 size={18} aria-hidden />
             <div>
-              <strong>No open regression issues.</strong>
-              <p>Issues appear when repeated comparison failures share the same first behavior change.</p>
-              <button
-                className="inline-action"
-                onClick={() => setSeverityFilter("all")}
-                type="button"
-              >
-                Clear issue filters
-              </button>
+              <strong>{issues.length === 0 ? "No issue patterns yet." : "No issues match your search or filters."}</strong>
+              <p>
+                {issues.length === 0
+                  ? "Issue patterns appear after a comparison fails and are grouped with similar first behavior changes."
+                  : "Clear the search and filters to return to all issue patterns."}
+              </p>
+              {issues.length === 0 ? (
+                <button className="inline-action" onClick={onReviewComparisons} type="button">
+                  Review comparisons
+                </button>
+              ) : hasActiveFilters ? (
+                <button
+                  className="inline-action"
+                  onClick={() => {
+                    setSeverityFilter("all");
+                    onSearchReset();
+                  }}
+                  type="button"
+                >
+                  Clear search and filters
+                </button>
+              ) : null}
             </div>
           </div>
         ) : null}

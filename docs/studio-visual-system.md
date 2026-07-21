@@ -75,12 +75,12 @@ TraceBisect Studio should present the user's workflow, not internal schema names
 - Primary workflow: choose a known-good baseline, compare a new run, inspect the first behavior change, save a guardrail test.
 - Default page: `Home`, with the three-step workflow and plain-English glossary.
 - Top-level navigation follows the task order: `Home`, `Choose traces`, `Review
-  changes`, `Guardrails`, `Sessions`, `Repeated issues`, `Workspace setup`.
-- Selecting a repeated issue opens its latest matching comparison in `Review
+  changes`, `Guardrails`, `Sessions`, `Issue patterns`, `Workspace setup`.
+- Selecting an issue pattern opens its latest matching comparison in `Review
   changes`; the issue list does not expose a separate hidden detail state.
 - Avoid raw labels in primary UI: `.tbtrace` filenames, `changed_tool_args`, `RUN_START`, `TOOL_CALL`, raw trace IDs, source event IDs, parent IDs, and JSON payloads.
 - Keep raw filenames, IDs, and payload JSON in detail or raw-payload surfaces only.
-- Use human labels such as `Tool arguments changed`, `Model call`, `Run completed`, `Regression found`, and `Generated pytest guardrail`.
+- Use human labels such as `Tool arguments changed`, `Model call`, `Run completed`, `Regression found`, and `Automated guardrail test`.
 
 ## Type Scale
 
@@ -104,6 +104,14 @@ Avoid hero-sized text inside the product app. TraceBisect Studio is an engineer-
 - Secondary content: trace tree and event inspector for comparison/review pages.
 - Upload/import content belongs under `Choose traces`; pytest export and
   guardrail copy belong under `Review changes` or `Guardrails`.
+- Empty workspaces and empty filtered results are different states. Explain what
+  creates the first item; only show a clear-filters action when filters are active,
+  and clear the top search at the same time.
+- Keep terminal commands, storage internals, access keys, and monitoring inside
+  the labelled advanced disclosure on `Workspace setup`. The default view must
+  let a new user continue without a terminal.
+- Every visible control must change state, navigate, submit, copy, or disclose
+  content. Remove controls whose behavior is not implemented.
 - Do not place a generic overview card above a section that already has a purpose-built panel. One section should have one main layout, with side panels only when they directly support the task.
 - Border radius: `6px-8px` for controls and panels, `12px-14px` only for the outer app shell.
 - Avoid blur-heavy glass, decorative gradients, large shadows, and chart-first dashboard layouts.

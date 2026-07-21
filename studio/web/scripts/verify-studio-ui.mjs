@@ -310,7 +310,7 @@ async function main() {
   await expectText(page, ".sidebar", "Choose traces", "desktop sidebar labels");
   await expectText(page, ".sidebar", "Review changes", "desktop sidebar labels");
   await expectText(page, ".sidebar", "Sessions", "desktop sidebar labels");
-  await expectText(page, ".sidebar", "Repeated issues", "desktop sidebar labels");
+  await expectText(page, ".sidebar", "Issue patterns", "desktop sidebar labels");
   await expectText(page, ".sidebar", "Guardrails", "desktop sidebar labels");
   await expectText(page, ".sidebar", "Workspace setup", "desktop sidebar labels");
   await page.getByTestId("sidebar-section-runs").click();
@@ -351,6 +351,12 @@ async function main() {
     (await page.getByRole("button", { name: "Filter comparisons" }).count()) === 0,
     "Comparison history exposed an inert filter button",
   );
+  for (const inertTraceControl of ["Collapse", "Stats", "Show all"]) {
+    assert(
+      (await page.getByRole("button", { exact: true, name: inertTraceControl }).count()) === 0,
+      `Trace workbench exposed an inert ${inertTraceControl} button`,
+    );
+  }
   await assertWorkbenchLayout(page, "comparison-workbench", "comparison history workbench");
   await page.locator(".search-control input").fill("does-not-exist");
   await expectText(page, '[data-testid="runs-table"]', "No comparison runs match", "empty run filter");
@@ -384,7 +390,17 @@ async function main() {
   await expectText(page, ".upload-panel", "Upload a new trace file", "new trace upload choice");
   await expectText(page, ".upload-panel", "New run to check", "candidate upload label");
   await expectText(page, ".upload-panel", "Find first behavior change", "compare action label");
+  const baselineChoice = await page.locator("#baseline-upload-select").inputValue();
+  const candidateChoice = await page.locator("#candidate-upload-select").inputValue();
+  await page.locator("#candidate-upload-select").selectOption(baselineChoice);
+  assert(await page.getByTestId("compare-button").isDisabled(), "Comparing the same trace was not prevented");
+  await expectText(page, ".comparison-selection-help", "Choose two different runs", "same-trace guidance");
+  await page.locator("#candidate-upload-select").selectOption(candidateChoice);
   await expectText(page, '[data-testid="integration-otel"]', "OpenTelemetry", "OTel integration card");
+  await page.getByTestId("section-search").fill("does-not-exist");
+  await expectText(page, '[data-testid="trace-table"]', "No traces match your search or filters", "trace empty filter");
+  await page.getByRole("button", { name: "Clear search and filters" }).click();
+  assert((await page.getByTestId("section-search").inputValue()) === "", "Trace filter reset left the top search active");
   await assertNoHorizontalOverflow(page, "sources section");
   await page.getByTestId("sidebar-section-sessions").click();
   await expectText(page, '[data-testid="studio-title"]', "Browse sessions", "sessions title");
@@ -404,15 +420,23 @@ async function main() {
   );
   await page.locator(".session-row").first().click();
   await expectText(page, '[data-testid="sessions-table"]', "Trace ID", "sessions row re-expanded");
+  await page.getByTestId("section-search").fill("does-not-exist");
+  await expectText(page, '[data-testid="sessions-table"]', "No sessions match your search or filters", "session empty filter");
+  await page.getByRole("button", { name: "Clear search and filters" }).click();
+  assert((await page.getByTestId("section-search").inputValue()) === "", "Session filter reset left the top search active");
   await assertNoHorizontalOverflow(page, "sessions section");
   await page.getByTestId("sidebar-section-divergences").click();
-  await expectText(page, '[data-testid="studio-title"]', "Review repeated issues", "issues title");
+  await expectText(page, '[data-testid="studio-title"]', "Review issue patterns", "issues title");
   await expectText(page, '[data-testid="issues-table"]', "Tool arguments changed", "issues table");
-  await expectText(page, '[data-testid="issues-table"]', "Open issues", "issues summary");
+  await expectText(page, '[data-testid="issues-table"]', "Issue types", "issues summary");
   await expectText(page, '[data-testid="issues-table"]', "Failing comparisons", "issues failing comparisons");
   await expectText(page, '[data-testid="issues-table"]', "Behavior changes", "issues behavior changes");
   await expectText(page, '[data-testid="issues-table"]', "Comparisons", "issues metric");
   await expectNotText(page, '[data-testid="issues-table"]', "$142.50", "invented issue cost");
+  await page.getByTestId("section-search").fill("does-not-exist");
+  await expectText(page, '[data-testid="issues-table"]', "No issues match your search or filters", "issue empty filter");
+  await page.getByRole("button", { name: "Clear search and filters" }).click();
+  assert((await page.getByTestId("section-search").inputValue()) === "", "Issue filter reset left the top search active");
   await page.getByTestId("issue-sort").selectOption("frequency");
   await expectText(page, '[data-testid="issues-table"]', "Comparisons", "issues sorted by frequency");
   await page.getByRole("button", { exact: true, name: "Critical" }).click();
@@ -431,7 +455,7 @@ async function main() {
   if (guardrailItems > 0) {
     await expectText(page, '[data-testid="guardrail-detail-panel"]', "Selected guardrail", "guardrail selected detail");
     await expectText(page, '[data-testid="guardrail-detail-panel"]', "Saved versions", "guardrail saved version count");
-    await expectText(page, '[data-testid="guardrail-detail-panel"]', "Pytest integration", "guardrail pytest integration");
+    await expectText(page, '[data-testid="guardrail-detail-panel"]', "Automated test", "guardrail test integration");
     await expectText(page, '[data-testid="guardrail-detail-panel"]', "Latest saved result", "guardrail failure detail");
     await page.getByTestId("guardrail-sort").selectOption("severity");
     await expectText(page, '[data-testid="regression-case-library"]', "Highest risk", "guardrail sort control");
@@ -441,8 +465,11 @@ async function main() {
   await assertNoHorizontalOverflow(page, "cases section");
   await page.getByTestId("sidebar-settings-link").click();
   await expectText(page, '[data-testid="studio-title"]', "Workspace setup", "setup title");
-  await expectText(page, '[data-testid="setup-section"]', "Running as a local workspace", "truthful setup mode");
-  await expectText(page, '[data-testid="setup-section"]', "Choose the easiest way to start", "setup paths");
+  await expectText(page, '[data-testid="setup-section"]', "Local workspace with temporary storage", "truthful setup mode");
+  await expectText(page, '[data-testid="setup-section"]', "Start here — no terminal required", "setup paths");
+  await expectText(page, '[data-testid="setup-section"]', "Advanced setup and workspace administration", "advanced setup disclosure");
+  await page.locator(".setup-advanced > summary").click();
+  await expectText(page, '[data-testid="setup-section"]', "Connect TraceBisect to your application", "advanced setup content");
   await expectText(page, '[data-testid="setup-section"]', "What is not enabled yet", "setup boundary");
   await expectNotText(page, '[data-testid="setup-section"]', "tb_live_", "fake API keys");
   await assertNoHorizontalOverflow(page, "setup section");

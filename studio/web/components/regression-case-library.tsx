@@ -27,6 +27,7 @@ type RegressionCaseLibraryProps = {
   readOnly: boolean;
   onRunCase: (item: RegressionCase) => void;
   onSaveCase: () => void;
+  onReviewComparisons: () => void;
 };
 
 type CaseFilter = "all" | "failing" | "passing" | "unknown";
@@ -129,6 +130,7 @@ export function RegressionCaseLibrary({
   readOnly,
   onRunCase,
   onSaveCase,
+  onReviewComparisons,
 }: RegressionCaseLibraryProps) {
   const [copiedCaseId, setCopiedCaseId] = useState<string | null>(null);
   const [caseFilter, setCaseFilter] = useState<CaseFilter>("all");
@@ -147,7 +149,7 @@ export function RegressionCaseLibrary({
     });
   }, [caseFilter, caseSort, datasets]);
   const selectedDataset =
-    filteredDatasets.find((item) => item.key === selectedDatasetKey) ?? filteredDatasets[0] ?? datasets[0] ?? null;
+    filteredDatasets.find((item) => item.key === selectedDatasetKey) ?? filteredDatasets[0] ?? null;
   const selectedCase = selectedDataset?.latest ?? null;
   const activeFailures = datasets.filter((item) => item.latest.last_result.status === "failing").length;
   const passingCases = datasets.filter((item) => item.latest.last_result.status === "passing").length;
@@ -162,8 +164,8 @@ export function RegressionCaseLibrary({
     <section className="panel regression-case-panel" data-testid="regression-case-library">
       <div className="section-heading">
         <div>
-          <p>Guardrail datasets</p>
-          <h2>Reusable regression suites.</h2>
+          <p>Saved guardrails</p>
+          <h2>Automated checks that catch the same problem again.</h2>
         </div>
         <button
           className="secondary-action"
@@ -208,7 +210,18 @@ export function RegressionCaseLibrary({
           <FlaskConical size={18} aria-hidden />
           <div>
             <strong>No saved guardrails yet.</strong>
-            <p>Save the current comparison to preserve the failing behavior and generated pytest guardrail.</p>
+            <p>
+              {report
+                ? "Save the current comparison to keep its expected behavior as an automated check."
+                : "Review a comparison first, then save the behavior you want to protect."}
+            </p>
+            <button
+              className="inline-action"
+              onClick={report && !readOnly ? onSaveCase : onReviewComparisons}
+              type="button"
+            >
+              {report && !readOnly ? "Save current comparison" : "Review comparisons"}
+            </button>
           </div>
         </div>
       ) : (
@@ -281,6 +294,9 @@ export function RegressionCaseLibrary({
                   <div>
                     <strong>No guardrails match this filter.</strong>
                     <p>Switch back to all guardrails to see saved regression suites.</p>
+                    <button className="inline-action" onClick={() => setCaseFilter("all")} type="button">
+                      Show all guardrails
+                    </button>
                   </div>
                 </div>
               ) : null}
@@ -325,7 +341,7 @@ export function RegressionCaseLibrary({
                     <dd>{friendlySeverity(severityLabel(selectedCase))}</dd>
                   </div>
                   <div>
-                    <dt>Dataset ID</dt>
+                    <dt>Guardrail ID</dt>
                     <dd>{selectedCase.case_id}</dd>
                   </div>
                   <div>
@@ -351,7 +367,7 @@ export function RegressionCaseLibrary({
                 </dl>
 
                 <div className="guardrail-run-command">
-                  <span>Generated test scenario</span>
+                  <span>How this check is rerun</span>
                   <code>{formattedCommand(selectedCase)}</code>
                 </div>
 
@@ -359,7 +375,7 @@ export function RegressionCaseLibrary({
                   <header>
                     <span>
                       <FileCode2 size={14} aria-hidden />
-                      Pytest integration · {selectedCase.pytest.filename}
+                      Automated test · {selectedCase.pytest.filename}
                     </span>
                     <button disabled={!selectedCase.pytest.source} onClick={() => void handleCopy(selectedCase)} type="button">
                       <Copy size={13} aria-hidden />
@@ -397,7 +413,13 @@ export function RegressionCaseLibrary({
                   </div>
                 ) : null}
               </>
-            ) : null}
+            ) : (
+              <div className="guardrail-detail-empty" role="status">
+                <Archive size={18} aria-hidden />
+                <strong>No guardrail selected</strong>
+                <p>Clear the current filter or choose a saved guardrail to see its details.</p>
+              </div>
+            )}
           </article>
         </div>
       )}
