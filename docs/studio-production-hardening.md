@@ -29,14 +29,16 @@ temporary files out of the web root, and throttle repeated API calls.
 - Every SQLite row is scoped by a validated workspace identifier so storage
   isolation exists before request-level multi-tenancy is introduced.
 - An opt-in PostgreSQL backend persists core workspace evidence, managed keys,
-  and browser sessions through a bounded, startup-verified connection pool.
+  browser sessions, human accounts, recovery codes, team membership, manual
+  invitations, and human sessions through a bounded, startup-verified connection
+  pool.
   Transaction locks keep trace capacity, report retention, key/session limits,
   case updates, and demo seeding consistent across API instances; composite and
   partial indexes serve workspace, expiry, and active-credential paths.
-- PostgreSQL managed keys retain digest-only storage, expiry, role, immediate
-  revocation, self-service administration, and short-lived HttpOnly sessions.
-  Human accounts and invitation delivery remain SQLite-only and fail startup in
-  PostgreSQL mode.
+- PostgreSQL managed security retains digest-only keys and sessions, Argon2id
+  accounts, saved-code recovery, team administration, and manual invitation
+  links. Automatic invitation delivery still fails startup in PostgreSQL mode
+  because its encrypted outbox and webhook reconciliation remain SQLite-only.
 - Optional bearer-key authentication maps each credential to exactly one
   workspace. Client workspace headers are ignored, invalid keys fail closed,
   and comparisons cannot be read across workspace stores.
@@ -151,9 +153,9 @@ temporary files out of the web root, and throttle repeated API calls.
 These are not solved by the local MVP and must be implemented before calling
 Studio a real multi-tenant SaaS:
 
-- PostgreSQL repositories and migrations for human identity, team membership,
-  recovery, and invitation delivery. Core evidence, managed keys, and browser
-  sessions already support pooled multi-instance PostgreSQL storage.
+- PostgreSQL repositories for the encrypted invitation-email outbox, worker
+  leases, and webhook reconciliation. Human identity, team membership, recovery,
+  manual invitations, managed keys, and sessions already use pooled PostgreSQL.
 - Tested SQLite-to-PostgreSQL export/import tooling plus provider backup,
   point-in-time recovery, and restore-drill automation.
 - Sender-domain/suppression automation, email ownership re-verification, and
@@ -176,12 +178,12 @@ Studio a real multi-tenant SaaS:
   Caddy/Compose bundle is an operator-run single-host topology, not a managed
   multi-region platform.
 
-The current build has pooled multi-instance PostgreSQL storage for core evidence
-and managed access, plus a complete human identity/email path on single-node
-SQLite, not a finished hosted SaaS. The next production step is migrating that identity and delivery
-security boundary to PostgreSQL, then wiring provider backups, email-domain
-operations, monitoring, and error-event retention. Do not add Langfuse-scale
-ClickHouse or queues until the comparison workflow needs them.
+The current build has pooled multi-instance PostgreSQL storage for core evidence,
+managed access, and human identity, but it is not a finished hosted SaaS. The
+next production step is migrating the encrypted email outbox and webhook
+reconciliation, then wiring provider backups, email-domain operations,
+monitoring, and error-event retention. Do not add Langfuse-scale ClickHouse or
+queues until the comparison workflow needs them.
 
 ## References
 

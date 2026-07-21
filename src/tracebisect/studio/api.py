@@ -1814,10 +1814,12 @@ def _production_readiness(
         if storage_kind == "sqlite":
             completed.append("verified local backup and non-destructive restore tooling")
         elif storage_kind == "postgres":
-            completed.append("pooled multi-instance PostgreSQL core workspace storage")
+            completed.append(
+                "pooled multi-instance PostgreSQL workspace and managed-security storage"
+            )
             blockers.insert(
                 0,
-                "PostgreSQL repositories for managed identity and invitation delivery",
+                "PostgreSQL invitation email outbox and delivery reconciliation",
             )
     else:
         blockers.insert(0, "restart-safe durable storage")

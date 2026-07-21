@@ -25,6 +25,13 @@ from tracebisect.studio.access_sessions import (
     revoke_studio_browser_session,
 )
 from tracebisect.studio.auth import StudioAuthConfig
+from tracebisect.studio.identity import (
+    accept_studio_invitation,
+    create_studio_invitation,
+    login_studio_identity,
+    principal_for_studio_identity_session,
+    recover_studio_identity,
+)
 from tracebisect.studio.postgres_storage import (
     POSTGRES_SCHEMA_STATEMENTS,
     PostgresStudioStore,
@@ -153,10 +160,21 @@ def test_postgres_schema_uses_jsonb_timestamps_constraints_and_workspace_indexes
     assert "create table if not exists studio_api_keys" in schema
     assert "create table if not exists studio_browser_sessions" in schema
     assert "references studio_api_keys(key_id) on delete cascade" in schema
+    assert "create table if not exists studio_users" in schema
+    assert "create table if not exists studio_workspace_memberships" in schema
+    assert "create table if not exists studio_invitations" in schema
+    assert "create table if not exists studio_recovery_codes" in schema
+    assert "create table if not exists studio_identity_sessions" in schema
+    assert "references studio_users(user_id) on delete cascade" in schema
+    assert "references studio_workspace_memberships(workspace_id, user_id)" in schema
+    assert "studio_memberships_user_workspace_idx" in schema
+    assert "studio_invitations_pending_workspace_email_idx" in schema
+    assert "studio_recovery_codes_active_user_idx" in schema
+    assert "studio_identity_sessions_active_expiry_idx" in schema
     assert "where revoked_at is null" in schema
 
 
-def test_postgres_schema_upgrades_core_v1_to_managed_access_v2() -> None:
+def test_postgres_schema_upgrades_core_v1_to_managed_identity_v3() -> None:
     statements = [" ".join(statement.split()) for statement in POSTGRES_SCHEMA_STATEMENTS]
     connection = _Connection(
         [
@@ -545,7 +563,36 @@ def test_postgres_browser_session_is_bounded_resolvable_and_revocable() -> None:
     assert not connection.executions
 
 
-def test_managed_postgres_auth_enables_browser_sessions_but_keeps_identity_gated() -> None:
+def test_postgres_manual_invitation_reuses_shared_identity_rules_and_pool() -> None:
+    store, connection, _pool = _store(
+        [
+            _Execution("pg_advisory_xact_lock"),
+            _Execution("SELECT COUNT(*) FROM studio_workspace_memberships", one=(0,)),
+            _Execution("SELECT COUNT(*) FROM studio_invitations", one=(0,)),
+            _Execution("SELECT invitation_id FROM studio_invitations", many=()),
+            _Execution("DELETE FROM studio_invitations WHERE invitation_id"),
+            _Execution("UPDATE studio_invitations SET revoked_at"),
+            _Execution("INSERT INTO studio_invitations"),
+        ]
+    )
+
+    invitation = create_studio_invitation(
+        store,
+        workspace_id="workspace-a",
+        email="New.Owner@Example.com",
+        role="admin",
+        expires_in_days=7,
+        identity_secret_value="identity-postgres-secret-with-at-least-32-characters",
+    )
+
+    assert invitation.record.email == "new.owner@example.com"
+    assert invitation.invitation_token.startswith("tbiv_")
+    assert not connection.executions
+    assert all("?" not in statement for statement, _params in connection.calls)
+    assert all("LIMIT -1" not in statement for statement, _params in connection.calls)
+
+
+def test_managed_postgres_auth_enables_browser_sessions_and_optional_identity() -> None:
     store, _connection, _pool = _store([])
     pepper = "managed-postgres-pepper-with-at-least-32-characters"
     base = {
@@ -559,14 +606,14 @@ def test_managed_postgres_auth_enables_browser_sessions_but_keeps_identity_gated
     assert config.access_management_enabled is True
     assert config.browser_sessions_enabled is True
     assert config.identity_enabled is False
-    with pytest.raises(StudioConfigurationError, match="human identity.*sqlite"):
-        StudioAuthConfig.from_env(
-            {
-                **base,
-                "TRACEBISECT_STUDIO_IDENTITY_SECRET": "i" * 40,
-            },
-            managed_database=store,
-        )
+    identity_config = StudioAuthConfig.from_env(
+        {
+            **base,
+            "TRACEBISECT_STUDIO_IDENTITY_SECRET": "i" * 40,
+        },
+        managed_database=store,
+    )
+    assert identity_config.identity_enabled is True
 
 
 def test_static_workspace_keys_can_still_protect_postgres() -> None:
@@ -603,9 +650,51 @@ def test_production_readiness_does_not_claim_sqlite_backup_for_postgres(
     monkeypatch.setattr(studio_api, "STORE", _RuntimeStore())
     readiness = studio_api._production_readiness(storage_ok=True)
 
-    assert "pooled multi-instance PostgreSQL core workspace storage" in readiness["completed"]
+    assert (
+        "pooled multi-instance PostgreSQL workspace and managed-security storage"
+        in readiness["completed"]
+    )
     assert "verified local backup and non-destructive restore tooling" not in readiness["completed"]
-    assert "PostgreSQL repositories for managed identity" in readiness["blockers"][0]
+    assert "PostgreSQL invitation email outbox" in readiness["blockers"][0]
+
+
+def test_production_readiness_reports_postgres_human_identity_without_email_claim(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    managed_store, _connection, _pool = _store([])
+    auth = StudioAuthConfig.from_env(
+        {
+            "TRACEBISECT_STUDIO_STORAGE": "postgres",
+            "TRACEBISECT_STUDIO_DATABASE_URL": "postgresql://db.example/studio",
+            "TRACEBISECT_STUDIO_AUTH_MODE": "api-key",
+            "TRACEBISECT_STUDIO_API_KEY_PEPPER": (
+                "managed-postgres-pepper-with-at-least-32-characters"
+            ),
+            "TRACEBISECT_STUDIO_IDENTITY_SECRET": "i" * 40,
+        },
+        managed_database=managed_store,
+    )
+
+    monkeypatch.setattr(studio_api, "AUTH_CONFIG", auth)
+    readiness = studio_api._production_readiness(
+        storage_ok=True,
+        runtime={
+            "kind": "postgres",
+            "durable": True,
+            "workspace_id": "protected",
+            "trace_count": 0,
+            "report_count": 0,
+            "case_count": 0,
+        },
+    )
+
+    assert "Argon2id human accounts with invitation-only enrollment" in readiness["completed"]
+    assert "workspace-scoped team membership administration" in readiness["completed"]
+    assert not any(
+        "managed user accounts" in blocker for blocker in readiness["blockers"]
+    )
+    assert any("transactional invitation email" in blocker for blocker in readiness["blockers"])
+    assert any("PostgreSQL invitation email outbox" in blocker for blocker in readiness["blockers"])
 
 
 def test_health_remains_available_when_postgres_runtime_counts_fail(
@@ -650,6 +739,7 @@ def test_live_postgres_store_shares_fresh_data_and_isolates_workspaces() -> None
     first = PostgresStudioStore(database_url, workspace_id=workspace_id)
     restored: PostgresStudioStore | None = None
     other: PostgresStudioStore | None = None
+    accepted_user_id: str | None = None
     try:
         report = first.seed_demo_report()
         baseline = report["baseline"]
@@ -704,6 +794,66 @@ def test_live_postgres_store_shares_fresh_data_and_isolates_workspaces() -> None
             is None
         )
 
+        identity_secret = "live-postgres-identity-secret-with-at-least-32-characters"
+        invitation = create_studio_invitation(
+            first,
+            workspace_id=workspace_id,
+            email=f"owner-{uuid.uuid4().hex[:12]}@example.com",
+            role="admin",
+            expires_in_days=1,
+            identity_secret_value=identity_secret,
+        )
+        accepted = accept_studio_invitation(
+            restored,
+            invitation_token=invitation.invitation_token,
+            display_name="Live PostgreSQL Owner",
+            password="correct horse battery staple",
+            identity_secret_value=identity_secret,
+        )
+        accepted_user_id = accepted.user.user_id
+        assert len(accepted.recovery_codes) == 8
+        signed_in = login_studio_identity(
+            first,
+            email=accepted.user.email,
+            password="correct horse battery staple",
+            identity_secret_value=identity_secret,
+        )
+        assert signed_in.session is not None
+        identity_session = signed_in.session
+        assert (
+            principal_for_studio_identity_session(
+                restored,
+                session_token=identity_session.session_token,
+                identity_secret_value=identity_secret,
+            )
+            == identity_session.principal
+        )
+        recovered = recover_studio_identity(
+            restored,
+            email=accepted.user.email,
+            recovery_code=accepted.recovery_codes[0],
+            new_password="a newly replaced postgres password",
+            identity_secret_value=identity_secret,
+        )
+        assert recovered.accepted is True
+        assert (
+            principal_for_studio_identity_session(
+                first,
+                session_token=identity_session.session_token,
+                identity_secret_value=identity_secret,
+            )
+            is None
+        )
+        assert (
+            login_studio_identity(
+                first,
+                email=accepted.user.email,
+                password="a newly replaced postgres password",
+                identity_secret_value=identity_secret,
+            ).session
+            is not None
+        )
+
         other = PostgresStudioStore(database_url, workspace_id=other_workspace_id)
         assert other.list_traces() == []
         assert other.list_report_summaries() == []
@@ -717,6 +867,15 @@ def test_live_postgres_store_shares_fresh_data_and_isolates_workspaces() -> None
                         "DELETE FROM studio_api_keys WHERE workspace_id = ?",
                         (workspace_id,),
                     )
+                    connection.execute(
+                        "DELETE FROM studio_invitations WHERE workspace_id = ?",
+                        (workspace_id,),
+                    )
+                    if accepted_user_id is not None:
+                        connection.execute(
+                            "DELETE FROM studio_users WHERE user_id = ?",
+                            (accepted_user_id,),
+                        )
             finally:
                 if restored is not None:
                     restored.close()

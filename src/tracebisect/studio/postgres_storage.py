@@ -1,8 +1,8 @@
 """Managed PostgreSQL storage for horizontally deployed Studio core data.
 
 This backend owns traces, comparison reports, regression cases, demo metadata,
-managed workspace keys, and browser sessions. Human identity and invitation
-delivery remain on the SQLite path until those repositories migrate together.
+managed workspace keys, browser sessions, and human identity. Automatic
+invitation delivery remains on the SQLite path until its outbox migrates.
 """
 
 from __future__ import annotations
@@ -48,7 +48,7 @@ from tracebisect.studio.storage import (
     validate_workspace_id,
 )
 
-POSTGRES_SCHEMA_VERSION = 2
+POSTGRES_SCHEMA_VERSION = 3
 _SCHEMA_LOCK_ID = 882_014_771
 _WORKSPACE_LOCK_SEED = 882_014_771
 _MANAGED_SECURITY_LOCK_ID = 882_014_772
@@ -161,6 +161,112 @@ POSTGRES_SCHEMA_STATEMENTS = (
     """
     CREATE INDEX IF NOT EXISTS studio_browser_sessions_revoked_idx
     ON studio_browser_sessions (revoked_at)
+    WHERE revoked_at IS NOT NULL
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS studio_users (
+        user_id text PRIMARY KEY,
+        email text NOT NULL UNIQUE,
+        display_name text NOT NULL,
+        password_hash text NOT NULL,
+        session_epoch integer NOT NULL DEFAULT 1 CHECK (session_epoch > 0),
+        created_at timestamptz NOT NULL,
+        password_changed_at timestamptz NOT NULL,
+        disabled_at timestamptz,
+        CHECK (char_length(email) <= 254)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS studio_workspace_memberships (
+        workspace_id text NOT NULL,
+        user_id text NOT NULL REFERENCES studio_users(user_id) ON DELETE CASCADE,
+        role text NOT NULL CHECK (role IN ('viewer', 'editor', 'admin')),
+        created_at timestamptz NOT NULL,
+        updated_at timestamptz NOT NULL,
+        PRIMARY KEY (workspace_id, user_id),
+        CHECK (workspace_id ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$')
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS studio_memberships_user_workspace_idx
+    ON studio_workspace_memberships (user_id, workspace_id)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS studio_memberships_admin_workspace_idx
+    ON studio_workspace_memberships (workspace_id, user_id)
+    WHERE role = 'admin'
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS studio_invitations (
+        invitation_id text PRIMARY KEY,
+        workspace_id text NOT NULL,
+        email text NOT NULL,
+        role text NOT NULL CHECK (role IN ('viewer', 'editor', 'admin')),
+        token_hash text NOT NULL CHECK (length(token_hash) = 64),
+        created_at timestamptz NOT NULL,
+        expires_at timestamptz NOT NULL,
+        accepted_at timestamptz,
+        revoked_at timestamptz,
+        CHECK (workspace_id ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'),
+        CHECK (char_length(email) <= 254),
+        CHECK (expires_at > created_at)
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS studio_invitations_workspace_created_idx
+    ON studio_invitations (workspace_id, created_at DESC, invitation_id)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS studio_invitations_pending_workspace_email_idx
+    ON studio_invitations (workspace_id, email, expires_at)
+    WHERE accepted_at IS NULL AND revoked_at IS NULL
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS studio_recovery_codes (
+        code_id text PRIMARY KEY,
+        user_id text NOT NULL REFERENCES studio_users(user_id) ON DELETE CASCADE,
+        code_hash text NOT NULL CHECK (length(code_hash) = 64),
+        created_at timestamptz NOT NULL,
+        used_at timestamptz
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS studio_recovery_codes_active_user_idx
+    ON studio_recovery_codes (user_id, created_at)
+    WHERE used_at IS NULL
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS studio_identity_sessions (
+        session_id text PRIMARY KEY,
+        user_id text NOT NULL REFERENCES studio_users(user_id) ON DELETE CASCADE,
+        workspace_id text NOT NULL,
+        session_hash text NOT NULL CHECK (length(session_hash) = 64),
+        session_epoch integer NOT NULL CHECK (session_epoch > 0),
+        created_at timestamptz NOT NULL,
+        expires_at timestamptz NOT NULL,
+        revoked_at timestamptz,
+        CHECK (expires_at > created_at),
+        FOREIGN KEY (workspace_id, user_id)
+            REFERENCES studio_workspace_memberships(workspace_id, user_id)
+            ON DELETE CASCADE
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS studio_identity_sessions_user_created_idx
+    ON studio_identity_sessions (user_id, created_at DESC, session_id)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS studio_identity_sessions_workspace_user_idx
+    ON studio_identity_sessions (workspace_id, user_id)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS studio_identity_sessions_active_expiry_idx
+    ON studio_identity_sessions (expires_at)
+    WHERE revoked_at IS NULL
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS studio_identity_sessions_revoked_idx
+    ON studio_identity_sessions (revoked_at)
     WHERE revoked_at IS NOT NULL
     """,
 )

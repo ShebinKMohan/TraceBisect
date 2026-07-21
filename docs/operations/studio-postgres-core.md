@@ -2,8 +2,10 @@
 
 PostgreSQL mode is the first multi-instance persistence milestone for
 TraceBisect Studio. It stores traces, comparison reports, regression cases, demo
-metadata, managed workspace keys, and browser sessions in one shared database.
-It does **not** yet make the complete product a hosted multi-tenant SaaS.
+metadata, managed workspace keys, browser sessions, human accounts, recovery
+codes, team membership, manual invitations, and human sessions in one shared
+database. It does **not** yet make the complete product a hosted multi-tenant
+SaaS.
 
 ## Current boundary
 
@@ -15,18 +17,20 @@ Supported in PostgreSQL mode:
 - serialized workspace capacity, retention, case-update, and demo-seed writes;
 - digest-only managed workspace keys with expiry, roles, and immediate revocation;
 - short-lived, digest-only HttpOnly browser sessions that cannot outlive a key;
+- Argon2id human accounts, saved recovery codes, workspace team roles, manual
+  invitation links, and revocable human sessions;
 - first-admin bootstrap through the same `tracebisect studio keys` commands used
   for SQLite.
 
 Still SQLite-only:
 
-- human accounts, recovery codes, team membership, and invitations;
-- the encrypted invitation-email outbox, worker, and webhook history;
+- the encrypted automatic invitation-email outbox, worker, and webhook history;
 - the local `studio backup`, `verify`, and `restore` commands.
 
-Studio fails startup if human identity or email settings are combined with
-PostgreSQL. Use managed keys for a protected PostgreSQL deployment; use SQLite
-when the current complete account and invitation-email experience is required.
+PostgreSQL accepts the human identity secret and exposes manual invitation links
+once. It still fails startup if automatic email settings are enabled because the
+encrypted delivery outbox has not migrated. Use SQLite when the current
+automatic invitation-email experience is required.
 
 ## Configure the API
 
@@ -37,10 +41,14 @@ the URL from the environment so it does not need to appear as a command argument
 ```bash
 uv sync --extra studio
 
+tracebisect studio keys generate-pepper
+tracebisect studio identity generate-secret
+
 export TRACEBISECT_STUDIO_STORAGE='postgres'
 export TRACEBISECT_STUDIO_DATABASE_URL='postgresql://studio:secret@db.example/tracebisect'
 export TRACEBISECT_STUDIO_AUTH_MODE='api-key'
 export TRACEBISECT_STUDIO_API_KEY_PEPPER='paste-the-generated-value-here'
+export TRACEBISECT_STUDIO_IDENTITY_SECRET='paste-the-generated-value-here'
 export TRACEBISECT_STUDIO_ALLOWED_ORIGINS='https://studio.example.com'
 export TRACEBISECT_STUDIO_METRICS_TOKEN='replace-with-a-dedicated-monitoring-token'
 
@@ -56,7 +64,8 @@ uvicorn tracebisect.studio.api:app --port 8000
 Copy the printed key immediately; PostgreSQL stores only its HMAC-SHA256 digest.
 Studio exchanges the key for a short-lived HttpOnly cookie, so the managed key
 does not remain in browser storage. Use **Settings → Workspace access** for later
-key creation and revocation.
+key creation and revocation. Use **Settings → People and invitations** to create
+the first human admin link and share it through a private channel.
 
 The API installs its versioned workspace and access tables under an advisory
 transaction lock.
@@ -104,10 +113,12 @@ retention, and perform a restore drill into an isolated database before launch.
 The SQLite backup CLI does not operate on PostgreSQL.
 
 Treat a point-in-time restore as a credential rollback. Before reopening
-traffic, generate and deploy a new `TRACEBISECT_STUDIO_API_KEY_PEPPER`, create a
-new admin key with that pepper, and retire the old pepper. This invalidates every
-restored key and browser-session digest, including credentials that were revoked
-after the restored timestamp.
+traffic, generate and deploy a new `TRACEBISECT_STUDIO_API_KEY_PEPPER` and
+`TRACEBISECT_STUDIO_IDENTITY_SECRET`, create a new admin key with the new pepper,
+and retire both old secrets. This invalidates restored keys, browser sessions,
+human sessions, pending invitation links, and recovery codes, including items
+revoked after the restored timestamp. Password hashes remain verifiable, so
+people can sign in again with their password after the rotation.
 
 There is no automatic SQLite-to-PostgreSQL migration in this milestone. Do not
 point a production deployment at an empty PostgreSQL database and assume its
@@ -128,6 +139,7 @@ pytest -q tests/test_studio_postgres_storage.py \
 ```
 
 The live test creates random workspaces, proves fresh cross-pool reads, managed
-key/session revocation, and workspace isolation, then removes those rows. A
-skipped live test is not evidence that a real provider connection, TLS policy,
-backup, or restore has been verified.
+key/session revocation, manual invitation acceptance, password sign-in,
+saved-code recovery, human-session invalidation, and workspace isolation, then
+removes those rows. A skipped live test is not evidence that a real provider
+connection, TLS policy, backup, or restore has been verified.

@@ -76,7 +76,7 @@ Backend:
 - FastAPI, served locally with `uvicorn tracebisect.studio.api:app`.
 - In-memory storage for zero-setup demos, opt-in workspace-scoped SQLite for the
   complete single-node product, and pooled PostgreSQL for multi-instance core
-  traces, reports, cases, and demo metadata.
+  evidence, managed access, and human identity.
 - Upload endpoint parses `.tbtrace` through `read_trace`.
 - Upload endpoint parses OTel JSON through `import_otel_json`.
 - Compare endpoint calls `align`, `detect_divergences`, and export helpers.
@@ -87,9 +87,9 @@ Frontend:
 - Standardized palette: `#2C6975`, `#68B2A0`, `#CDE0C9`, `#E0ECDE`, `#FFFFFF`.
 - Light and dark dashboard modes with the same component structure.
 - A zero-setup local mode plus protected workspace unlock, managed accounts,
-  saved-code recovery, team roles, and optional invitation delivery on SQLite.
-  PostgreSQL supports core evidence, managed keys, and HttpOnly browser sessions;
-  its human identity/email repositories and billing remain future work.
+  saved-code recovery, team roles, and manual invitations on SQLite or
+  PostgreSQL. Automatic invitation email remains SQLite-only; billing remains
+  future work.
 - Show the seeded demo immediately on first load.
 - UI must look like a product dashboard, not a docs page.
 
@@ -120,8 +120,8 @@ Later adapters can add:
 - Langfuse direct import.
 - LangSmith direct import.
 - GitHub PR/test generation.
-- Human identity, invitation delivery, and migration tooling on top of the
-  implemented PostgreSQL core workspace store.
+- PostgreSQL invitation-email delivery and SQLite-to-PostgreSQL migration tooling
+  on top of the implemented PostgreSQL identity and workspace store.
 
 This means the public pitch can mention Langfuse/LangSmith compatibility through
 OpenTelemetry-style trace data, but the first implementation should not pretend
@@ -137,9 +137,10 @@ throttling, and security boundary. The local MVP is hardened against obvious
 bad inputs and now supports durable API-key-scoped workspaces. Managed browser
 sign-in exchanges a workspace key for a short-lived, revocable HttpOnly session,
 and SQLite supports invitation-only accounts, recovery, team roles, and email
-delivery. PostgreSQL supports core workspace evidence and managed access across
-API instances, but human identity/email migration, hosted monitoring/error-event retention
-wiring, and distributed rate limiting remain separate SaaS milestones. The API
+delivery. PostgreSQL supports core workspace evidence, managed access, human
+identity, recovery, team roles, and manual invitations across API instances, but
+email-outbox migration, hosted monitoring/error-event retention wiring, and
+distributed rate limiting remain separate SaaS milestones. The API
 also provides hashed expiring keys, a protected Prometheus
 scrape endpoint, starter alert rules, and an incident runbook. Admins can now
 manage role-based workspace keys inside Settings after the operator bootstraps

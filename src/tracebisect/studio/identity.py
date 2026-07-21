@@ -21,10 +21,17 @@ from argon2 import PasswordHasher, Type
 from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
 
 from tracebisect.studio.access_keys import WorkspaceRole
+from tracebisect.studio.managed_database import (
+    StudioDatabaseConnection,
+    StudioDatabaseCursor,
+    StudioDatabaseTarget,
+    StudioManagedDatabase,
+    ensure_managed_database_schema,
+    studio_database_connection,
+)
 from tracebisect.studio.storage import (
     StudioConfigurationError,
     StudioPersistenceError,
-    ensure_studio_schema,
     validate_workspace_id,
 )
 
@@ -190,7 +197,7 @@ def validate_password(value: str) -> str:
 
 
 def create_studio_invitation(
-    database_path: str | Path,
+    database_path: StudioDatabaseTarget,
     *,
     workspace_id: str,
     email: str,
@@ -213,22 +220,22 @@ def create_studio_invitation(
     secret = secrets.token_urlsafe(32)
     token = f"tbiv_{invitation_id}_{secret}"
     token_hash = _secret_digest("invitation", token, identity_secret_value)
-    database = _database_path(database_path)
+    database = _database_target(database_path)
     try:
-        with sqlite3.connect(database, timeout=5) as connection:
+        with studio_database_connection(database) as connection:
             connection.execute("PRAGMA foreign_keys = ON")
             connection.execute("PRAGMA busy_timeout = 5000")
-            ensure_studio_schema(connection)
+            ensure_managed_database_schema(connection)
             connection.execute("BEGIN IMMEDIATE")
-            member_count = int(
+            member_count = _count_from_cursor(
                 connection.execute(
                     "SELECT COUNT(*) FROM studio_workspace_memberships WHERE workspace_id = ?",
                     (workspace,),
-                ).fetchone()[0]
+                )
             )
             if member_count >= MAX_ACTIVE_MEMBERS_PER_WORKSPACE:
                 raise StudioIdentityConflict("workspace already has the maximum number of members")
-            pending_count = int(
+            pending_count = _count_from_cursor(
                 connection.execute(
                     """
                     SELECT COUNT(*) FROM studio_invitations
@@ -236,7 +243,7 @@ def create_studio_invitation(
                       AND expires_at > ?
                     """,
                     (workspace, _timestamp(created)),
-                ).fetchone()[0]
+                )
             )
             if pending_count >= MAX_ACTIVE_INVITATIONS_PER_WORKSPACE:
                 raise StudioIdentityConflict(
@@ -304,7 +311,7 @@ def create_studio_invitation(
 
 
 def preview_studio_invitation(
-    database_path: str | Path,
+    database_path: StudioDatabaseTarget,
     *,
     invitation_token: str,
     identity_secret_value: str,
@@ -329,7 +336,7 @@ def preview_studio_invitation(
 
 
 def accept_studio_invitation(
-    database_path: str | Path,
+    database_path: StudioDatabaseTarget,
     *,
     invitation_token: str,
     display_name: str,
@@ -342,12 +349,12 @@ def accept_studio_invitation(
     normalized_name = _display_name(display_name)
     validated_password = validate_password(password)
     current = _utc_now(now)
-    database = _database_path(database_path)
+    database = _database_target(database_path)
     try:
-        with sqlite3.connect(database, timeout=5) as connection:
+        with studio_database_connection(database) as connection:
             connection.execute("PRAGMA foreign_keys = ON")
             connection.execute("PRAGMA busy_timeout = 5000")
-            ensure_studio_schema(connection)
+            ensure_managed_database_schema(connection)
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
                 """
@@ -431,11 +438,11 @@ def accept_studio_invitation(
                 is not None
             ):
                 raise StudioIdentityConflict("this account already belongs to the workspace")
-            member_count = int(
+            member_count = _count_from_cursor(
                 connection.execute(
                     "SELECT COUNT(*) FROM studio_workspace_memberships WHERE workspace_id = ?",
                     (workspace,),
-                ).fetchone()[0]
+                )
             )
             if member_count >= MAX_ACTIVE_MEMBERS_PER_WORKSPACE:
                 raise StudioIdentityConflict("workspace already has the maximum number of members")
@@ -480,7 +487,7 @@ def accept_studio_invitation(
 
 
 def login_studio_identity(
-    database_path: str | Path,
+    database_path: StudioDatabaseTarget,
     *,
     email: str,
     password: str,
@@ -506,11 +513,11 @@ def login_studio_identity(
         _verify_dummy_password(password)
         raise StudioIdentityInvalidCredentials("email or password was not accepted") from None
     current = _utc_now(now)
-    database = _database_path(database_path)
+    database = _database_target(database_path)
     try:
-        with sqlite3.connect(database, timeout=5) as connection:
+        with studio_database_connection(database) as connection:
             connection.execute("PRAGMA foreign_keys = ON")
-            ensure_studio_schema(connection)
+            ensure_managed_database_schema(connection)
             user_row = connection.execute(
                 """
                 SELECT user_id, display_name, password_hash, session_epoch, disabled_at
@@ -526,7 +533,7 @@ def login_studio_identity(
                 raise StudioIdentityInvalidCredentials("email or password was not accepted")
             user_id = str(user_row[0])
             display_name = str(user_row[1])
-            session_epoch = int(user_row[3])
+            session_epoch = int(str(user_row[3]))
             if _PASSWORD_HASHER.check_needs_rehash(password_hash):
                 connection.execute(
                     "UPDATE studio_users SET password_hash = ? WHERE user_id = ?",
@@ -581,7 +588,7 @@ def login_studio_identity(
 
 
 def principal_for_studio_identity_session(
-    database_path: str | Path,
+    database_path: StudioDatabaseTarget,
     *,
     session_token: str,
     identity_secret_value: str,
@@ -593,9 +600,9 @@ def principal_for_studio_identity_session(
     except StudioIdentityInvalidCredentials:
         return None
     current = _utc_now(now)
-    database = _database_path(database_path)
+    database = _database_target(database_path)
     try:
-        with sqlite3.connect(f"{database.as_uri()}?mode=ro", uri=True, timeout=5) as connection:
+        with studio_database_connection(database, read_only=True) as connection:
             row = connection.execute(
                 """
                 SELECT session.session_hash, session.expires_at, session.revoked_at,
@@ -618,7 +625,7 @@ def principal_for_studio_identity_session(
             _secret_digest("identity-session", session_token, identity_secret_value),
         ):
             return None
-        if row[2] is not None or row[8] is not None or int(row[3]) != int(row[7]):
+        if row[2] is not None or row[8] is not None or int(str(row[3])) != int(str(row[7])):
             return None
         expires = _parse_timestamp(str(row[1]))
         if expires <= current:
@@ -643,7 +650,7 @@ def principal_for_studio_identity_session(
 
 
 def revoke_studio_identity_session(
-    database_path: str | Path,
+    database_path: StudioDatabaseTarget,
     *,
     session_token: str,
     identity_secret_value: str,
@@ -654,10 +661,10 @@ def revoke_studio_identity_session(
     except StudioIdentityInvalidCredentials:
         return False
     current = _utc_now(now)
-    database = _database_path(database_path)
+    database = _database_target(database_path)
     try:
-        with sqlite3.connect(database, timeout=5) as connection:
-            ensure_studio_schema(connection)
+        with studio_database_connection(database) as connection:
+            ensure_managed_database_schema(connection)
             row = connection.execute(
                 """
                 SELECT session_hash, revoked_at
@@ -683,7 +690,7 @@ def revoke_studio_identity_session(
 
 
 def recover_studio_identity(
-    database_path: str | Path,
+    database_path: StudioDatabaseTarget,
     *,
     email: str,
     recovery_code: str,
@@ -707,12 +714,12 @@ def recover_studio_identity(
         recovery_code.strip(),
         identity_secret_value,
     )
-    database = _database_path(database_path)
+    database = _database_target(database_path)
     try:
-        with sqlite3.connect(database, timeout=5) as connection:
+        with studio_database_connection(database) as connection:
             connection.execute("PRAGMA foreign_keys = ON")
             connection.execute("PRAGMA busy_timeout = 5000")
-            ensure_studio_schema(connection)
+            ensure_managed_database_schema(connection)
             connection.execute("BEGIN IMMEDIATE")
             user_row = connection.execute(
                 "SELECT user_id, disabled_at FROM studio_users WHERE email = ?",
@@ -774,14 +781,14 @@ def recover_studio_identity(
 
 
 def list_studio_memberships(
-    database_path: str | Path,
+    database_path: StudioDatabaseTarget,
     *,
     workspace_id: str,
 ) -> list[StudioMembershipRecord]:
     workspace = validate_workspace_id(workspace_id)
-    database = _database_path(database_path)
+    database = _database_target(database_path)
     try:
-        with sqlite3.connect(f"{database.as_uri()}?mode=ro", uri=True, timeout=5) as connection:
+        with studio_database_connection(database, read_only=True) as connection:
             return [
                 _membership_from_row(row)
                 for row in connection.execute(
@@ -792,7 +799,7 @@ def list_studio_memberships(
                     FROM studio_workspace_memberships AS membership
                     JOIN studio_users AS user ON user.user_id = membership.user_id
                     WHERE membership.workspace_id = ?
-                    ORDER BY user.display_name COLLATE NOCASE, user.email
+                    ORDER BY lower(user.display_name), user.email
                     """,
                     (workspace,),
                 )
@@ -802,7 +809,7 @@ def list_studio_memberships(
 
 
 def update_studio_membership_role(
-    database_path: str | Path,
+    database_path: StudioDatabaseTarget,
     *,
     workspace_id: str,
     user_id: str,
@@ -813,11 +820,11 @@ def update_studio_membership_role(
     _opaque_id(user_id, label="user ID")
     validated_role = _role(role)
     current = _utc_now(now)
-    database = _database_path(database_path)
+    database = _database_target(database_path)
     try:
-        with sqlite3.connect(database, timeout=5) as connection:
+        with studio_database_connection(database) as connection:
             connection.execute("PRAGMA busy_timeout = 5000")
-            ensure_studio_schema(connection)
+            ensure_managed_database_schema(connection)
             connection.execute("BEGIN IMMEDIATE")
             existing = connection.execute(
                 """
@@ -857,7 +864,7 @@ def update_studio_membership_role(
 
 
 def remove_studio_membership(
-    database_path: str | Path,
+    database_path: StudioDatabaseTarget,
     *,
     workspace_id: str,
     user_id: str,
@@ -866,11 +873,11 @@ def remove_studio_membership(
     workspace = validate_workspace_id(workspace_id)
     _opaque_id(user_id, label="user ID")
     current = _utc_now(now)
-    database = _database_path(database_path)
+    database = _database_target(database_path)
     try:
-        with sqlite3.connect(database, timeout=5) as connection:
+        with studio_database_connection(database) as connection:
             connection.execute("PRAGMA busy_timeout = 5000")
-            ensure_studio_schema(connection)
+            ensure_managed_database_schema(connection)
             connection.execute("BEGIN IMMEDIATE")
             existing = connection.execute(
                 """
@@ -911,14 +918,14 @@ def remove_studio_membership(
 
 
 def list_studio_invitations(
-    database_path: str | Path,
+    database_path: StudioDatabaseTarget,
     *,
     workspace_id: str,
 ) -> list[StudioInvitationRecord]:
     workspace = validate_workspace_id(workspace_id)
-    database = _database_path(database_path)
+    database = _database_target(database_path)
     try:
-        with sqlite3.connect(f"{database.as_uri()}?mode=ro", uri=True, timeout=5) as connection:
+        with studio_database_connection(database, read_only=True) as connection:
             return [
                 _invitation_from_row(row)
                 for row in connection.execute(
@@ -937,7 +944,7 @@ def list_studio_invitations(
 
 
 def revoke_studio_invitation(
-    database_path: str | Path,
+    database_path: StudioDatabaseTarget,
     *,
     workspace_id: str,
     invitation_id: str,
@@ -946,10 +953,10 @@ def revoke_studio_invitation(
     workspace = validate_workspace_id(workspace_id)
     _opaque_id(invitation_id, label="invitation ID")
     current = _utc_now(now)
-    database = _database_path(database_path)
+    database = _database_target(database_path)
     try:
-        with sqlite3.connect(database, timeout=5) as connection:
-            ensure_studio_schema(connection)
+        with studio_database_connection(database) as connection:
+            ensure_managed_database_schema(connection)
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
                 """
@@ -989,7 +996,7 @@ def revoke_studio_invitation(
 
 
 def _issue_identity_session(
-    connection: sqlite3.Connection,
+    connection: StudioDatabaseConnection,
     *,
     user_id: str,
     email: str,
@@ -1003,6 +1010,10 @@ def _issue_identity_session(
 ) -> IssuedStudioIdentitySession:
     if ttl_seconds < 300 or ttl_seconds > 7 * 24 * 60 * 60:
         raise StudioIdentityError("identity session lifetime is outside the safe range")
+    if connection.dialect == "postgres":
+        # Serialize managed-security writes only after password verification so
+        # concurrent logins cannot race the per-user active-session cap.
+        connection.execute("BEGIN IMMEDIATE")
     session_id = _new_opaque_id()
     session_token = f"tbis_{session_id}_{secrets.token_urlsafe(32)}"
     expires = current + timedelta(seconds=ttl_seconds)
@@ -1054,7 +1065,7 @@ def _issue_identity_session(
 
 
 def _replace_recovery_codes(
-    connection: sqlite3.Connection,
+    connection: StudioDatabaseConnection,
     *,
     user_id: str,
     identity_secret_value: str,
@@ -1082,12 +1093,12 @@ def _replace_recovery_codes(
 
 
 def _invitation_row(
-    database_path: str | Path,
+    database_path: StudioDatabaseTarget,
     invitation_id: str,
 ) -> tuple[StudioInvitationRecord, str]:
-    database = _database_path(database_path)
+    database = _database_target(database_path)
     try:
-        with sqlite3.connect(f"{database.as_uri()}?mode=ro", uri=True, timeout=5) as connection:
+        with studio_database_connection(database, read_only=True) as connection:
             row = connection.execute(
                 """
                 SELECT invitation_id, workspace_id, email, role, created_at,
@@ -1131,7 +1142,7 @@ def _invitation_from_row(row: tuple[object, ...]) -> StudioInvitationRecord:
 
 
 def _require_another_admin(
-    connection: sqlite3.Connection,
+    connection: StudioDatabaseConnection,
     *,
     workspace: str,
     excluded_user_id: str,
@@ -1143,8 +1154,15 @@ def _require_another_admin(
         """,
         (workspace, excluded_user_id),
     ).fetchone()
-    if row is None or int(row[0]) < 1:
+    if row is None or int(str(row[0])) < 1:
         raise StudioIdentityConflict("a workspace must keep at least one account administrator")
+
+
+def _count_from_cursor(cursor: StudioDatabaseCursor) -> int:
+    row = cursor.fetchone()
+    if row is None:
+        raise StudioPersistenceError("database count query returned no row")
+    return int(str(row[0]))
 
 
 def _display_name(value: str) -> str:
@@ -1207,7 +1225,9 @@ def _role(value: str) -> WorkspaceRole:
     return "admin"
 
 
-def _database_path(value: str | Path) -> Path:
+def _database_target(value: StudioDatabaseTarget) -> StudioDatabaseTarget:
+    if isinstance(value, StudioManagedDatabase):
+        return value
     return Path(value).expanduser().resolve()
 
 

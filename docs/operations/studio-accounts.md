@@ -6,11 +6,11 @@ remain available for integrations, initial bootstrap, and operator recovery.
 
 ## Enable human accounts
 
-Human accounts require managed workspace keys, SQLite storage, and a separate
-identity secret. Generate both server secrets once and store them in the
-deployment secret manager. PostgreSQL currently stores core workspace evidence
-only; it rejects managed identity configuration until these repositories migrate
-together. See [studio-postgres-core.md](studio-postgres-core.md).
+Human accounts require managed workspace keys, durable SQLite or PostgreSQL
+storage, and a separate identity secret. Generate both server secrets once and
+store them in the deployment secret manager. PostgreSQL supports accounts,
+manual invitations, recovery, membership, and sessions; automatic invitation
+email remains SQLite-only. See [studio-postgres-core.md](studio-postgres-core.md).
 
 ```bash
 tracebisect studio keys generate-pepper
@@ -120,7 +120,7 @@ multi-instance deployment still needs a distributed limiter.
 
 ## Backup and restore boundary
 
-Studio backups preserve users, Argon2id password hashes, memberships,
+SQLite Studio backups preserve users, Argon2id password hashes, memberships,
 invitations, and recovery-code hashes. They remove key-derived browser sessions,
 human identity sessions, and queued/sent email records before publication, so
 every browser must sign in and old email cannot be sent after a restore.
@@ -130,12 +130,15 @@ time, including older password hashes, keys, invitations, and recovery-code
 hashes. Treat a production restore as a security event: restrict access, rotate
 server secrets and bootstrap keys when warranted, revoke stale invitations,
 and tell people to replace passwords/recovery codes before reopening traffic.
+PostgreSQL deployments use provider backup and point-in-time recovery instead;
+rotate both the API-key pepper and identity secret after a restore before
+reopening traffic.
 
 ## Current hosted boundary
 
 This milestone provides invitation-only accounts, offline recovery, team roles,
-revocable human sessions, optional encrypted Resend invitation delivery, and
-signed delivery/bounce reconciliation for the single-node SQLite deployment. It
-does not yet provide automated sender-domain/suppression operations, email
-ownership re-verification, multi-factor or identity-provider sign-in, a managed
-PostgreSQL identity/delivery repository, distributed rate limiting, or billing.
+and revocable human sessions on SQLite and PostgreSQL. Optional encrypted Resend
+invitation delivery and signed delivery/bounce reconciliation remain single-node
+SQLite capabilities. It does not yet provide a PostgreSQL email outbox,
+automated sender-domain/suppression operations, email ownership re-verification,
+multi-factor or identity-provider sign-in, distributed rate limiting, or billing.

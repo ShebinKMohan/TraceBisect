@@ -1,8 +1,8 @@
 """Shared database contract for managed Studio security repositories.
 
 SQLite remains the complete single-node backend. PostgreSQL-backed stores expose
-the same narrow connection protocol so access-key and browser-session business
-rules stay identical across both databases.
+the same narrow connection protocol so access-key, browser-session, and human
+identity business rules stay identical across both databases.
 """
 
 from __future__ import annotations

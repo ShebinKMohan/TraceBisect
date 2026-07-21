@@ -33,7 +33,9 @@ A browser session stops working when any of these happens:
 - A restored SQLite backup replaces the active database. SQLite backups
   intentionally contain no browser sessions, so recovery requires everyone to
   sign in again. A PostgreSQL point-in-time restore must rotate the API-key
-  pepper and bootstrap a new admin key before reopening traffic.
+  pepper and identity secret, then bootstrap a new admin key before reopening
+  traffic. The identity-secret rotation also invalidates restored human sessions,
+  pending invitations, and recovery codes; password hashes remain verifiable.
 
 Revoking a source key invalidates all sessions created from that key without an
 API restart:

@@ -142,11 +142,6 @@ class StudioAuthConfig:
             raise StudioConfigurationError(f"{IDENTITY_SECRET_ENV} requires managed API keys")
         storage_kind = values.get("TRACEBISECT_STUDIO_STORAGE", "memory").strip().lower()
         if raw_pepper:
-            if storage_kind == "postgres" and raw_identity_secret:
-                raise StudioConfigurationError(
-                    "managed human identity currently requires "
-                    "TRACEBISECT_STUDIO_STORAGE=sqlite"
-                )
             pepper = api_key_pepper(values)
             browser_session_ttl_seconds = _browser_session_ttl(raw_browser_session_ttl)
             if storage_kind == "postgres":
@@ -271,7 +266,7 @@ class StudioAuthConfig:
             if self._identity_secret is None:
                 return None
             identity_principal = principal_for_studio_identity_session(
-                self._identity_database(),
+                self._database,
                 session_token=session_token,
                 identity_secret_value=self._identity_secret,
             )
@@ -313,7 +308,7 @@ class StudioAuthConfig:
             if self._identity_secret is None:
                 return False
             return revoke_studio_identity_session(
-                self._identity_database(),
+                self._database,
                 session_token=session_token,
                 identity_secret_value=self._identity_secret,
             )
@@ -509,19 +504,14 @@ class StudioAuthConfig:
             raise StudioApiKeyError("managed workspace access is not enabled")
         return self._database, self._pepper
 
-    def _managed_identity_material(self) -> tuple[Path, str]:
+    def _managed_identity_material(self) -> tuple[StudioDatabaseTarget, str]:
         if (
             not self.identity_enabled
             or self._database is None
             or self._identity_secret is None
         ):
             raise StudioApiKeyError("managed human identity is not enabled")
-        return self._identity_database(), self._identity_secret
-
-    def _identity_database(self) -> Path:
-        if not isinstance(self._database, Path):
-            raise StudioApiKeyError("managed human identity is not enabled for PostgreSQL")
-        return self._database
+        return self._database, self._identity_secret
 
     def runtime_status(self) -> dict[str, str | bool | int]:
         """Describe the auth boundary without exposing credentials or workspace names."""

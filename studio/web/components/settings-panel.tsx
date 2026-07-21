@@ -73,7 +73,9 @@ export function SettingsPanel({ health, workspaceRole }: { health: StudioHealth 
             {health
               ? durable
                 ? postgres
-                  ? `Traces, comparisons, guardrails, managed keys, and browser sessions for ${health.runtime.workspace_id} can be shared by multiple API instances. Human accounts and email jobs are not on this backend yet.`
+                  ? humanAccounts
+                    ? `Traces, comparisons, guardrails, managed keys, human accounts, and team access for ${health.runtime.workspace_id} can be shared by multiple API instances. Invitation links are manual until the PostgreSQL email outbox is available.`
+                    : `Traces, comparisons, guardrails, managed keys, and browser sessions for ${health.runtime.workspace_id} can be shared by multiple API instances. An operator can enable human accounts with the identity secret.`
                   : authRequired
                   ? browserSessions
                     ? `Your short-lived browser session grants ${workspaceRole ?? "workspace"} access to ${health.runtime.workspace_id}. Its traces, comparisons, and guardrails are saved across API restarts.`
@@ -159,7 +161,9 @@ export function SettingsPanel({ health, workspaceRole }: { health: StudioHealth 
         <h2>{postgres ? "Managed PostgreSQL workspace storage is enabled" : durable ? "Durable storage is enabled" : "Keep your work after restarts"}</h2>
         <p>
           {postgres
-            ? "Workspace data, managed keys, and browser sessions are multi-instance aware. Human accounts and invitation delivery still require SQLite. Backups and point-in-time recovery belong to your database provider."
+            ? humanAccounts
+              ? "Workspace data, managed keys, human accounts, team membership, recovery codes, and sessions are multi-instance aware. Share invitation links privately; automated invitation email still requires SQLite. Backups and point-in-time recovery belong to your database provider."
+              : "Workspace data, managed keys, and browser sessions are multi-instance aware. Human accounts are available when an operator configures the dedicated identity secret. Backups and point-in-time recovery belong to your database provider."
             : durable
             ? "This API is using the workspace-scoped SQLite store. Keep the database file backed up like any other application data."
             : "Switch the API to the built-in SQLite store when you want traces, comparisons, and guardrails to survive a restart."}
