@@ -2,9 +2,9 @@
 
 The browser product still defaults to an in-memory store so a first-time user
 can run it without configuration. SQLite enables restart-safe local or
-single-node storage. PostgreSQL enables multi-instance-safe core workspace
-data, while managed identity and email operations remain explicitly gated to
-SQLite until their repositories are migrated together.
+single-node storage. PostgreSQL enables multi-instance-safe workspace data,
+managed keys, and browser sessions, while human identity and email operations
+remain explicitly gated to SQLite until their repositories migrate together.
 """
 
 from __future__ import annotations

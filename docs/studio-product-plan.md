@@ -88,8 +88,8 @@ Frontend:
 - Light and dark dashboard modes with the same component structure.
 - A zero-setup local mode plus protected workspace unlock, managed accounts,
   saved-code recovery, team roles, and optional invitation delivery on SQLite.
-  PostgreSQL currently supports the core evidence path with static environment
-  keys; its managed identity/email repositories and billing remain future work.
+  PostgreSQL supports core evidence, managed keys, and HttpOnly browser sessions;
+  its human identity/email repositories and billing remain future work.
 - Show the seeded demo immediately on first load.
 - UI must look like a product dashboard, not a docs page.
 
@@ -120,7 +120,7 @@ Later adapters can add:
 - Langfuse direct import.
 - LangSmith direct import.
 - GitHub PR/test generation.
-- Managed identity, invitation delivery, and migration tooling on top of the
+- Human identity, invitation delivery, and migration tooling on top of the
   implemented PostgreSQL core workspace store.
 
 This means the public pitch can mention Langfuse/LangSmith compatibility through
@@ -137,8 +137,8 @@ throttling, and security boundary. The local MVP is hardened against obvious
 bad inputs and now supports durable API-key-scoped workspaces. Managed browser
 sign-in exchanges a workspace key for a short-lived, revocable HttpOnly session,
 and SQLite supports invitation-only accounts, recovery, team roles, and email
-delivery. PostgreSQL supports core workspace evidence across API instances, but
-managed identity/email migration, hosted monitoring/error-event retention
+delivery. PostgreSQL supports core workspace evidence and managed access across
+API instances, but human identity/email migration, hosted monitoring/error-event retention
 wiring, and distributed rate limiting remain separate SaaS milestones. The API
 also provides hashed expiring keys, a protected Prometheus
 scrape endpoint, starter alert rules, and an incident runbook. Admins can now

@@ -54,6 +54,10 @@ from tracebisect.studio.identity import (
     revoke_studio_invitation,
     update_studio_membership_role,
 )
+from tracebisect.studio.managed_database import (
+    StudioDatabaseTarget,
+    StudioManagedDatabase,
+)
 from tracebisect.studio.storage import StudioConfigurationError, validate_workspace_id
 
 AuthMode = Literal["none", "api-key"]
@@ -87,7 +91,7 @@ class StudioAuthConfig:
     mode: AuthMode
     credential_source: CredentialSource = "none"
     _credentials: tuple[tuple[str, str], ...] = field(default=(), repr=False)
-    _database_path: Path | None = field(default=None, repr=False)
+    _database: StudioDatabaseTarget | None = field(default=None, repr=False)
     _pepper: str | None = field(default=None, repr=False)
     _identity_secret: str | None = field(default=None, repr=False)
     _browser_session_ttl_seconds: int = field(
@@ -96,7 +100,12 @@ class StudioAuthConfig:
     )
 
     @classmethod
-    def from_env(cls, env: Mapping[str, str] | None = None) -> StudioAuthConfig:
+    def from_env(
+        cls,
+        env: Mapping[str, str] | None = None,
+        *,
+        managed_database: StudioManagedDatabase | None = None,
+    ) -> StudioAuthConfig:
         values = os.environ if env is None else env
         raw_mode = values.get("TRACEBISECT_STUDIO_AUTH_MODE", "none").strip().lower()
         raw_credentials = values.get("TRACEBISECT_STUDIO_API_KEYS", "").strip()
@@ -133,22 +142,34 @@ class StudioAuthConfig:
             raise StudioConfigurationError(f"{IDENTITY_SECRET_ENV} requires managed API keys")
         storage_kind = values.get("TRACEBISECT_STUDIO_STORAGE", "memory").strip().lower()
         if raw_pepper:
-            if storage_kind != "sqlite":
+            if storage_kind == "postgres" and raw_identity_secret:
                 raise StudioConfigurationError(
-                    "managed API keys, browser sessions, and human identity currently require "
+                    "managed human identity currently requires "
                     "TRACEBISECT_STUDIO_STORAGE=sqlite"
                 )
             pepper = api_key_pepper(values)
             browser_session_ttl_seconds = _browser_session_ttl(raw_browser_session_ttl)
-            raw_database_path = values.get("TRACEBISECT_STUDIO_SQLITE_PATH", "").strip()
-            if not raw_database_path:
+            if storage_kind == "postgres":
+                if managed_database is None:
+                    raise StudioConfigurationError(
+                        "managed PostgreSQL access requires the configured Studio database"
+                    )
+                database: StudioDatabaseTarget = managed_database
+            elif storage_kind == "sqlite":
+                raw_database_path = values.get("TRACEBISECT_STUDIO_SQLITE_PATH", "").strip()
+                if not raw_database_path:
+                    raise StudioConfigurationError(
+                        "TRACEBISECT_STUDIO_SQLITE_PATH is required for managed API keys"
+                    )
+                database = Path(raw_database_path).expanduser().resolve()
+            else:
                 raise StudioConfigurationError(
-                    "TRACEBISECT_STUDIO_SQLITE_PATH is required for managed API keys"
+                    "managed API keys require durable SQLite or PostgreSQL storage"
                 )
             config = cls(
                 mode="api-key",
                 credential_source="managed",
-                _database_path=Path(raw_database_path).expanduser().resolve(),
+                _database=database,
                 _pepper=pepper,
                 _identity_secret=identity_secret(values) if raw_identity_secret else None,
                 _browser_session_ttl_seconds=browser_session_ttl_seconds,
@@ -190,10 +211,10 @@ class StudioAuthConfig:
         if candidate is None:
             return None
         if self.credential_source == "managed":
-            if self._database_path is None or self._pepper is None:
+            if self._database is None or self._pepper is None:
                 return None
             principal = principal_for_managed_api_key(
-                self._database_path,
+                self._database,
                 api_key=candidate,
                 pepper=self._pepper,
             )
@@ -228,12 +249,12 @@ class StudioAuthConfig:
         if (
             candidate is None
             or not self.browser_sessions_enabled
-            or self._database_path is None
+            or self._database is None
             or self._pepper is None
         ):
             return None
         return issue_studio_browser_session(
-            self._database_path,
+            self._database,
             api_key=candidate,
             pepper=self._pepper,
             ttl_seconds=self._browser_session_ttl_seconds,
@@ -244,13 +265,13 @@ class StudioAuthConfig:
         session_token: str | None,
     ) -> StudioAuthPrincipal | None:
         """Resolve an opaque browser cookie to its live workspace authorization."""
-        if not session_token or not self.browser_sessions_enabled or self._database_path is None:
+        if not session_token or not self.browser_sessions_enabled or self._database is None:
             return None
         if session_token.startswith("tbis_"):
             if self._identity_secret is None:
                 return None
             identity_principal = principal_for_studio_identity_session(
-                self._database_path,
+                self._identity_database(),
                 session_token=session_token,
                 identity_secret_value=self._identity_secret,
             )
@@ -269,7 +290,7 @@ class StudioAuthConfig:
         if self._pepper is None:
             return None
         principal = principal_for_studio_browser_session(
-            self._database_path,
+            self._database,
             session_token=session_token,
             pepper=self._pepper,
         )
@@ -286,20 +307,20 @@ class StudioAuthConfig:
 
     def revoke_browser_session(self, session_token: str | None) -> bool:
         """Revoke one browser session when managed sessions are configured."""
-        if not session_token or not self.browser_sessions_enabled or self._database_path is None:
+        if not session_token or not self.browser_sessions_enabled or self._database is None:
             return False
         if session_token.startswith("tbis_"):
             if self._identity_secret is None:
                 return False
             return revoke_studio_identity_session(
-                self._database_path,
+                self._identity_database(),
                 session_token=session_token,
                 identity_secret_value=self._identity_secret,
             )
         if self._pepper is None:
             return False
         return revoke_studio_browser_session(
-            self._database_path,
+            self._database,
             session_token=session_token,
             pepper=self._pepper,
         )
@@ -479,23 +500,28 @@ class StudioAuthConfig:
             key_id=key_id,
         )
 
-    def _managed_key_material(self) -> tuple[Path, str]:
+    def _managed_key_material(self) -> tuple[StudioDatabaseTarget, str]:
         if (
             not self.access_management_enabled
-            or self._database_path is None
+            or self._database is None
             or self._pepper is None
         ):
             raise StudioApiKeyError("managed workspace access is not enabled")
-        return self._database_path, self._pepper
+        return self._database, self._pepper
 
     def _managed_identity_material(self) -> tuple[Path, str]:
         if (
             not self.identity_enabled
-            or self._database_path is None
+            or self._database is None
             or self._identity_secret is None
         ):
             raise StudioApiKeyError("managed human identity is not enabled")
-        return self._database_path, self._identity_secret
+        return self._identity_database(), self._identity_secret
+
+    def _identity_database(self) -> Path:
+        if not isinstance(self._database, Path):
+            raise StudioApiKeyError("managed human identity is not enabled for PostgreSQL")
+        return self._database
 
     def runtime_status(self) -> dict[str, str | bool | int]:
         """Describe the auth boundary without exposing credentials or workspace names."""

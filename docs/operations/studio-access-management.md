@@ -52,6 +52,17 @@ tracebisect studio keys create \
   --role admin
 ```
 
+For PostgreSQL, store `TRACEBISECT_STUDIO_DATABASE_URL` and
+`TRACEBISECT_STUDIO_API_KEY_PEPPER` in the trusted operator environment, then
+run the same command without `--database`:
+
+```bash
+tracebisect studio keys create \
+  --workspace team-a \
+  --name 'Workspace owner' \
+  --role admin
+```
+
 If every admin key is lost, expired, or revoked, a server operator with access
 to the database and configured pepper must create a replacement with the same
 command. Human accounts use saved one-time recovery codes; automatic recovery
@@ -66,7 +77,7 @@ email is not implemented yet.
 - Browser-session changes require Studio's exact allowed origin and CSRF header.
 - Request audit events use fixed action names and never contain the new secret or
   a key ID.
-- The SQLite database stores a peppered HMAC digest, not the plaintext key.
+- SQLite and PostgreSQL store a peppered HMAC digest, not the plaintext key.
 
 This feature manages workspace keys. Human accounts, invitation links, saved
 recovery codes, and team membership are documented separately. Automated email,

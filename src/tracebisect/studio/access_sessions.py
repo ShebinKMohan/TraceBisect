@@ -9,16 +9,19 @@ import secrets
 import sqlite3
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
 from tracebisect.studio.access_keys import (
     ManagedApiKeyPrincipal,
     WorkspaceRole,
     principal_for_managed_api_key,
 )
+from tracebisect.studio.managed_database import (
+    StudioDatabaseTarget,
+    ensure_managed_database_schema,
+    studio_database_connection,
+)
 from tracebisect.studio.storage import (
     StudioPersistenceError,
-    ensure_studio_schema,
     validate_workspace_id,
 )
 
@@ -56,7 +59,7 @@ class IssuedStudioBrowserSession:
 
 
 def issue_studio_browser_session(
-    database_path: str | Path,
+    database_path: StudioDatabaseTarget,
     *,
     api_key: str,
     pepper: str,
@@ -85,12 +88,13 @@ def issue_studio_browser_session(
         raise StudioBrowserSessionError("could not generate a valid browser session")
     session_token = f"tbss_{session_id}_{secret}"
     session_hash = _session_digest(session_token, pepper)
-    database = Path(database_path).expanduser().resolve()
+    database = database_path
 
     try:
-        with sqlite3.connect(database, timeout=5) as connection:
+        with studio_database_connection(database) as connection:
             connection.execute("PRAGMA busy_timeout = 5000")
-            ensure_studio_schema(connection)
+            ensure_managed_database_schema(connection)
+            connection.execute("BEGIN IMMEDIATE")
             connection.execute(
                 """
                 DELETE FROM studio_browser_sessions
@@ -149,7 +153,7 @@ def issue_studio_browser_session(
 
 
 def principal_for_studio_browser_session(
-    database_path: str | Path,
+    database_path: StudioDatabaseTarget,
     *,
     session_token: str,
     pepper: str,
@@ -161,13 +165,9 @@ def principal_for_studio_browser_session(
         return None
     session_id = match.group(1)
     current = _utc_now(now)
-    database = Path(database_path).expanduser().resolve()
+    database = database_path
     try:
-        with sqlite3.connect(
-            f"{database.as_uri()}?mode=ro",
-            uri=True,
-            timeout=5,
-        ) as connection:
+        with studio_database_connection(database, read_only=True) as connection:
             row = connection.execute(
                 """
                 SELECT
@@ -232,7 +232,7 @@ def principal_for_studio_browser_session(
 
 
 def revoke_studio_browser_session(
-    database_path: str | Path,
+    database_path: StudioDatabaseTarget,
     *,
     session_token: str,
     pepper: str,
@@ -244,11 +244,11 @@ def revoke_studio_browser_session(
         return False
     session_id = match.group(1)
     revoked = _utc_now(now)
-    database = Path(database_path).expanduser().resolve()
+    database = database_path
     try:
-        with sqlite3.connect(database, timeout=5) as connection:
+        with studio_database_connection(database) as connection:
             connection.execute("PRAGMA busy_timeout = 5000")
-            ensure_studio_schema(connection)
+            ensure_managed_database_schema(connection)
             row = connection.execute(
                 """
                 SELECT session_hash, revoked_at

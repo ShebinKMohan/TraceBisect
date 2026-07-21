@@ -9,7 +9,9 @@ from pathlib import Path
 
 import pytest
 
+import tracebisect.cli as tracebisect_cli
 import tracebisect.studio.access_keys as access_keys
+import tracebisect.studio.postgres_storage as postgres_storage
 from tracebisect.cli import main
 from tracebisect.studio.access_keys import (
     StudioApiKeyError,
@@ -382,3 +384,57 @@ def test_key_cli_requires_the_server_pepper(
     error_output = capsys.readouterr().err
     assert "tracebisect studio keys create failed" in error_output
     assert "TRACEBISECT_STUDIO_API_KEY_PEPPER" in error_output
+
+
+def test_key_cli_uses_the_managed_postgres_url_without_a_database_flag(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created: list[tuple[str, str]] = []
+    closed = False
+
+    class _PostgresTarget:
+        def __init__(self, database_url: str, *, workspace_id: str) -> None:
+            created.append((database_url, workspace_id))
+
+        def close(self) -> None:
+            nonlocal closed
+            closed = True
+
+    monkeypatch.setenv(
+        "TRACEBISECT_STUDIO_DATABASE_URL",
+        "postgresql://studio:secret@db.example/tracebisect",
+    )
+    monkeypatch.setattr(postgres_storage, "PostgresStudioStore", _PostgresTarget)
+
+    with tracebisect_cli._studio_key_database(None) as target:
+        assert isinstance(target, _PostgresTarget)
+
+    assert created == [
+        ("postgresql://studio:secret@db.example/tracebisect", "operator")
+    ]
+    assert closed is True
+
+
+def test_key_cli_explains_how_to_choose_sqlite_or_postgres(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("TRACEBISECT_STUDIO_API_KEY_PEPPER", PEPPER)
+    monkeypatch.delenv("TRACEBISECT_STUDIO_DATABASE_URL", raising=False)
+
+    exit_code = main(
+        [
+            "studio",
+            "keys",
+            "create",
+            "--workspace",
+            "team-a",
+            "--name",
+            "First admin",
+        ]
+    )
+
+    assert exit_code == 2
+    error = capsys.readouterr().err
+    assert "provide --database for SQLite" in error
+    assert "TRACEBISECT_STUDIO_DATABASE_URL for PostgreSQL" in error

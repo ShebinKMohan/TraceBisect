@@ -30,8 +30,10 @@ A browser session stops working when any of these happens:
 - The source workspace key expires.
 - An account password is recovered, a live membership is removed, or the
   account session version changes.
-- A restored backup replaces the active database. Backups intentionally contain
-  no browser sessions, so recovery requires everyone to sign in again.
+- A restored SQLite backup replaces the active database. SQLite backups
+  intentionally contain no browser sessions, so recovery requires everyone to
+  sign in again. A PostgreSQL point-in-time restore must rotate the API-key
+  pepper and bootstrap a new admin key before reopening traffic.
 
 Revoking a source key invalidates all sessions created from that key without an
 API restart:
@@ -40,6 +42,9 @@ API restart:
 tracebisect studio keys list --database .tracebisect/studio.db
 tracebisect studio keys revoke --database .tracebisect/studio.db --key-id KEY_ID
 ```
+
+For PostgreSQL, set `TRACEBISECT_STUDIO_DATABASE_URL` in the trusted operator
+environment and omit `--database` from both commands.
 
 ## Session lifetime
 

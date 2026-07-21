@@ -6,6 +6,7 @@ import json
 import os
 import uuid
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 import pytest
 from psycopg_pool import PoolTimeout
@@ -13,11 +14,22 @@ from psycopg_pool import PoolTimeout
 import tracebisect.studio.api as studio_api
 import tracebisect.studio.postgres_storage as postgres_storage
 from tracebisect.demo import build_refund_baseline_trace
+from tracebisect.studio.access_keys import (
+    create_studio_api_key,
+    principal_for_managed_api_key,
+    revoke_studio_api_key,
+)
+from tracebisect.studio.access_sessions import (
+    issue_studio_browser_session,
+    principal_for_studio_browser_session,
+    revoke_studio_browser_session,
+)
 from tracebisect.studio.auth import StudioAuthConfig
 from tracebisect.studio.postgres_storage import (
     POSTGRES_SCHEMA_STATEMENTS,
     PostgresStudioStore,
     create_postgres_pool,
+    ensure_postgres_schema,
 )
 from tracebisect.studio.service import StudioStore, build_demo_report
 from tracebisect.studio.storage import (
@@ -32,6 +44,7 @@ class _Execution:
     contains: str
     one: object = None
     many: tuple[tuple[object, ...], ...] = ()
+    rowcount: int = 1
 
 
 class _Result:
@@ -43,6 +56,35 @@ class _Result:
 
     def fetchall(self) -> list[tuple[object, ...]]:
         return list(self._execution.many)
+
+    @property
+    def rowcount(self) -> int:
+        return self._execution.rowcount
+
+    def __iter__(self):  # type: ignore[no-untyped-def]
+        return iter(self._execution.many)
+
+
+class _Cursor:
+    def __init__(self, connection: _Connection) -> None:
+        self._connection = connection
+        self._result: _Result | None = None
+
+    def executemany(self, statement: str, params: object) -> None:
+        self._result = self._connection.execute(statement, params)
+
+    @property
+    def rowcount(self) -> int:
+        return self._result.rowcount if self._result is not None else -1
+
+    def fetchone(self) -> object:
+        return self._result.fetchone() if self._result is not None else None
+
+    def fetchall(self) -> list[tuple[object, ...]]:
+        return self._result.fetchall() if self._result is not None else []
+
+    def __iter__(self):  # type: ignore[no-untyped-def]
+        return iter(self._result) if self._result is not None else iter(())
 
 
 class _Connection:
@@ -58,6 +100,9 @@ class _Connection:
         assert execution.contains in normalized
         self.calls.append((normalized, params))
         return _Result(execution)
+
+    def cursor(self) -> _Cursor:
+        return _Cursor(self)
 
 
 class _ConnectionContext:
@@ -105,6 +150,29 @@ def test_postgres_schema_uses_jsonb_timestamps_constraints_and_workspace_indexes
     assert "workspace_id ~" in schema
     assert "studio_reports_workspace_created_idx" in schema
     assert "studio_cases_workspace_updated_idx" in schema
+    assert "create table if not exists studio_api_keys" in schema
+    assert "create table if not exists studio_browser_sessions" in schema
+    assert "references studio_api_keys(key_id) on delete cascade" in schema
+    assert "where revoked_at is null" in schema
+
+
+def test_postgres_schema_upgrades_core_v1_to_managed_access_v2() -> None:
+    statements = [" ".join(statement.split()) for statement in POSTGRES_SCHEMA_STATEMENTS]
+    connection = _Connection(
+        [
+            _Execution("pg_advisory_xact_lock"),
+            _Execution(statements[0]),
+            _Execution("SELECT version FROM studio_postgres_schema", one=(1,)),
+            *[_Execution(statement) for statement in statements[1:]],
+            _Execution("UPDATE studio_postgres_schema SET version"),
+        ]
+    )
+    pool = _Pool(connection)
+
+    ensure_postgres_schema(pool)  # type: ignore[arg-type]
+
+    assert connection.calls[-1][1] == (postgres_storage.POSTGRES_SCHEMA_VERSION,)
+    assert not connection.executions
 
 
 def test_postgres_pool_is_bounded_fail_fast_and_disables_prepared_statements(
@@ -329,7 +397,179 @@ def test_postgres_factory_fails_fast_before_connecting(
         create_studio_store(env)
 
 
-def test_static_workspace_keys_can_protect_postgres_but_managed_identity_stays_gated() -> None:
+def test_postgres_managed_key_creation_and_resolution_reuse_the_shared_pool() -> None:
+    store, connection, _pool = _store(
+        [
+            _Execution("pg_advisory_xact_lock"),
+            _Execution("SELECT COUNT(*) FROM studio_api_keys", one=(0,)),
+            _Execution("INSERT INTO studio_api_keys"),
+        ]
+    )
+    pepper = "managed-postgres-pepper-with-at-least-32-characters"
+
+    issued = create_studio_api_key(
+        store,
+        workspace_id="workspace-a",
+        role="admin",
+        label="First PostgreSQL admin",
+        expires_in_days=30,
+        pepper=pepper,
+    )
+    insert_params = connection.calls[-1][1]
+    assert isinstance(insert_params, tuple)
+    stored_hash = insert_params[4]
+    connection.executions.extend(
+        [
+            _Execution("SET TRANSACTION READ ONLY"),
+            _Execution(
+                "SELECT workspace_id, role, key_hash, expires_at, revoked_at",
+                one=(
+                    "workspace-a",
+                    "admin",
+                    stored_hash,
+                    issued.record.expires_at,
+                    None,
+                ),
+            ),
+        ]
+    )
+
+    principal = principal_for_managed_api_key(
+        store,
+        api_key=issued.api_key,
+        pepper=pepper,
+    )
+
+    assert principal is not None
+    assert principal.workspace_id == "workspace-a"
+    assert principal.role == "admin"
+    assert not connection.executions
+
+
+def test_postgres_browser_session_is_bounded_resolvable_and_revocable() -> None:
+    now = datetime(2026, 7, 21, 5, 0, tzinfo=timezone.utc)
+    pepper = "managed-postgres-pepper-with-at-least-32-characters"
+    store, connection, _pool = _store(
+        [
+            _Execution("pg_advisory_xact_lock"),
+            _Execution("SELECT COUNT(*) FROM studio_api_keys", one=(0,)),
+            _Execution("INSERT INTO studio_api_keys"),
+        ]
+    )
+    issued_key = create_studio_api_key(
+        store,
+        workspace_id="workspace-a",
+        role="editor",
+        label="Browser owner",
+        expires_in_days=30,
+        pepper=pepper,
+        now=now,
+    )
+    key_insert = connection.calls[-1][1]
+    assert isinstance(key_insert, tuple)
+    key_hash = key_insert[4]
+    connection.executions.extend(
+        [
+            _Execution("SET TRANSACTION READ ONLY"),
+            _Execution(
+                "SELECT workspace_id, role, key_hash, expires_at, revoked_at",
+                one=(
+                    "workspace-a",
+                    "editor",
+                    key_hash,
+                    issued_key.record.expires_at,
+                    None,
+                ),
+            ),
+            _Execution("pg_advisory_xact_lock"),
+            _Execution("DELETE FROM studio_browser_sessions WHERE expires_at"),
+            _Execution("DELETE FROM studio_browser_sessions WHERE key_id IN"),
+            _Execution("SELECT session_id FROM studio_browser_sessions", many=()),
+            _Execution("DELETE FROM studio_browser_sessions WHERE session_id"),
+            _Execution("INSERT INTO studio_browser_sessions"),
+        ]
+    )
+
+    issued_session = issue_studio_browser_session(
+        store,
+        api_key=issued_key.api_key,
+        pepper=pepper,
+        ttl_seconds=3600,
+        now=now,
+    )
+    session_insert = connection.calls[-1][1]
+    assert isinstance(session_insert, tuple)
+    session_hash = session_insert[2]
+    assert all("LIMIT -1" not in statement for statement, _params in connection.calls)
+    connection.executions.extend(
+        [
+            _Execution("SET TRANSACTION READ ONLY"),
+            _Execution(
+                "FROM studio_browser_sessions AS session",
+                one=(
+                    session_hash,
+                    issued_session.principal.expires_at,
+                    None,
+                    issued_key.record.key_id,
+                    "workspace-a",
+                    "editor",
+                    issued_key.record.expires_at,
+                    None,
+                ),
+            ),
+            _Execution(
+                "SELECT session_hash, revoked_at",
+                one=(session_hash, None),
+            ),
+            _Execution("UPDATE studio_browser_sessions SET revoked_at"),
+        ]
+    )
+
+    principal = principal_for_studio_browser_session(
+        store,
+        session_token=issued_session.session_token,
+        pepper=pepper,
+        now=now,
+    )
+    revoked = revoke_studio_browser_session(
+        store,
+        session_token=issued_session.session_token,
+        pepper=pepper,
+        now=now,
+    )
+
+    assert principal is not None
+    assert principal.workspace_id == "workspace-a"
+    assert principal.role == "editor"
+    assert revoked is True
+    assert not connection.executions
+
+
+def test_managed_postgres_auth_enables_browser_sessions_but_keeps_identity_gated() -> None:
+    store, _connection, _pool = _store([])
+    pepper = "managed-postgres-pepper-with-at-least-32-characters"
+    base = {
+        "TRACEBISECT_STUDIO_STORAGE": "postgres",
+        "TRACEBISECT_STUDIO_DATABASE_URL": "postgresql://db.example/studio",
+        "TRACEBISECT_STUDIO_AUTH_MODE": "api-key",
+        "TRACEBISECT_STUDIO_API_KEY_PEPPER": pepper,
+    }
+    config = StudioAuthConfig.from_env(base, managed_database=store)
+
+    assert config.access_management_enabled is True
+    assert config.browser_sessions_enabled is True
+    assert config.identity_enabled is False
+    with pytest.raises(StudioConfigurationError, match="human identity.*sqlite"):
+        StudioAuthConfig.from_env(
+            {
+                **base,
+                "TRACEBISECT_STUDIO_IDENTITY_SECRET": "i" * 40,
+            },
+            managed_database=store,
+        )
+
+
+def test_static_workspace_keys_can_still_protect_postgres() -> None:
     static_key = "workspace-a-secret-key-0000000001"
     base = {
         "TRACEBISECT_STUDIO_STORAGE": "postgres",
@@ -344,13 +584,6 @@ def test_static_workspace_keys_can_protect_postgres_but_managed_identity_stays_g
     )
 
     assert config.workspace_for_authorization(f"Bearer {static_key}") == "workspace-a"
-    with pytest.raises(StudioConfigurationError, match="currently require.*sqlite"):
-        StudioAuthConfig.from_env(
-            {
-                **base,
-                "TRACEBISECT_STUDIO_API_KEY_PEPPER": "p" * 40,
-            }
-        )
 
 
 def test_production_readiness_does_not_claim_sqlite_backup_for_postgres(
@@ -439,6 +672,38 @@ def test_live_postgres_store_shares_fresh_data_and_isolates_workspaces() -> None
         assert restored.get_case(str(case["case_id"])) == case
         assert restored.seed_demo_report()["report_id"] == report["report_id"]
 
+        pepper = "live-postgres-test-pepper-with-at-least-32-characters"
+        issued_key = create_studio_api_key(
+            first,
+            workspace_id=workspace_id,
+            role="admin",
+            label="Live parity admin",
+            expires_in_days=1,
+            pepper=pepper,
+        )
+        issued_session = issue_studio_browser_session(
+            first,
+            api_key=issued_key.api_key,
+            pepper=pepper,
+            ttl_seconds=3600,
+        )
+        session_principal = principal_for_studio_browser_session(
+            restored,
+            session_token=issued_session.session_token,
+            pepper=pepper,
+        )
+        assert session_principal is not None
+        assert session_principal.workspace_id == workspace_id
+        revoke_studio_api_key(first, key_id=issued_key.record.key_id)
+        assert (
+            principal_for_studio_browser_session(
+                restored,
+                session_token=issued_session.session_token,
+                pepper=pepper,
+            )
+            is None
+        )
+
         other = PostgresStudioStore(database_url, workspace_id=other_workspace_id)
         assert other.list_traces() == []
         assert other.list_report_summaries() == []
@@ -447,6 +712,11 @@ def test_live_postgres_store_shares_fresh_data_and_isolates_workspaces() -> None
         try:
             try:
                 (restored or first).clear()
+                with first.managed_connection() as connection:
+                    connection.execute(
+                        "DELETE FROM studio_api_keys WHERE workspace_id = ?",
+                        (workspace_id,),
+                    )
             finally:
                 if restored is not None:
                     restored.close()

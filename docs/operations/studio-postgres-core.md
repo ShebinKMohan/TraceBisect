@@ -1,9 +1,9 @@
-# Studio PostgreSQL core storage
+# Studio PostgreSQL workspace storage
 
 PostgreSQL mode is the first multi-instance persistence milestone for
-TraceBisect Studio. It stores traces, comparison reports, regression cases, and
-demo metadata in one shared database. It does **not** yet make the complete
-product a hosted multi-tenant SaaS.
+TraceBisect Studio. It stores traces, comparison reports, regression cases, demo
+metadata, managed workspace keys, and browser sessions in one shared database.
+It does **not** yet make the complete product a hosted multi-tenant SaaS.
 
 ## Current boundary
 
@@ -13,26 +13,26 @@ Supported in PostgreSQL mode:
 - workspace-scoped traces, reports, regression cases, and demo metadata;
 - bounded connection pooling with startup connection and schema checks;
 - serialized workspace capacity, retention, case-update, and demo-seed writes;
-- static workspace keys supplied through `TRACEBISECT_STUDIO_API_KEYS`.
+- digest-only managed workspace keys with expiry, roles, and immediate revocation;
+- short-lived, digest-only HttpOnly browser sessions that cannot outlive a key;
+- first-admin bootstrap through the same `tracebisect studio keys` commands used
+  for SQLite.
 
 Still SQLite-only:
 
-- managed/hashed API-key issuance and revocation;
-- HttpOnly browser sessions;
 - human accounts, recovery codes, team membership, and invitations;
 - the encrypted invitation-email outbox, worker, and webhook history;
 - the local `studio backup`, `verify`, and `restore` commands.
 
-Studio fails startup if managed identity or email settings are combined with
-PostgreSQL. Do not expose an unauthenticated PostgreSQL deployment to the public
-internet. Until the security repositories migrate together, protect it with
-static environment keys behind a private gateway or use SQLite for the complete
-single-node product.
+Studio fails startup if human identity or email settings are combined with
+PostgreSQL. Use managed keys for a protected PostgreSQL deployment; use SQLite
+when the current complete account and invitation-email experience is required.
 
 ## Configure the API
 
-Install the Studio dependencies, then store the database URL and API key in the
-deployment secret manager:
+Install the Studio dependencies, generate a hashing secret, and store the secret
+and database URL in the deployment secret manager. The bootstrap command uses
+the URL from the environment so it does not need to appear as a command argument:
 
 ```bash
 uv sync --extra studio
@@ -40,14 +40,26 @@ uv sync --extra studio
 export TRACEBISECT_STUDIO_STORAGE='postgres'
 export TRACEBISECT_STUDIO_DATABASE_URL='postgresql://studio:secret@db.example/tracebisect'
 export TRACEBISECT_STUDIO_AUTH_MODE='api-key'
-export TRACEBISECT_STUDIO_API_KEYS='{"replace-with-a-long-random-workspace-key":"team-a"}'
+export TRACEBISECT_STUDIO_API_KEY_PEPPER='paste-the-generated-value-here'
 export TRACEBISECT_STUDIO_ALLOWED_ORIGINS='https://studio.example.com'
 export TRACEBISECT_STUDIO_METRICS_TOKEN='replace-with-a-dedicated-monitoring-token'
+
+tracebisect studio keys create \
+  --workspace team-a \
+  --name 'First workspace admin' \
+  --role admin \
+  --expires-in-days 90
 
 uvicorn tracebisect.studio.api:app --port 8000
 ```
 
-The API installs its versioned core tables under an advisory transaction lock.
+Copy the printed key immediately; PostgreSQL stores only its HMAC-SHA256 digest.
+Studio exchanges the key for a short-lived HttpOnly cookie, so the managed key
+does not remain in browser storage. Use **Settings → Workspace access** for later
+key creation and revocation.
+
+The API installs its versioned workspace and access tables under an advisory
+transaction lock.
 Startup fails if the pool cannot connect, the schema cannot be installed, or a
 newer unsupported schema is present. `/api/ready` returns `503` when the database
 is unavailable; `/api/health` remains readable and reports the failed storage
@@ -91,6 +103,12 @@ Enable provider-managed encrypted backups and point-in-time recovery, define
 retention, and perform a restore drill into an isolated database before launch.
 The SQLite backup CLI does not operate on PostgreSQL.
 
+Treat a point-in-time restore as a credential rollback. Before reopening
+traffic, generate and deploy a new `TRACEBISECT_STUDIO_API_KEY_PEPPER`, create a
+new admin key with that pepper, and retire the old pepper. This invalidates every
+restored key and browser-session digest, including credentials that were revoked
+after the restored timestamp.
+
 There is no automatic SQLite-to-PostgreSQL migration in this milestone. Do not
 point a production deployment at an empty PostgreSQL database and assume its
 SQLite data moved. Export/import tooling and reconciliation checks remain a
@@ -109,7 +127,7 @@ pytest -q tests/test_studio_postgres_storage.py \
   -k live_postgres_store_shares_fresh_data_and_isolates_workspaces
 ```
 
-The live test creates random workspaces, proves fresh cross-pool reads and
-workspace isolation, and removes those rows afterward. A skipped live test is
-not evidence that a real provider connection, TLS policy, backup, or restore has
-been verified.
+The live test creates random workspaces, proves fresh cross-pool reads, managed
+key/session revocation, and workspace isolation, then removes those rows. A
+skipped live test is not evidence that a real provider connection, TLS policy,
+backup, or restore has been verified.

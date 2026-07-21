@@ -74,6 +74,7 @@ from tracebisect.studio.identity import (
     StudioInvitationRecord,
     StudioMembershipRecord,
 )
+from tracebisect.studio.managed_database import StudioManagedDatabase
 from tracebisect.studio.metrics import (
     PROMETHEUS_CONTENT_TYPE,
     StudioMetrics,
@@ -251,7 +252,9 @@ app = FastAPI(
 
 STORE_REGISTRY = StudioStoreRegistry()
 STORE: StudioStore = STORE_REGISTRY.default_store
-AUTH_CONFIG = StudioAuthConfig.from_env()
+AUTH_CONFIG = StudioAuthConfig.from_env(
+    managed_database=STORE if isinstance(STORE, StudioManagedDatabase) else None,
+)
 AUDIT = StudioAudit.from_env()
 ERROR_REPORTER = StudioErrorReporter.from_env()
 EMAIL_DELIVERY = StudioEmailDelivery.from_env()

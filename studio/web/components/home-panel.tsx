@@ -146,7 +146,7 @@ export function HomePanel({ authRequired, canEdit, cases, report, runtime, trace
                 ? authRequired
                   ? "your signed-in access is limited to this workspace, and its data survives API restarts."
                   : postgres
-                    ? "core workspace data is shared through PostgreSQL; managed sign-in is not enabled on this backend yet."
+                    ? "core workspace data is shared through PostgreSQL; managed sign-in is available when an operator enables it."
                   : durable
                     ? "traces, comparisons, and guardrails survive API restarts."
                     : "no account is required and data resets when the API restarts."

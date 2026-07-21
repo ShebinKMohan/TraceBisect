@@ -1,14 +1,15 @@
 """Managed PostgreSQL storage for horizontally deployed Studio core data.
 
-This backend intentionally owns traces, comparison reports, regression cases,
-and demo metadata only. Managed keys, human identity, and invitation delivery
-remain on the SQLite path until their repositories are migrated as one
-transactional security boundary.
+This backend owns traces, comparison reports, regression cases, demo metadata,
+managed workspace keys, and browser sessions. Human identity and invitation
+delivery remain on the SQLite path until those repositories migrate together.
 """
 
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterable, Iterator, Sequence
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any, cast
 
@@ -19,6 +20,10 @@ from psycopg_pool import ConnectionPool
 from tracebisect.demo import build_refund_baseline_trace, build_refund_candidate_trace
 from tracebisect.jsonl import dumps_trace, loads_trace
 from tracebisect.schema import JsonObject, Trace
+from tracebisect.studio.managed_database import (
+    StudioDatabaseConnection,
+    StudioDatabaseCursor,
+)
 from tracebisect.studio.service import (
     DEFAULT_ASSERTIONS,
     DEFAULT_MAX_STORED_CASES,
@@ -43,9 +48,10 @@ from tracebisect.studio.storage import (
     validate_workspace_id,
 )
 
-POSTGRES_SCHEMA_VERSION = 1
+POSTGRES_SCHEMA_VERSION = 2
 _SCHEMA_LOCK_ID = 882_014_771
 _WORKSPACE_LOCK_SEED = 882_014_771
+_MANAGED_SECURITY_LOCK_ID = 882_014_772
 
 POSTGRES_SCHEMA_STATEMENTS = (
     """
@@ -109,11 +115,59 @@ POSTGRES_SCHEMA_STATEMENTS = (
         CHECK (workspace_id ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$')
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS studio_api_keys (
+        key_id text PRIMARY KEY,
+        workspace_id text NOT NULL,
+        role text NOT NULL CHECK (role IN ('viewer', 'editor', 'admin')),
+        label text NOT NULL,
+        key_hash text NOT NULL CHECK (length(key_hash) = 64),
+        created_at timestamptz NOT NULL,
+        expires_at timestamptz NOT NULL,
+        revoked_at timestamptz,
+        CHECK (workspace_id ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'),
+        CHECK (expires_at > created_at)
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS studio_api_keys_workspace_created_idx
+    ON studio_api_keys (workspace_id, created_at DESC, key_id)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS studio_api_keys_active_workspace_expiry_idx
+    ON studio_api_keys (workspace_id, expires_at)
+    WHERE revoked_at IS NULL
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS studio_browser_sessions (
+        session_id text PRIMARY KEY,
+        key_id text NOT NULL REFERENCES studio_api_keys(key_id) ON DELETE CASCADE,
+        session_hash text NOT NULL CHECK (length(session_hash) = 64),
+        created_at timestamptz NOT NULL,
+        expires_at timestamptz NOT NULL,
+        revoked_at timestamptz,
+        CHECK (expires_at > created_at)
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS studio_browser_sessions_key_created_idx
+    ON studio_browser_sessions (key_id, created_at DESC, session_id)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS studio_browser_sessions_active_expiry_idx
+    ON studio_browser_sessions (expires_at)
+    WHERE revoked_at IS NULL
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS studio_browser_sessions_revoked_idx
+    ON studio_browser_sessions (revoked_at)
+    WHERE revoked_at IS NOT NULL
+    """,
 )
 
 
 class PostgresStudioStore(StudioStore):
-    """Multi-instance-safe core workspace store backed by a shared pool."""
+    """Multi-instance-safe workspace and managed-access store."""
 
     runtime_kind = "postgres"
     runtime_durable = True
@@ -562,6 +616,23 @@ class PostgresStudioStore(StudioStore):
         if self._owns_pool:
             self._pool.close()
 
+    @contextmanager
+    def managed_connection(
+        self,
+        *,
+        read_only: bool = False,
+    ) -> Iterator[StudioDatabaseConnection]:
+        """Share this store's bounded pool with managed security repositories."""
+        try:
+            with self._pool.connection() as connection:
+                if read_only:
+                    connection.execute("SET TRANSACTION READ ONLY")
+                yield _PostgresManagedConnection(connection)
+        except Error as exc:
+            raise StudioPersistenceError(
+                "could not use the PostgreSQL managed security store"
+            ) from exc
+
     def _trace_record(self, trace_key: str) -> tuple[Trace, str]:
         try:
             with self._pool.connection() as connection:
@@ -668,7 +739,7 @@ def create_postgres_pool(
 
 
 def ensure_postgres_schema(pool: ConnectionPool[Any]) -> None:
-    """Install the idempotent core schema under a transaction advisory lock."""
+    """Install the idempotent workspace schema under a transaction advisory lock."""
     try:
         with pool.connection() as connection:
             connection.execute("SELECT pg_advisory_xact_lock(%s)", (_SCHEMA_LOCK_ID,))
@@ -684,12 +755,16 @@ def ensure_postgres_schema(pool: ConnectionPool[Any]) -> None:
                     """,
                     (POSTGRES_SCHEMA_VERSION,),
                 )
-            elif row != (POSTGRES_SCHEMA_VERSION,):
+            elif not isinstance(row[0], int) or not 1 <= row[0] <= POSTGRES_SCHEMA_VERSION:
                 raise StudioPersistenceError(
                     f"unsupported PostgreSQL Studio schema version {row[0]!r}"
                 )
             for statement in POSTGRES_SCHEMA_STATEMENTS[1:]:
                 connection.execute(statement)
+            connection.execute(
+                "UPDATE studio_postgres_schema SET version = %s WHERE singleton = true",
+                (POSTGRES_SCHEMA_VERSION,),
+            )
     except StudioPersistenceError:
         raise
     except Error as exc:
@@ -824,3 +899,92 @@ def _postgres_json_object(value: object) -> JsonObject:
     if not isinstance(value, dict):
         raise StudioPersistenceError("stored PostgreSQL Studio JSON payload is not an object")
     return cast(JsonObject, value)
+
+
+class _PostgresManagedCursor:
+    """Normalize PostgreSQL rows to the existing storage-neutral value contract."""
+
+    def __init__(self, cursor: Any) -> None:
+        self._cursor = cursor
+
+    @property
+    def rowcount(self) -> int:
+        return int(self._cursor.rowcount)
+
+    def fetchone(self) -> tuple[object, ...] | None:
+        row = self._cursor.fetchone()
+        return _managed_row(row) if row is not None else None
+
+    def fetchall(self) -> list[tuple[object, ...]]:
+        return [_managed_row(row) for row in self._cursor.fetchall()]
+
+    def __iter__(self) -> Iterator[tuple[object, ...]]:
+        for row in self._cursor:
+            yield _managed_row(row)
+
+
+class _PostgresNoopCursor:
+    """Result for SQLite PRAGMA statements that PostgreSQL does not need."""
+
+    rowcount = 0
+
+    def fetchone(self) -> tuple[object, ...] | None:
+        return None
+
+    def fetchall(self) -> list[tuple[object, ...]]:
+        return []
+
+    def __iter__(self) -> Iterator[tuple[object, ...]]:
+        return iter(())
+
+
+class _PostgresManagedConnection:
+    """Translate the small SQLite-flavored repository SQL surface to PostgreSQL."""
+
+    dialect = "postgres"
+
+    def __init__(self, connection: Connection[Any]) -> None:
+        self._connection = connection
+
+    def execute(
+        self,
+        statement: str,
+        parameters: Sequence[object] = (),
+    ) -> StudioDatabaseCursor:
+        normalized = " ".join(statement.split()).upper()
+        if normalized.startswith("PRAGMA "):
+            return _PostgresNoopCursor()
+        if normalized == "BEGIN IMMEDIATE":
+            cursor = self._connection.execute(
+                "SELECT pg_advisory_xact_lock(%s)",
+                (_MANAGED_SECURITY_LOCK_ID,),
+            )
+            return _PostgresManagedCursor(cursor)
+        cursor = self._connection.execute(
+            _postgres_managed_statement(statement),
+            tuple(parameters),
+        )
+        return _PostgresManagedCursor(cursor)
+
+    def executemany(
+        self,
+        statement: str,
+        parameters: Iterable[Sequence[object]],
+    ) -> StudioDatabaseCursor:
+        cursor = self._connection.cursor()
+        cursor.executemany(
+            _postgres_managed_statement(statement),
+            [tuple(row) for row in parameters],
+        )
+        return _PostgresManagedCursor(cursor)
+
+
+def _postgres_managed_statement(statement: str) -> str:
+    translated = statement.replace("?", "%s")
+    return translated.replace("LIMIT -1 OFFSET %s", "OFFSET %s")
+
+
+def _managed_row(row: Sequence[object]) -> tuple[object, ...]:
+    return tuple(
+        _format_datetime(value) if isinstance(value, datetime) else value for value in row
+    )

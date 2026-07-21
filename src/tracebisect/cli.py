@@ -23,7 +23,8 @@ import signal
 import subprocess
 import sys
 import tempfile
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from pathlib import Path
 from threading import Event
 from typing import TYPE_CHECKING, Literal
@@ -42,6 +43,7 @@ from tracebisect.version import __version__
 
 if TYPE_CHECKING:
     from tracebisect.studio.backup import StudioBackupInspection
+    from tracebisect.studio.managed_database import StudioDatabaseTarget
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -208,8 +210,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     studio_keys_create.add_argument(
         "--database",
-        required=True,
-        help="Current TRACEBISECT_STUDIO_SQLITE_PATH value.",
+        help=(
+            "SQLite database path. Omit for PostgreSQL when "
+            "TRACEBISECT_STUDIO_DATABASE_URL is set."
+        ),
     )
     studio_keys_create.add_argument(
         "--workspace",
@@ -243,8 +247,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     studio_keys_list.add_argument(
         "--database",
-        required=True,
-        help="Current TRACEBISECT_STUDIO_SQLITE_PATH value.",
+        help=(
+            "SQLite database path. Omit for PostgreSQL when "
+            "TRACEBISECT_STUDIO_DATABASE_URL is set."
+        ),
     )
 
     studio_keys_revoke = studio_keys_commands.add_parser(
@@ -253,8 +259,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     studio_keys_revoke.add_argument(
         "--database",
-        required=True,
-        help="Current TRACEBISECT_STUDIO_SQLITE_PATH value.",
+        help=(
+            "SQLite database path. Omit for PostgreSQL when "
+            "TRACEBISECT_STUDIO_DATABASE_URL is set."
+        ),
     )
     studio_keys_revoke.add_argument(
         "--key-id",
@@ -646,13 +654,17 @@ def run_studio_keys_generate_pepper() -> int:
     print("Store this value in your deployment secret manager. Do not commit it.")
     print(f"  {API_KEY_PEPPER_ENV}={generate_api_key_pepper()}")
     print()
-    print("Next: export that variable, then create a workspace key with:")
-    print("  tracebisect studio keys create --database studio.db --workspace team-a --name you")
+    print("Next: export that variable, then create a workspace key.")
+    print(
+        "  SQLite: tracebisect studio keys create --database studio.db "
+        "--workspace team-a --name you"
+    )
+    print("  PostgreSQL: set TRACEBISECT_STUDIO_DATABASE_URL, then omit --database")
     return 0
 
 
 def run_studio_keys_create(
-    database: str,
+    database: str | None,
     workspace: str,
     name: str,
     role: Literal["viewer", "editor", "admin"],
@@ -660,14 +672,15 @@ def run_studio_keys_create(
 ) -> int:
     from tracebisect.studio.access_keys import api_key_pepper, create_studio_api_key
 
-    issued = create_studio_api_key(
-        database,
-        workspace_id=workspace,
-        role=role,
-        label=name,
-        expires_in_days=expires_in_days,
-        pepper=api_key_pepper(),
-    )
+    with _studio_key_database(database) as target:
+        issued = create_studio_api_key(
+            target,
+            workspace_id=workspace,
+            role=role,
+            label=name,
+            expires_in_days=expires_in_days,
+            pepper=api_key_pepper(),
+        )
     print("Workspace access key created")
     print(f"  Key ID: {issued.record.key_id}")
     print(f"  Workspace: {issued.record.workspace_id}")
@@ -682,10 +695,11 @@ def run_studio_keys_create(
     return 0
 
 
-def run_studio_keys_list(database: str) -> int:
+def run_studio_keys_list(database: str | None) -> int:
     from tracebisect.studio.access_keys import list_studio_api_keys
 
-    records = list_studio_api_keys(database)
+    with _studio_key_database(database) as target:
+        records = list_studio_api_keys(target)
     if not records:
         print("No managed workspace keys exist yet.")
         print("Create one with: tracebisect studio keys create --help")
@@ -700,10 +714,11 @@ def run_studio_keys_list(database: str) -> int:
     return 0
 
 
-def run_studio_keys_revoke(database: str, key_id: str) -> int:
+def run_studio_keys_revoke(database: str | None, key_id: str) -> int:
     from tracebisect.studio.access_keys import revoke_studio_api_key
 
-    record = revoke_studio_api_key(database, key_id=key_id)
+    with _studio_key_database(database) as target:
+        record = revoke_studio_api_key(target, key_id=key_id)
     print("Workspace access key revoked")
     print(f"  Key ID: {record.key_id}")
     print(f"  Workspace: {record.workspace_id}")
@@ -711,6 +726,35 @@ def run_studio_keys_revoke(database: str, key_id: str) -> int:
     print(f"  Name: {record.label}")
     print(f"  Revoked: {record.revoked_at}")
     return 0
+
+
+@contextmanager
+def _studio_key_database(database: str | None) -> Iterator[StudioDatabaseTarget]:
+    """Resolve a beginner-friendly SQLite path or configured PostgreSQL URL."""
+    if database:
+        yield database
+        return
+    database_url = os.getenv("TRACEBISECT_STUDIO_DATABASE_URL", "").strip()
+    if not database_url:
+        from tracebisect.studio.access_keys import StudioApiKeyError
+
+        raise StudioApiKeyError(
+            "provide --database for SQLite or set TRACEBISECT_STUDIO_DATABASE_URL "
+            "for PostgreSQL"
+        )
+    if not database_url.startswith(("postgresql://", "postgres://")):
+        from tracebisect.studio.storage import StudioConfigurationError
+
+        raise StudioConfigurationError(
+            "TRACEBISECT_STUDIO_DATABASE_URL must be a PostgreSQL URL"
+        )
+    from tracebisect.studio.postgres_storage import PostgresStudioStore
+
+    store = PostgresStudioStore(database_url, workspace_id="operator")
+    try:
+        yield store
+    finally:
+        store.close()
 
 
 def run_studio_metrics_generate_token() -> int:

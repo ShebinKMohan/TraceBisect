@@ -14,10 +14,15 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Literal
 
+from tracebisect.studio.managed_database import (
+    StudioDatabaseTarget,
+    StudioManagedDatabase,
+    ensure_managed_database_schema,
+    studio_database_connection,
+)
 from tracebisect.studio.storage import (
     StudioConfigurationError,
     StudioPersistenceError,
-    ensure_studio_schema,
     validate_workspace_id,
 )
 
@@ -89,7 +94,7 @@ def generate_api_key_pepper() -> str:
 
 
 def create_studio_api_key(
-    database_path: str | Path,
+    database_path: StudioDatabaseTarget,
     *,
     workspace_id: str,
     role: WorkspaceRole,
@@ -117,9 +122,9 @@ def create_studio_api_key(
     database, database_was_created = _database_for_key_creation(database_path)
 
     try:
-        with sqlite3.connect(database, timeout=5) as connection:
+        with studio_database_connection(database) as connection:
             connection.execute("PRAGMA busy_timeout = 5000")
-            ensure_studio_schema(connection)
+            ensure_managed_database_schema(connection)
             connection.execute("BEGIN IMMEDIATE")
             active_count = connection.execute(
                 """
@@ -153,7 +158,7 @@ def create_studio_api_key(
                 ),
             )
     except (OSError, sqlite3.DatabaseError, StudioPersistenceError) as exc:
-        if database_was_created:
+        if database_was_created and isinstance(database, Path):
             database.unlink(missing_ok=True)
         raise StudioApiKeyError("could not save the new Studio API key") from exc
 
@@ -171,7 +176,7 @@ def create_studio_api_key(
 
 
 def list_studio_api_keys(
-    database_path: str | Path,
+    database_path: StudioDatabaseTarget,
     *,
     now: datetime | None = None,
 ) -> list[StudioApiKeyRecord]:
@@ -180,7 +185,7 @@ def list_studio_api_keys(
 
 
 def list_workspace_studio_api_keys(
-    database_path: str | Path,
+    database_path: StudioDatabaseTarget,
     *,
     workspace_id: str,
     now: datetime | None = None,
@@ -194,7 +199,7 @@ def list_workspace_studio_api_keys(
 
 
 def _list_studio_api_keys(
-    database_path: str | Path,
+    database_path: StudioDatabaseTarget,
     *,
     workspace_id: str | None,
     now: datetime | None,
@@ -202,9 +207,9 @@ def _list_studio_api_keys(
     database = _existing_database(database_path)
     current = _utc_now(now)
     try:
-        with sqlite3.connect(database, timeout=5) as connection:
+        with studio_database_connection(database) as connection:
             connection.execute("PRAGMA busy_timeout = 5000")
-            ensure_studio_schema(connection)
+            ensure_managed_database_schema(connection)
             if workspace_id is None:
                 rows = connection.execute(
                     """
@@ -230,7 +235,7 @@ def _list_studio_api_keys(
 
 
 def revoke_studio_api_key(
-    database_path: str | Path,
+    database_path: StudioDatabaseTarget,
     *,
     key_id: str,
     now: datetime | None = None,
@@ -241,9 +246,9 @@ def revoke_studio_api_key(
         raise StudioApiKeyError("key ID must be the 12-character ID shown by the list command")
     revoked = _utc_now(now)
     try:
-        with sqlite3.connect(database, timeout=5) as connection:
+        with studio_database_connection(database) as connection:
             connection.execute("PRAGMA busy_timeout = 5000")
-            ensure_studio_schema(connection)
+            ensure_managed_database_schema(connection)
             row = connection.execute(
                 """
                 SELECT key_id, workspace_id, role, label, created_at, expires_at, revoked_at
@@ -268,7 +273,7 @@ def revoke_studio_api_key(
 
 
 def revoke_workspace_studio_api_key(
-    database_path: str | Path,
+    database_path: StudioDatabaseTarget,
     *,
     workspace_id: str,
     key_id: str,
@@ -281,9 +286,9 @@ def revoke_workspace_studio_api_key(
         raise StudioApiKeyError("key ID must be the 12-character ID shown in Studio")
     revoked = _utc_now(now)
     try:
-        with sqlite3.connect(database, timeout=5) as connection:
+        with studio_database_connection(database) as connection:
             connection.execute("PRAGMA busy_timeout = 5000")
-            ensure_studio_schema(connection)
+            ensure_managed_database_schema(connection)
             row = connection.execute(
                 """
                 SELECT key_id, workspace_id, role, label, created_at, expires_at, revoked_at
@@ -312,7 +317,7 @@ def revoke_workspace_studio_api_key(
 
 
 def workspace_for_managed_api_key(
-    database_path: str | Path,
+    database_path: StudioDatabaseTarget,
     *,
     api_key: str,
     pepper: str,
@@ -329,7 +334,7 @@ def workspace_for_managed_api_key(
 
 
 def principal_for_managed_api_key(
-    database_path: str | Path,
+    database_path: StudioDatabaseTarget,
     *,
     api_key: str,
     pepper: str,
@@ -343,11 +348,7 @@ def principal_for_managed_api_key(
     try:
         _validate_pepper(pepper)
         database = _existing_database(database_path)
-        with sqlite3.connect(
-            f"{database.as_uri()}?mode=ro",
-            uri=True,
-            timeout=5,
-        ) as connection:
+        with studio_database_connection(database, read_only=True) as connection:
             row = connection.execute(
                 """
                 SELECT workspace_id, role, key_hash, expires_at, revoked_at
@@ -378,6 +379,7 @@ def principal_for_managed_api_key(
         sqlite3.DatabaseError,
         StudioApiKeyError,
         StudioConfigurationError,
+        StudioPersistenceError,
         ValueError,
     ):
         return None
@@ -405,14 +407,20 @@ def _record_from_row(row: tuple[object, ...], *, now: datetime) -> StudioApiKeyR
     )
 
 
-def _existing_database(path: str | Path) -> Path:
+def _existing_database(path: StudioDatabaseTarget) -> StudioDatabaseTarget:
+    if isinstance(path, StudioManagedDatabase):
+        return path
     database = Path(path).expanduser().resolve()
     if not database.is_file():
         raise StudioApiKeyError("Studio database does not exist; start durable Studio first")
     return database
 
 
-def _database_for_key_creation(path: str | Path) -> tuple[Path, bool]:
+def _database_for_key_creation(
+    path: StudioDatabaseTarget,
+) -> tuple[StudioDatabaseTarget, bool]:
+    if isinstance(path, StudioManagedDatabase):
+        return path, False
     database = Path(path).expanduser().resolve()
     if database.exists():
         if not database.is_file():

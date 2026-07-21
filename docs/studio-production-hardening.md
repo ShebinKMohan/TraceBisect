@@ -28,19 +28,20 @@ temporary files out of the web root, and throttle repeated API calls.
   regression cases, and demo metadata across API restarts.
 - Every SQLite row is scoped by a validated workspace identifier so storage
   isolation exists before request-level multi-tenancy is introduced.
-- An opt-in PostgreSQL backend persists the same core workspace evidence through
-  a bounded, startup-verified connection pool. Workspace transaction locks keep
-  trace capacity, report retention, case updates, and demo seeding consistent
-  across API instances; composite workspace/time indexes serve list paths.
-- PostgreSQL mode intentionally accepts only static environment API keys today.
-  Managed keys, browser sessions, human accounts, and invitation delivery remain
-  SQLite-only and fail startup rather than splitting one security boundary
-  across incompatible repositories.
+- An opt-in PostgreSQL backend persists core workspace evidence, managed keys,
+  and browser sessions through a bounded, startup-verified connection pool.
+  Transaction locks keep trace capacity, report retention, key/session limits,
+  case updates, and demo seeding consistent across API instances; composite and
+  partial indexes serve workspace, expiry, and active-credential paths.
+- PostgreSQL managed keys retain digest-only storage, expiry, role, immediate
+  revocation, self-service administration, and short-lived HttpOnly sessions.
+  Human accounts and invitation delivery remain SQLite-only and fail startup in
+  PostgreSQL mode.
 - Optional bearer-key authentication maps each credential to exactly one
   workspace. Client workspace headers are ignored, invalid keys fail closed,
   and comparisons cannot be read across workspace stores.
 - The recommended managed-key mode stores only peppered HMAC-SHA256 digests in
-  SQLite. Operator commands issue high-entropy expiring keys, list non-secret
+  SQLite or PostgreSQL. Operator commands issue high-entropy expiring keys, list non-secret
   metadata, and revoke keys immediately; plaintext values are shown once.
 - Managed keys carry a `viewer`, `editor`, or `admin` role. Viewer requests are
   enforced as read-only before route execution, including blocking the
@@ -50,7 +51,7 @@ temporary files out of the web root, and throttle repeated API calls.
   once, another workspace's keys are never returned, and Studio prevents an
   admin from revoking the key behind the current sign-in.
 - Active access is capped at 100 keys per workspace. Expired or revoked keys no
-  longer consume active capacity, and creation is serialized in SQLite so
+  longer consume active capacity, and creation is serialized in either store so
   concurrent requests cannot bypass the cap.
 - The legacy plaintext `TRACEBISECT_STUDIO_API_KEYS` mapping remains supported
   for migration/local use and is reported separately by the health endpoint.
@@ -150,10 +151,9 @@ temporary files out of the web root, and throttle repeated API calls.
 These are not solved by the local MVP and must be implemented before calling
 Studio a real multi-tenant SaaS:
 
-- PostgreSQL repositories and migrations for managed keys, browser sessions,
-  human identity, team membership, and invitation delivery. Core traces,
-  comparisons, regression cases, and demo metadata already support pooled
-  multi-instance PostgreSQL storage.
+- PostgreSQL repositories and migrations for human identity, team membership,
+  recovery, and invitation delivery. Core evidence, managed keys, and browser
+  sessions already support pooled multi-instance PostgreSQL storage.
 - Tested SQLite-to-PostgreSQL export/import tooling plus provider backup,
   point-in-time recovery, and restore-drill automation.
 - Sender-domain/suppression automation, email ownership re-verification, and
@@ -177,8 +177,8 @@ Studio a real multi-tenant SaaS:
   multi-region platform.
 
 The current build has pooled multi-instance PostgreSQL storage for core evidence
-and a complete managed identity/email path on single-node SQLite, not a finished
-hosted SaaS. The next production step is migrating that identity and delivery
+and managed access, plus a complete human identity/email path on single-node
+SQLite, not a finished hosted SaaS. The next production step is migrating that identity and delivery
 security boundary to PostgreSQL, then wiring provider backups, email-domain
 operations, monitoring, and error-event retention. Do not add Langfuse-scale
 ClickHouse or queues until the comparison workflow needs them.
