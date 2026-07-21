@@ -1,10 +1,11 @@
 import { ArrowRight, Braces, CheckCircle2, GitCompare, ShieldCheck, UploadCloud } from "lucide-react";
-import type { RegressionCase, Report, StudioSection, TraceSummary } from "@/lib/types";
+import type { RegressionCase, Report, StudioHealth, StudioSection, TraceSummary } from "@/lib/types";
 import { friendlyDivergenceType, friendlyTraceName } from "@/lib/format";
 
 type HomePanelProps = {
   cases: RegressionCase[];
   report: Report | null;
+  runtime: StudioHealth["runtime"] | null;
   traces: TraceSummary[];
   onSectionChange: (section: StudioSection) => void;
 };
@@ -17,8 +18,14 @@ const glossary = [
   ["Guardrail", "A saved pytest check that helps stop the same bug returning."],
 ];
 
-export function HomePanel({ cases, report, traces, onSectionChange }: HomePanelProps) {
+export function HomePanel({ cases, report, runtime, traces, onSectionChange }: HomePanelProps) {
   const first = report?.first_divergence ?? null;
+  const durable = runtime?.durable ?? false;
+  const workspaceTitle = runtime
+    ? durable
+      ? "Your durable workspace"
+      : "Your local workspace"
+    : "Your workspace";
   return (
     <div className="home-page" data-testid="home-page">
       <section className="home-intro">
@@ -106,17 +113,24 @@ export function HomePanel({ cases, report, traces, onSectionChange }: HomePanelP
         </article>
         <article className="home-workspace-status">
           <div className="home-section-heading">
-            <h2>Your local workspace</h2>
+            <h2>{workspaceTitle}</h2>
             <p>Everything here is honest about what is running now.</p>
           </div>
           <ul>
             <li><CheckCircle2 size={16} aria-hidden /> {traces.length} demo or uploaded traces ready</li>
-            <li><CheckCircle2 size={16} aria-hidden /> {cases.length} saved guardrails in this session</li>
+            <li><CheckCircle2 size={16} aria-hidden /> {cases.length} saved guardrails {runtime ? (durable ? "in this workspace" : "in this session") : "ready"}</li>
             <li><CheckCircle2 size={16} aria-hidden /> Files are parsed by the local Studio API</li>
           </ul>
           <div className="local-boundary-note">
             <Braces size={17} aria-hidden />
-            <p><strong>Local MVP:</strong> no account is required and data resets when the API restarts.</p>
+            <p>
+              <strong>{runtime ? (durable ? "Durable local mode:" : "Local MVP:") : "Checking storage mode:"}</strong>{" "}
+              {runtime
+                ? durable
+                  ? "traces, comparisons, and guardrails survive API restarts."
+                  : "no account is required and data resets when the API restarts."
+                : "the API will report whether this workspace survives a restart."}
+            </p>
           </div>
           <button onClick={() => onSectionChange("setup")} type="button">Open the setup guide</button>
         </article>

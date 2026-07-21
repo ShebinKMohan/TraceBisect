@@ -38,18 +38,19 @@ DEFAULT_MAX_STORED_CASES = 100
 
 
 class StudioStoreFullError(RuntimeError):
-    """Raised when the in-memory Studio store reaches its configured capacity."""
+    """Raised when the Studio store reaches its configured capacity."""
 
 
 @dataclass(slots=True)
 class StudioStore:
-    """In-memory Studio store for the first SaaS-style MVP slice."""
+    """In-memory Studio store used by the zero-configuration local mode."""
 
     traces: dict[str, Trace] = field(default_factory=dict)
     trace_names: dict[str, str] = field(default_factory=dict)
     reports: dict[str, JsonObject] = field(default_factory=dict)
     cases: dict[str, JsonObject] = field(default_factory=dict)
     demo_report_id: str | None = None
+    workspace_id: str = "local"
     max_traces: int = DEFAULT_MAX_STORED_TRACES
     max_reports: int = DEFAULT_MAX_STORED_REPORTS
     max_cases: int = DEFAULT_MAX_STORED_CASES
@@ -59,7 +60,9 @@ class StudioStore:
         with self._lock:
             trace_key = trace.trace_id or f"trace-{uuid.uuid4().hex[:12]}"
             if trace_key not in self.traces and len(self.traces) >= self.max_traces:
-                raise StudioStoreFullError("trace store is full; delete traces or restart Studio")
+                raise StudioStoreFullError(
+                    "trace store is full; increase TRACEBISECT_STUDIO_MAX_STORED_TRACES"
+                )
             self.traces[trace_key] = trace
             self.trace_names[trace_key] = name or trace.trace_id
             return trace_key
@@ -113,7 +116,7 @@ class StudioStore:
         with self._lock:
             if len(self.cases) >= self.max_cases:
                 raise StudioStoreFullError(
-                    "regression case store is full; delete cases or restart Studio"
+                    "regression case store is full; increase TRACEBISECT_STUDIO_MAX_STORED_CASES"
                 )
             baseline = self.get_trace(baseline_trace_id)
             candidate = self.get_trace(candidate_trace_id)
@@ -214,6 +217,27 @@ class StudioStore:
             self.cases.clear()
             self.demo_report_id = None
 
+    def set_demo_report_id(self, report_id: str | None) -> None:
+        """Remember which report powers the idempotent built-in demo."""
+        with self._lock:
+            self.demo_report_id = report_id
+
+    def check_health(self) -> bool:
+        """Return whether the backing store can currently serve requests."""
+        return True
+
+    def runtime_status(self) -> JsonObject:
+        """Describe storage behavior without exposing secrets or filesystem paths."""
+        with self._lock:
+            return {
+                "kind": "memory",
+                "durable": False,
+                "workspace_id": self.workspace_id,
+                "trace_count": len(self.traces),
+                "report_count": len(self.reports),
+                "case_count": len(self.cases),
+            }
+
 
 def build_demo_report() -> JsonObject:
     """Build the seeded refund-agent comparison report shown on first load."""
@@ -228,25 +252,26 @@ def build_demo_report() -> JsonObject:
 
 def seed_demo_report(store: StudioStore) -> JsonObject:
     """Seed demo traces and report into the store idempotently."""
-    if store.demo_report_id is not None:
-        try:
-            return store.get_report(store.demo_report_id)
-        except KeyError:
-            store.demo_report_id = None
+    with store._lock:
+        if store.demo_report_id is not None:
+            try:
+                return store.get_report(store.demo_report_id)
+            except KeyError:
+                store.set_demo_report_id(None)
 
-    baseline = build_refund_baseline_trace()
-    candidate = build_refund_candidate_trace()
-    baseline_id = store.add_trace(baseline, name="Refund baseline")
-    candidate_id = store.add_trace(candidate, name="Refund regression")
-    report = build_comparison_report(
-        store.get_trace(baseline_id),
-        store.get_trace(candidate_id),
-        baseline_name=store.trace_names[baseline_id],
-        candidate_name=store.trace_names[candidate_id],
-        scenario_cmd=DEFAULT_SCENARIO_CMD,
-    )
-    store.demo_report_id = store.add_report(report)
-    return report
+        baseline = build_refund_baseline_trace()
+        candidate = build_refund_candidate_trace()
+        baseline_id = store.add_trace(baseline, name="Refund baseline")
+        candidate_id = store.add_trace(candidate, name="Refund regression")
+        report = build_comparison_report(
+            store.get_trace(baseline_id),
+            store.get_trace(candidate_id),
+            baseline_name=store.trace_names[baseline_id],
+            candidate_name=store.trace_names[candidate_id],
+            scenario_cmd=DEFAULT_SCENARIO_CMD,
+        )
+        store.set_demo_report_id(store.add_report(report))
+        return report
 
 
 def load_trace_from_path(path: str | Path) -> Trace:

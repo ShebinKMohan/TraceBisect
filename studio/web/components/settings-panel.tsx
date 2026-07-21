@@ -2,10 +2,12 @@
 
 import { Check, Clipboard, FileJson2, PlayCircle, TerminalSquare, UploadCloud } from "lucide-react";
 import { useState } from "react";
+import type { StudioHealth } from "@/lib/types";
 
 const demoCommand = "tracebisect demo";
 const uploadCommand = "curl -X POST http://127.0.0.1:8000/api/traces/upload -F 'file=@run.tbtrace'";
 const recordCommand = "tracebisect record --output run.tbtrace -- python your_agent.py";
+const durableCommand = "TRACEBISECT_STUDIO_STORAGE=sqlite TRACEBISECT_STUDIO_SQLITE_PATH=.tracebisect/studio.db uvicorn tracebisect.studio.api:app --port 8000";
 
 function CopyCommand({ command, label }: { command: string; label: string }) {
   const [copied, setCopied] = useState(false);
@@ -37,14 +39,27 @@ function CopyCommand({ command, label }: { command: string; label: string }) {
   );
 }
 
-export function SettingsPanel() {
+export function SettingsPanel({ health }: { health: StudioHealth | null }) {
+  const durable = health?.runtime.durable ?? false;
   return (
     <section className="setup-guide" data-testid="setup-section">
       <div className="setup-mode-banner">
         <span className="local-status-dot" aria-hidden />
         <div>
-          <strong>Running as a local workspace</strong>
-          <p>No account or API key is required. Uploaded data is held in memory and resets with the API process.</p>
+          <strong>
+            {health
+              ? durable
+                ? "Running with durable workspace storage"
+                : "Running as a local workspace"
+              : "Checking workspace storage"}
+          </strong>
+          <p>
+            {health
+              ? durable
+                ? `Traces, comparisons, and guardrails for ${health.runtime.workspace_id} are saved across API restarts.`
+                : "No account or API key is required. Uploaded data is held in memory and resets with the API process."
+              : "Waiting for the API to confirm whether this workspace is temporary or durable."}
+          </p>
         </div>
       </div>
 
@@ -101,8 +116,18 @@ export function SettingsPanel() {
       </div>
 
       <div className="setup-boundary">
+        <h2>{durable ? "Durable storage is enabled" : "Keep your work after restarts"}</h2>
+        <p>
+          {durable
+            ? "This API is using the workspace-scoped SQLite store. Keep the database file backed up like any other application data."
+            : "Switch the API to the built-in SQLite store when you want traces, comparisons, and guardrails to survive a restart."}
+        </p>
+        {!durable ? <CopyCommand command={durableCommand} label="durable storage command" /> : null}
+      </div>
+
+      <div className="setup-boundary">
         <h2>What is not enabled yet</h2>
-        <p>Authentication, persistent projects, hosted ingestion, team access, billing, and API keys are future production milestones—not active features in this local build.</p>
+        <p>Authentication, request-scoped workspace access, hosted ingestion, team access, billing, and API keys are future production milestones—not active features in this build.</p>
       </div>
     </section>
   );

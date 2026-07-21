@@ -8,6 +8,34 @@ export type JsonValue =
 
 export type JsonObject = { [key: string]: JsonValue };
 
+export type StudioHealth = {
+  ok: boolean;
+  product: string;
+  runtime: {
+    kind: "memory" | "sqlite";
+    durable: boolean;
+    workspace_id: string;
+    trace_count: number;
+    report_count: number;
+    case_count: number;
+  };
+  readiness: {
+    api_ready: boolean;
+    production_saas_ready: boolean;
+    completed: string[];
+    blockers: string[];
+  };
+  limits: {
+    max_upload_bytes: number;
+    max_stored_traces: number;
+    max_stored_reports: number;
+    max_stored_cases: number;
+    rate_limit_window_seconds: number;
+    rate_limit_requests: number;
+    rate_limit_upload_requests: number;
+  };
+};
+
 export type TraceSummary = {
   id: string;
   trace_id: string;

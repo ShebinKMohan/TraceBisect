@@ -74,7 +74,8 @@ studio/web/
 Backend:
 
 - FastAPI, served locally with `uvicorn tracebisect.studio.api:app`.
-- In-memory storage for the MVP.
+- In-memory storage for zero-setup demos, with opt-in workspace-scoped SQLite
+  storage for restart-safe local and single-node deployments.
 - Upload endpoint parses `.tbtrace` through `read_trace`.
 - Upload endpoint parses OTel JSON through `import_otel_json`.
 - Compare endpoint calls `align`, `detect_divergences`, and export helpers.

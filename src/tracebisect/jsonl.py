@@ -42,7 +42,7 @@ from tracebisect.schema import (
     UnknownSchemaVersionError,
 )
 
-__all__ = ["read_trace", "write_trace"]
+__all__ = ["dumps_trace", "loads_trace", "read_trace", "write_trace"]
 
 
 SourceConvention = Literal["native", "genai", "openinference", "mixed", "unknown"]
@@ -60,16 +60,25 @@ _VALID_SOURCE_FORMATS: frozenset[str] = frozenset({"otel", "native"})
 def write_trace(trace: Trace, path: str | Path) -> None:
     """Serialize ``trace`` to ``path`` as JSONL (header line + one Event per line)."""
     target = Path(path)
+    target.write_text(dumps_trace(trace), encoding="utf-8")
+
+
+def dumps_trace(trace: Trace) -> str:
+    """Serialize ``trace`` to canonical JSONL text."""
     lines: list[str] = [json.dumps(_header_to_dict(trace))]
     for event in trace.events:
         lines.append(json.dumps(_event_to_dict(event)))
-    target.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return "\n".join(lines) + "\n"
 
 
 def read_trace(path: str | Path) -> Trace:
     """Parse a JSONL ``.tbtrace`` file at ``path`` and reconstruct a :class:`Trace`."""
     source = Path(path)
-    text = source.read_text(encoding="utf-8")
+    return loads_trace(source.read_text(encoding="utf-8"))
+
+
+def loads_trace(text: str) -> Trace:
+    """Parse canonical JSONL text and reconstruct a :class:`Trace`."""
     raw_lines = [ln for ln in text.split("\n") if ln.strip()]
     if not raw_lines:
         raise MalformedTraceError("trace file is empty")

@@ -1,4 +1,4 @@
-import type { RegressionCase, Report, RunSummary, TraceSummary } from "@/lib/types";
+import type { RegressionCase, Report, RunSummary, StudioHealth, TraceSummary } from "@/lib/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_TRACEBISECT_API_URL ?? "http://127.0.0.1:8000";
 const MAX_TRACE_UPLOAD_BYTES = 5 * 1024 * 1024;
@@ -26,6 +26,10 @@ async function parseResponse<T>(response: Response): Promise<T> {
 
 export async function fetchDemoReport(): Promise<Report> {
   return parseResponse<Report>(await fetch(`${API_BASE}/api/demo-report`));
+}
+
+export async function fetchStudioHealth(): Promise<StudioHealth> {
+  return parseResponse<StudioHealth>(await fetch(`${API_BASE}/api/health`));
 }
 
 export async function fetchTraces(): Promise<TraceSummary[]> {

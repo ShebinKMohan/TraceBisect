@@ -16,7 +16,7 @@ import {
   SunMedium,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import type { StudioSection } from "@/lib/types";
+import type { StudioHealth, StudioSection } from "@/lib/types";
 
 const navItems = [
   { id: "home", label: "Home", icon: Home },
@@ -35,6 +35,7 @@ type SidebarProps = {
   onSectionChange: (section: StudioSection) => void;
   onThemeToggle: () => void;
   onToggleCollapsed: () => void;
+  runtime: StudioHealth["runtime"] | null;
   theme: "light" | "dark";
 };
 
@@ -45,9 +46,21 @@ export function Sidebar({
   onSectionChange,
   onThemeToggle,
   onToggleCollapsed,
+  runtime,
   theme,
 }: SidebarProps) {
   const ThemeIcon = theme === "light" ? Moon : SunMedium;
+  const durable = runtime?.durable ?? false;
+  const workspaceLabel = runtime
+    ? durable
+      ? "Durable workspace"
+      : "Local workspace"
+    : "Checking workspace";
+  const workspaceDetail = runtime
+    ? durable
+      ? "Saved across API restarts"
+      : "Data resets with the API"
+    : "Reading API storage mode";
 
   return (
     <aside className={collapsed ? "sidebar sidebar-collapsed" : "sidebar"} aria-label="TraceBisect Studio navigation">
@@ -59,7 +72,7 @@ export function Sidebar({
             </span>
             <div>
               <strong>TraceBisect</strong>
-              <small>Studio · local</small>
+              <small>{runtime ? (durable ? "Studio · durable" : "Studio · local") : "Studio · connecting"}</small>
             </div>
           </div>
           <button
@@ -101,12 +114,12 @@ export function Sidebar({
         </nav>
       </div>
 
-      <div className="sidebar-footer" aria-label="Local workspace controls">
+      <div className="sidebar-footer" aria-label="Workspace controls">
         <div className="local-workspace-note">
           <span className="local-status-dot" aria-hidden />
           <div>
-            <strong>Local workspace</strong>
-            <small>Data resets with the API</small>
+            <strong>{workspaceLabel}</strong>
+            <small>{workspaceDetail}</small>
           </div>
         </div>
         <button

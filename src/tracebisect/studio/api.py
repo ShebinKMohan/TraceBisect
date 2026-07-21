@@ -18,13 +18,16 @@ from starlette.responses import JSONResponse
 
 from tracebisect.schema import JsonObject, JsonValue, TraceBisectSchemaError
 from tracebisect.studio.service import (
-    DEFAULT_MAX_STORED_TRACES,
     DEFAULT_SCENARIO_CMD,
     StudioStore,
     StudioStoreFullError,
     build_comparison_report,
     load_trace_from_path,
     seed_demo_report,
+)
+from tracebisect.studio.storage import (
+    StudioPersistenceError,
+    create_studio_store,
 )
 
 MAX_UPLOAD_BYTES = int(os.getenv("TRACEBISECT_STUDIO_MAX_UPLOAD_BYTES", str(5 * 1024 * 1024)))
@@ -58,7 +61,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-STORE = StudioStore()
+STORE: StudioStore = create_studio_store()
 
 
 class CompareRequest(BaseModel):
@@ -110,6 +113,18 @@ class RateLimiter:
 RATE_LIMITER = RateLimiter()
 
 
+@app.exception_handler(StudioPersistenceError)
+async def handle_persistence_error(
+    _request: Request,
+    _exc: StudioPersistenceError,
+) -> JSONResponse:
+    """Return a stable message without leaking database paths or SQL details."""
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "Studio storage is temporarily unavailable. Please retry."},
+    )
+
+
 @app.middleware("http")
 async def apply_api_guardrails(
     request: Request,
@@ -142,16 +157,33 @@ async def apply_api_guardrails(
 
 @app.get("/api/health", response_model=None)
 def health() -> JsonObject:
+    storage_ok = STORE.check_health()
     return {
-        "ok": True,
+        "ok": storage_ok,
         "product": "TraceBisect Studio",
+        "runtime": STORE.runtime_status(),
+        "readiness": _production_readiness(storage_ok=storage_ok),
         "limits": {
             "max_upload_bytes": MAX_UPLOAD_BYTES,
-            "max_stored_traces": DEFAULT_MAX_STORED_TRACES,
+            "max_stored_traces": STORE.max_traces,
+            "max_stored_reports": STORE.max_reports,
+            "max_stored_cases": STORE.max_cases,
             "rate_limit_window_seconds": RATE_LIMIT_WINDOW_SECONDS,
             "rate_limit_requests": RATE_LIMIT_REQUESTS,
             "rate_limit_upload_requests": RATE_LIMIT_UPLOAD_REQUESTS,
         },
+    }
+
+
+@app.get("/api/ready", response_model=None)
+def ready(response: Response) -> JsonObject:
+    """Report whether this API process and its configured store can serve traffic."""
+    storage_ok = STORE.check_health()
+    if not storage_ok:
+        response.status_code = 503
+    return {
+        "ready": storage_ok,
+        "checks": {"storage": "ok" if storage_ok else "unavailable"},
     }
 
 
@@ -409,6 +441,27 @@ def _validate_run_filter(name: str, value: str | None, allowed: frozenset[str]) 
     if value is not None and value not in allowed:
         allowed_values = ", ".join(sorted(allowed))
         raise HTTPException(status_code=400, detail=f"{name} must be one of: {allowed_values}.")
+
+
+def _production_readiness(*, storage_ok: bool) -> JsonObject:
+    runtime = STORE.runtime_status()
+    durable = runtime["durable"] is True
+    completed: list[str] = ["API storage health check"] if storage_ok else []
+    blockers = [
+        "authentication and authorization",
+        "request-scoped workspace isolation",
+        "managed backups and restore testing",
+    ]
+    if durable:
+        completed.append("restart-safe workspace storage")
+    else:
+        blockers.insert(0, "restart-safe durable storage")
+    return {
+        "api_ready": storage_ok,
+        "production_saas_ready": False,
+        "completed": cast(JsonValue, completed),
+        "blockers": cast(JsonValue, blockers),
+    }
 
 
 def _run_search_blob(run: JsonObject) -> str:

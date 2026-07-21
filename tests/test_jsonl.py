@@ -14,7 +14,7 @@ from typing import cast
 
 import pytest
 
-from tracebisect.jsonl import read_trace, write_trace
+from tracebisect.jsonl import dumps_trace, loads_trace, read_trace, write_trace
 from tracebisect.schema import (
     SCHEMA_VERSION,
     BranchDecisionPayload,
@@ -225,6 +225,16 @@ def test_round_trip_four_event_trace(tmp_path: Path) -> None:
     for event in restored.events:
         assert isinstance(event.timestamp, datetime)
         assert event.timestamp.tzinfo == timezone.utc
+
+
+def test_round_trip_canonical_jsonl_text_without_filesystem() -> None:
+    original = _four_event_trace()
+
+    encoded = dumps_trace(original)
+    restored = loads_trace(encoded)
+
+    assert encoded.endswith("\n")
+    assert restored == original
 
 
 def test_round_trip_preserves_none_for_optional_event_fields(tmp_path: Path) -> None:

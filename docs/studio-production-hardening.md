@@ -20,7 +20,16 @@ temporary files out of the web root, and throttle repeated API calls.
 - API rate limiting is per client, method, and path.
 - General API rate limit defaults to 180 requests per 60 seconds.
 - Upload API rate limit defaults to 30 requests per 60 seconds.
-- Store capacity is bounded to 100 traces and 100 reports by default.
+- Store capacity is bounded to 100 traces, reports, and regression cases by
+  default, with explicit environment settings for each limit.
+- The default in-memory mode remains zero-configuration and is labeled as
+  restart-ephemeral by the API and UI.
+- An opt-in SQLite store persists canonical trace JSONL, comparison reports,
+  regression cases, and demo metadata across API restarts.
+- Every SQLite row is scoped by a validated workspace identifier so storage
+  isolation exists before request-level multi-tenancy is introduced.
+- `/api/ready` checks the configured store, while `/api/health` separates
+  process readiness from full production-SaaS readiness.
 - Compare requests reject identical baseline/candidate IDs.
 - Custom `scenario_cmd` payloads are length-limited.
 - API responses include security headers:
@@ -37,7 +46,7 @@ These are not solved by the local MVP and must be implemented before calling
 Studio a real multi-tenant SaaS:
 
 - Authentication and workspace/project authorization.
-- Persistent database storage for traces, comparisons, and pytest artifacts.
+- Managed multi-user database storage and request-scoped workspace isolation.
 - API keys and scoped ingestion tokens.
 - Durable background jobs for large OTel imports and comparisons.
 - Distributed rate limiting backed by Redis or the hosting provider.
@@ -47,8 +56,9 @@ Studio a real multi-tenant SaaS:
   error tracking.
 - Deployment-specific CORS, TLS, proxy, and security-header configuration.
 
-The current goal is a hardened portfolio-grade local product. The next
-production step is persistence plus auth; do not add Langfuse-scale ClickHouse,
+The current build has a restart-safe single-node persistence foundation, not a
+finished hosted SaaS. The next production step is authentication plus
+request-scoped workspace authorization; do not add Langfuse-scale ClickHouse,
 queues, or enterprise controls until the core comparison workflow needs them.
 
 ## References

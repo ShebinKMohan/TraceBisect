@@ -48,7 +48,22 @@ npm run dev
 ```
 
 Then open <http://127.0.0.1:3000>. The seeded refund-agent report loads from
-the same engine used by `tracebisect demo`.
+the same engine used by `tracebisect demo`. This zero-configuration mode keeps
+data in memory, and the UI labels that reset behavior directly.
+
+To keep traces, comparisons, and guardrails across API restarts, enable the
+built-in workspace-scoped SQLite store:
+
+```bash
+TRACEBISECT_STUDIO_STORAGE=sqlite \
+TRACEBISECT_STUDIO_SQLITE_PATH=.tracebisect/studio.db \
+uvicorn tracebisect.studio.api:app --port 8000
+```
+
+Set `TRACEBISECT_STUDIO_WORKSPACE_ID` when one database file is shared by
+multiple isolated local workspaces. `/api/health` reports the active storage
+mode and honest SaaS-readiness blockers; `/api/ready` is the process/storage
+readiness probe.
 
 ## Commands
 

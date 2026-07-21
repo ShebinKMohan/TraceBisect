@@ -266,6 +266,26 @@ def test_studio_api_sets_security_headers() -> None:
     assert response.headers["referrer-policy"] == "no-referrer"
     assert response.headers["cache-control"] == "no-store"
     assert response.json()["limits"]["max_upload_bytes"] == studio_api.MAX_UPLOAD_BYTES
+    assert response.json()["runtime"] == {
+        "kind": "memory",
+        "durable": False,
+        "workspace_id": "local",
+        "trace_count": 0,
+        "report_count": 0,
+        "case_count": 0,
+    }
+    assert response.json()["readiness"]["production_saas_ready"] is False
+    assert "restart-safe durable storage" in response.json()["readiness"]["blockers"]
+
+
+def test_studio_api_readiness_checks_storage() -> None:
+    reset_studio_state()
+    client = TestClient(app)
+
+    response = client.get("/api/ready")
+
+    assert response.status_code == 200
+    assert response.json() == {"ready": True, "checks": {"storage": "ok"}}
 
 
 def test_studio_api_rejects_unsupported_upload_extension() -> None:
@@ -322,7 +342,10 @@ def test_studio_api_rejects_upload_when_store_is_full(monkeypatch: pytest.Monkey
         )
 
     assert response.status_code == 507
-    assert response.json()["detail"] == "trace store is full; delete traces or restart Studio"
+    assert (
+        response.json()["detail"]
+        == "trace store is full; increase TRACEBISECT_STUDIO_MAX_STORED_TRACES"
+    )
 
 
 def test_studio_api_rate_limits_repeated_requests(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -607,7 +630,8 @@ def test_studio_api_regression_case_store_full_returns_507(monkeypatch: pytest.M
 
     assert response.status_code == 507
     assert (
-        response.json()["detail"] == "regression case store is full; delete cases or restart Studio"
+        response.json()["detail"]
+        == "regression case store is full; increase TRACEBISECT_STUDIO_MAX_STORED_CASES"
     )
 
 

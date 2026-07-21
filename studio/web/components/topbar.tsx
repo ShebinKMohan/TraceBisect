@@ -1,11 +1,12 @@
 import { BookOpen, Search } from "lucide-react";
-import type { StudioSection } from "@/lib/types";
+import type { StudioHealth, StudioSection } from "@/lib/types";
 
 type TopbarProps = {
   activeSection: StudioSection;
   searchValue: string;
   onHelp: () => void;
   onSearchChange: (value: string) => void;
+  runtime: StudioHealth["runtime"] | null;
 };
 
 const searchableSections = new Set<StudioSection>(["runs", "sources", "sessions", "divergences"]);
@@ -17,7 +18,7 @@ const searchPlaceholders: Partial<Record<StudioSection, string>> = {
   divergences: "Search issues",
 };
 
-export function Topbar({ activeSection, searchValue, onHelp, onSearchChange }: TopbarProps) {
+export function Topbar({ activeSection, searchValue, onHelp, onSearchChange, runtime }: TopbarProps) {
   const searchable = searchableSections.has(activeSection);
   return (
     <header className="topbar">
@@ -35,7 +36,7 @@ export function Topbar({ activeSection, searchValue, onHelp, onSearchChange }: T
       ) : (
         <div className="topbar-context">
           <span className="local-status-dot" aria-hidden />
-          Local workspace
+          {runtime ? (runtime.durable ? "Durable workspace" : "Local workspace") : "Checking workspace"}
         </div>
       )}
       <button aria-label="How it works" className="topbar-help" onClick={onHelp} type="button">

@@ -9,11 +9,12 @@ import {
   fetchRegressionCases,
   fetchRunReport,
   fetchRuns,
+  fetchStudioHealth,
   fetchTraces,
   runRegressionCase,
   uploadTrace,
 } from "@/lib/api";
-import type { RegressionCase, Report, RunSummary, StudioSection, TraceEvent, TraceSummary } from "@/lib/types";
+import type { RegressionCase, Report, RunSummary, StudioHealth, StudioSection, TraceEvent, TraceSummary } from "@/lib/types";
 import { CompareDrawer } from "@/components/compare-drawer";
 import { EventDetailsPanel } from "@/components/event-details-panel";
 import { HomePanel } from "@/components/home-panel";
@@ -38,6 +39,7 @@ export function StudioDashboard() {
   const [traces, setTraces] = useState<TraceSummary[]>([]);
   const [runs, setRuns] = useState<RunSummary[]>([]);
   const [cases, setCases] = useState<RegressionCase[]>([]);
+  const [health, setHealth] = useState<StudioHealth | null>(null);
   const [baselineId, setBaselineId] = useState("");
   const [candidateId, setCandidateId] = useState("");
   const [theme, setTheme] = useState<"light" | "dark">("light");
@@ -109,16 +111,18 @@ export function StudioDashboard() {
     setError(null);
     try {
       const demoReport = await fetchDemoReport();
-      const [traceList, caseList, runList] = await Promise.all([
+      const [traceList, caseList, runList, studioHealth] = await Promise.all([
         fetchTraces(),
         fetchRegressionCases(),
         fetchRuns(),
+        fetchStudioHealth(),
       ]);
       setReport(demoReport);
       setSelectedReportId(demoReport.report_id);
       setTraces(traceList);
       setCases(caseList);
       setRuns(runList);
+      setHealth(studioHealth);
       setBaselineId(demoReport.baseline.id);
       setCandidateId(demoReport.candidate.id);
     } catch (err) {
@@ -246,6 +250,7 @@ export function StudioDashboard() {
           onSectionChange={handleSectionChange}
           onThemeToggle={toggleTheme}
           onToggleCollapsed={() => setSidebarCollapsed((current) => !current)}
+          runtime={health?.runtime ?? null}
           theme={theme}
         />
         <div className="dashboard-main">
@@ -254,6 +259,7 @@ export function StudioDashboard() {
             onHelp={() => handleSectionChange("home")}
             searchValue={searchQuery}
             onSearchChange={setSearchQuery}
+            runtime={health?.runtime ?? null}
           />
 
           <section className="page-header">
@@ -306,7 +312,7 @@ export function StudioDashboard() {
           />
 
           {activeSection === "home" ? (
-            <HomePanel cases={cases} onSectionChange={handleSectionChange} report={report} traces={traces} />
+            <HomePanel cases={cases} onSectionChange={handleSectionChange} report={report} runtime={health?.runtime ?? null} traces={traces} />
           ) : null}
 
           {activeSection === "runs" ? (
@@ -371,7 +377,7 @@ export function StudioDashboard() {
                 />
               ) : null}
               {activeSection === "setup" ? (
-                <SettingsPanel />
+                <SettingsPanel health={health} />
               ) : null}
               {activeSection === "sources" ? (
                 <>
