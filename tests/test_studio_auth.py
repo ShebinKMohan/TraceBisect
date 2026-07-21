@@ -50,6 +50,8 @@ def test_auth_defaults_to_open_local_mode() -> None:
         "mode": "none",
         "required": False,
         "credential_source": "none",
+        "browser_sessions": False,
+        "browser_session_ttl_seconds": 0,
     }
     assert config.workspace_for_authorization(None) is None
 
@@ -58,6 +60,24 @@ def test_cors_origins_are_normalized_and_deduplicated() -> None:
     assert studio_api._configured_allowed_origins(
         "https://studio.example.com/,http://127.0.0.1:3000,https://studio.example.com"
     ) == ["https://studio.example.com", "http://127.0.0.1:3000"]
+
+
+def test_browser_session_cookie_security_is_safe_by_default() -> None:
+    assert studio_api._configured_secure_session_cookie(["https://studio.example.com"])
+    assert not studio_api._configured_secure_session_cookie(
+        ["http://127.0.0.1:3000", "http://localhost:3000"]
+    )
+    with pytest.raises(StudioConfigurationError, match="mixed or non-loopback HTTP"):
+        studio_api._configured_secure_session_cookie(
+            ["https://studio.example.com", "http://127.0.0.1:3000"]
+        )
+    with pytest.raises(StudioConfigurationError, match="must be auto, true, or false"):
+        studio_api._configured_secure_session_cookie(
+            ["https://studio.example.com"],
+            "sometimes",
+        )
+    assert studio_api._browser_session_cookie_name(secure=True).startswith("__Host-")
+    assert not studio_api._browser_session_cookie_name(secure=False).startswith("__Host-")
 
 
 @pytest.mark.parametrize(
@@ -89,6 +109,8 @@ def test_api_key_auth_maps_credentials_to_one_workspace(tmp_path: Path) -> None:
         "mode": "api-key",
         "required": True,
         "credential_source": "environment",
+        "browser_sessions": False,
+        "browser_session_ttl_seconds": 0,
     }
     assert config.workspace_for_authorization(f"Bearer {WORKSPACE_A_KEY}") == "workspace-a"
     assert config.workspace_for_authorization(f"bearer {WORKSPACE_A_KEY}") == "workspace-a"
@@ -124,6 +146,8 @@ def test_managed_api_key_auth_observes_expiry_and_immediate_revocation(
         "mode": "api-key",
         "required": True,
         "credential_source": "managed",
+        "browser_sessions": True,
+        "browser_session_ttl_seconds": 28800,
     }
     assert config.workspace_for_authorization(f"Bearer {issued.api_key}") == "workspace-a"
     principal = config.principal_for_authorization(f"Bearer {issued.api_key}")
@@ -205,6 +229,29 @@ def test_managed_api_key_auth_observes_expiry_and_immediate_revocation(
             },
             "TRACEBISECT_STUDIO_SQLITE_PATH is required",
         ),
+        (
+            {
+                "TRACEBISECT_STUDIO_BROWSER_SESSION_TTL_SECONDS": "3600",
+            },
+            "TRACEBISECT_STUDIO_BROWSER_SESSION_TTL_SECONDS is set but auth mode is 'none'",
+        ),
+        (
+            {
+                **_secured_env(Path("studio.db")),
+                "TRACEBISECT_STUDIO_BROWSER_SESSION_TTL_SECONDS": "3600",
+            },
+            "TRACEBISECT_STUDIO_BROWSER_SESSION_TTL_SECONDS requires managed API keys",
+        ),
+        (
+            {
+                "TRACEBISECT_STUDIO_AUTH_MODE": "api-key",
+                "TRACEBISECT_STUDIO_STORAGE": "sqlite",
+                "TRACEBISECT_STUDIO_SQLITE_PATH": "studio.db",
+                "TRACEBISECT_STUDIO_API_KEY_PEPPER": "p" * 40,
+                "TRACEBISECT_STUDIO_BROWSER_SESSION_TTL_SECONDS": "60",
+            },
+            "TRACEBISECT_STUDIO_BROWSER_SESSION_TTL_SECONDS must be between",
+        ),
     ],
 )
 def test_auth_configuration_fails_closed(env: dict[str, str], message: str) -> None:
@@ -242,6 +289,9 @@ def test_secured_api_rejects_spoofing_and_isolates_workspace_data(
         "mode": "api-key",
         "required": True,
         "credential_source": "environment",
+        "browser_sessions": False,
+        "browser_session_ttl_seconds": 0,
+        "browser_session_cookie_secure": False,
     }
     assert health_response.json()["runtime"]["workspace_id"] == "protected"
     assert health_response.json()["runtime"]["trace_count"] == 0
@@ -254,7 +304,9 @@ def test_secured_api_rejects_spoofing_and_isolates_workspace_data(
     assert missing_response.status_code == 401
     assert missing_response.headers["www-authenticate"] == "Bearer"
     assert missing_response.headers["access-control-allow-origin"] == "http://127.0.0.1:3000"
-    assert missing_response.json() == {"detail": "A valid Studio workspace API key is required."}
+    assert missing_response.json() == {
+        "detail": "A valid Studio browser session or workspace API key is required."
+    }
     assert invalid_response.status_code == 401
 
     workspace_a_headers = {

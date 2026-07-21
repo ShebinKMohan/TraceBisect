@@ -92,6 +92,10 @@ def request_action(method: str, path: str) -> str:
         return "metrics_scrape"
     if path == "/api/session":
         return "session_check"
+    if path == "/api/browser-session/logout":
+        return "browser_session_revoke"
+    if path == "/api/browser-session":
+        return "browser_session_create"
     if path == "/api/demo-report":
         return "demo_seed"
     if path == "/api/traces":

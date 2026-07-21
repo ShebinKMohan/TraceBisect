@@ -65,6 +65,8 @@ def test_request_audit_is_structured_bounded_and_secret_safe(
     [
         ("/api/health", "GET", "health_check"),
         ("/api/metrics", "GET", "metrics_scrape"),
+        ("/api/browser-session", "POST", "browser_session_create"),
+        ("/api/browser-session/logout", "POST", "browser_session_revoke"),
         ("/api/traces/upload", "POST", "trace_upload"),
         ("/api/compare", "POST", "trace_compare"),
         ("/api/regression-cases", "POST", "case_create"),

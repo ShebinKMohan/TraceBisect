@@ -8,6 +8,7 @@ import tempfile
 import time
 from collections import deque
 from collections.abc import Awaitable, Callable
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated, cast
 from urllib.parse import urlsplit
@@ -18,6 +19,11 @@ from pydantic import BaseModel, Field
 from starlette.responses import JSONResponse
 
 from tracebisect.schema import JsonObject, JsonValue, TraceBisectSchemaError
+from tracebisect.studio.access_sessions import (
+    LOCAL_BROWSER_SESSION_COOKIE_NAME,
+    SECURE_BROWSER_SESSION_COOKIE_NAME,
+    StudioBrowserSessionError,
+)
 from tracebisect.studio.audit import AuditAuthOutcome, StudioAudit
 from tracebisect.studio.auth import StudioAuthConfig
 from tracebisect.studio.metrics import (
@@ -89,6 +95,45 @@ def _positive_env_int(name: str, default: int, raw: str | None = None) -> int:
     return value
 
 
+def _configured_secure_session_cookie(
+    origins: list[str],
+    raw: str | None = None,
+) -> bool:
+    configured = (
+        (
+            os.getenv("TRACEBISECT_STUDIO_BROWSER_SESSION_COOKIE_SECURE", "auto")
+            if raw is None
+            else raw
+        )
+        .strip()
+        .lower()
+    )
+    if configured == "true":
+        return True
+    if configured == "false":
+        return False
+    if configured != "auto":
+        raise StudioConfigurationError(
+            "TRACEBISECT_STUDIO_BROWSER_SESSION_COOKIE_SECURE must be auto, true, or false"
+        )
+    parsed_origins = [urlsplit(origin) for origin in origins]
+    if all(origin.scheme == "https" for origin in parsed_origins):
+        return True
+    loopback_hosts = {"localhost", "127.0.0.1", "::1"}
+    if all(
+        origin.scheme == "http" and origin.hostname in loopback_hosts for origin in parsed_origins
+    ):
+        return False
+    raise StudioConfigurationError(
+        "mixed or non-loopback HTTP origins require an explicit "
+        "TRACEBISECT_STUDIO_BROWSER_SESSION_COOKIE_SECURE setting"
+    )
+
+
+def _browser_session_cookie_name(*, secure: bool) -> str:
+    return SECURE_BROWSER_SESSION_COOKIE_NAME if secure else LOCAL_BROWSER_SESSION_COOKIE_NAME
+
+
 MAX_UPLOAD_BYTES = _positive_env_int(
     "TRACEBISECT_STUDIO_MAX_UPLOAD_BYTES",
     5 * 1024 * 1024,
@@ -112,10 +157,16 @@ ALLOWED_UPLOAD_SUFFIXES = frozenset({".tbtrace", ".json"})
 UPLOAD_CHUNK_BYTES = 1024 * 1024
 VALID_RUN_STATUSES = frozenset({"passing", "failing"})
 VALID_RUN_SEVERITIES = frozenset({"INFO", "LOW", "MEDIUM", "HIGH", "CRITICAL"})
-PUBLIC_API_PATHS = frozenset({"/api/health", "/api/ready"})
+BROWSER_SESSION_EXCHANGE_PATH = "/api/browser-session"
+BROWSER_SESSION_LOGOUT_PATH = "/api/browser-session/logout"
+PUBLIC_API_PATHS = frozenset({"/api/health", "/api/ready", BROWSER_SESSION_LOGOUT_PATH})
 VIEWER_BLOCKED_GET_PATHS = frozenset({"/api/demo-report"})
 METRICS_API_PATH = "/api/metrics"
 ALLOWED_ORIGINS = _configured_allowed_origins()
+BROWSER_SESSION_COOKIE_SECURE = _configured_secure_session_cookie(ALLOWED_ORIGINS)
+BROWSER_SESSION_COOKIE_NAME = _browser_session_cookie_name(secure=BROWSER_SESSION_COOKIE_SECURE)
+BROWSER_CSRF_HEADER = "X-TraceBisect-CSRF"
+BROWSER_CSRF_VALUE = "1"
 
 app = FastAPI(
     title="TraceBisect Studio API",
@@ -269,16 +320,26 @@ async def apply_api_guardrails(
             request.state.workspace_role = "admin"
             auth_outcome = "authenticated" if METRICS_ACCESS.token_configured else "not_required"
         elif AUTH_CONFIG.required and request.url.path not in PUBLIC_API_PATHS:
-            principal = AUTH_CONFIG.principal_for_authorization(
-                request.headers.get("Authorization")
+            authorization = request.headers.get("Authorization")
+            session_token = request.cookies.get(BROWSER_SESSION_COOKIE_NAME)
+            principal = (
+                AUTH_CONFIG.principal_for_authorization(authorization)
+                if authorization is not None
+                else AUTH_CONFIG.principal_for_browser_session(session_token)
             )
             if principal is None:
                 auth_outcome = "rejected"
                 unauthorized_response = JSONResponse(
                     status_code=401,
-                    content={"detail": "A valid Studio workspace API key is required."},
+                    content={
+                        "detail": (
+                            "A valid Studio browser session or workspace API key is required."
+                        )
+                    },
                     headers={"WWW-Authenticate": "Bearer"},
                 )
+                if authorization is None and session_token is not None:
+                    _delete_browser_session_cookie(unauthorized_response)
                 return _finalize_audited_response(
                     request=request,
                     response=unauthorized_response,
@@ -289,8 +350,31 @@ async def apply_api_guardrails(
                 )
             request.state.workspace_id = principal.workspace_id
             request.state.workspace_role = principal.role
+            request.state.auth_kind = principal.auth_kind
+            request.state.session_id = principal.session_id
+            request.state.session_expires_at = principal.expires_at
             auth_outcome = "authenticated"
             audit_workspace_id = principal.workspace_id
+            if (
+                principal.auth_kind == "browser_session"
+                and request.method not in {"GET", "HEAD", "OPTIONS"}
+                and (
+                    not _origin_is_allowed(request.headers.get("Origin"))
+                    or request.headers.get(BROWSER_CSRF_HEADER) != BROWSER_CSRF_VALUE
+                )
+            ):
+                forbidden_origin_response = JSONResponse(
+                    status_code=403,
+                    content={"detail": "This browser request failed Studio's origin protection."},
+                )
+                return _finalize_audited_response(
+                    request=request,
+                    response=forbidden_origin_response,
+                    started_at=started_at,
+                    request_id=request_id,
+                    auth_outcome=auth_outcome,
+                    workspace_id=audit_workspace_id,
+                )
             if not _role_allows_request(
                 role=principal.role,
                 method=request.method,
@@ -311,6 +395,7 @@ async def apply_api_guardrails(
         else:
             request.state.workspace_id = STORE.workspace_id
             request.state.workspace_role = "admin"
+            request.state.auth_kind = "open_local"
             if AUTH_CONFIG.required:
                 auth_outcome = "public"
             else:
@@ -382,7 +467,7 @@ def _finalize_audited_response(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
-    allow_credentials=False,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -394,7 +479,13 @@ def health() -> JsonObject:
     return {
         "ok": storage_ok,
         "product": "TraceBisect Studio",
-        "auth": cast(JsonValue, AUTH_CONFIG.runtime_status()),
+        "auth": cast(
+            JsonValue,
+            {
+                **AUTH_CONFIG.runtime_status(),
+                "browser_session_cookie_secure": BROWSER_SESSION_COOKIE_SECURE,
+            },
+        ),
         "audit": {
             "enabled": AUDIT.enabled,
             "format": "json",
@@ -445,16 +536,99 @@ def metrics() -> Response:
 @app.get("/api/session", response_model=None)
 def session(request: Request, store: StudioStoreDependency) -> JsonObject:
     """Return the authenticated workspace and its actual storage behavior."""
+    return _session_payload(request, store)
+
+
+@app.post(BROWSER_SESSION_EXCHANGE_PATH, response_model=None)
+def create_browser_session(
+    request: Request,
+    response: Response,
+    store: StudioStoreDependency,
+) -> JsonObject:
+    """Exchange a managed workspace key for a short-lived HttpOnly session."""
+    origin = request.headers.get("Origin")
+    if origin is not None and not _origin_is_allowed(origin):
+        raise HTTPException(
+            status_code=403,
+            detail="This sign-in request did not come from an allowed Studio origin.",
+        )
+    if not AUTH_CONFIG.browser_sessions_enabled:
+        raise HTTPException(
+            status_code=409,
+            detail="Managed workspace keys are required for browser sessions.",
+        )
+    try:
+        issued = AUTH_CONFIG.issue_browser_session(request.headers.get("Authorization"))
+    except StudioBrowserSessionError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Studio could not create a browser session. Please retry.",
+        ) from exc
+    if issued is None:
+        raise HTTPException(status_code=401, detail="A current workspace key is required.")
+    max_age = _session_cookie_max_age(issued.principal.expires_at)
+    response.set_cookie(
+        key=BROWSER_SESSION_COOKIE_NAME,
+        value=issued.session_token,
+        max_age=max_age,
+        httponly=True,
+        secure=BROWSER_SESSION_COOKIE_SECURE,
+        samesite="strict",
+        path="/",
+    )
+    payload = _session_payload(request, store)
+    payload["access_mode"] = "browser_session"
+    payload["expires_at"] = issued.principal.expires_at
+    return payload
+
+
+@app.post(BROWSER_SESSION_LOGOUT_PATH, response_model=None)
+def logout_browser_session(request: Request) -> Response:
+    """Revoke the current browser session and clear its HttpOnly cookie."""
+    if (
+        not _origin_is_allowed(request.headers.get("Origin"))
+        or request.headers.get(BROWSER_CSRF_HEADER) != BROWSER_CSRF_VALUE
+    ):
+        return JSONResponse(
+            status_code=403,
+            content={"detail": "This sign-out request did not come from an allowed Studio origin."},
+        )
+    session_token = request.cookies.get(BROWSER_SESSION_COOKIE_NAME)
+    try:
+        AUTH_CONFIG.revoke_browser_session(session_token)
+    except StudioBrowserSessionError:
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "Studio could not close this browser session. Please retry."},
+        )
+    response = Response(status_code=204)
+    _delete_browser_session_cookie(response)
+    return response
+
+
+def _session_payload(request: Request, store: StudioStore) -> JsonObject:
     workspace_id = getattr(request.state, "workspace_id", store.workspace_id)
     if not isinstance(workspace_id, str):
         raise StudioPersistenceError("request workspace context is invalid")
     workspace_role = getattr(request.state, "workspace_role", "admin")
     if workspace_role not in {"viewer", "editor", "admin"}:
         raise StudioPersistenceError("request workspace role is invalid")
+    access_mode = getattr(
+        request.state,
+        "auth_kind",
+        "api_key" if AUTH_CONFIG.required else "open_local",
+    )
+    if access_mode not in {"open_local", "api_key", "browser_session"}:
+        raise StudioPersistenceError("request authentication context is invalid")
+    session_expires_at = getattr(request.state, "session_expires_at", None)
+    if session_expires_at is not None and not isinstance(session_expires_at, str):
+        raise StudioPersistenceError("request session expiry is invalid")
     return {
         "authenticated": AUTH_CONFIG.required,
         "workspace_id": workspace_id,
         "role": workspace_role,
+        "access_mode": access_mode,
+        "expires_at": session_expires_at,
         "runtime": store.runtime_status(),
     }
 
@@ -728,6 +902,8 @@ def _validate_run_filter(name: str, value: str | None, allowed: frozenset[str]) 
 
 def _role_allows_request(*, role: str, method: str, path: str) -> bool:
     """Keep viewer credentials read-only, including the demo's seeding GET route."""
+    if path == BROWSER_SESSION_EXCHANGE_PATH:
+        return True
     if role != "viewer":
         return True
     return method.upper() in {"GET", "HEAD"} and path not in VIEWER_BLOCKED_GET_PATHS
@@ -736,8 +912,8 @@ def _role_allows_request(*, role: str, method: str, path: str) -> bool:
 def _role_denied_detail(role: str) -> str:
     if role == "viewer":
         return (
-            "This workspace key has viewer access. An editor or admin key is required to "
-            "change workspace data."
+            "Your current workspace has viewer access and is read-only. "
+            "Editor or admin access is required to change workspace data."
         )
     return "This workspace key is not authorized for this operation."
 
@@ -763,8 +939,13 @@ def _production_readiness(*, storage_ok: bool) -> JsonObject:
                 [
                     "hashed expiring workspace keys with operator revocation",
                     "viewer, editor, and admin request authorization",
+                    "short-lived revocable HttpOnly browser sessions",
                 ]
             )
+            if BROWSER_SESSION_COOKIE_SECURE:
+                completed.append("Secure browser session cookies")
+            else:
+                blockers.insert(0, "TLS-backed Secure browser session cookies")
         else:
             blockers.insert(0, "hashed API-key issuance, expiry, and revocation")
     else:
@@ -868,6 +1049,31 @@ def _key_error_detail(exc: KeyError) -> str:
 def _rate_limit_key(request: Request) -> str:
     host = request.client.host if request.client is not None else "unknown"
     return f"{host}:{request.method}:{request.url.path}"
+
+
+def _origin_is_allowed(origin: str | None) -> bool:
+    return origin is not None and origin in ALLOWED_ORIGINS
+
+
+def _session_cookie_max_age(expires_at: str) -> int:
+    try:
+        expires = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise StudioPersistenceError("browser session expiry is invalid") from exc
+    if expires.tzinfo is None:
+        raise StudioPersistenceError("browser session expiry has no timezone")
+    remaining = int((expires.astimezone(timezone.utc) - datetime.now(timezone.utc)).total_seconds())
+    return max(1, remaining)
+
+
+def _delete_browser_session_cookie(response: Response) -> None:
+    response.delete_cookie(
+        key=BROWSER_SESSION_COOKIE_NAME,
+        httponly=True,
+        secure=BROWSER_SESSION_COOKIE_SECURE,
+        samesite="strict",
+        path="/",
+    )
 
 
 def _apply_security_headers(response: Response) -> None:

@@ -1,0 +1,117 @@
+# TraceBisect Studio Browser Sessions
+
+This guide explains how a person signs in to a protected Studio workspace and
+what an operator must configure before hosting it.
+
+## What a new user does
+
+1. Open TraceBisect Studio.
+2. Paste the workspace key supplied by the workspace owner.
+3. Select **Open workspace**.
+4. Use Studio normally. The browser does not ask for the key on every request.
+5. Select **Lock workspace** on a shared computer or when work is finished.
+
+The key is exchanged once for a short-lived browser session. Studio stores the
+session in an HttpOnly cookie, which means page JavaScript cannot read or copy
+it. The database contains only a peppered HMAC digest of the opaque session
+token—not the plaintext token or workspace key.
+
+## What ends a session
+
+A browser session stops working when any of these happens:
+
+- The user selects **Lock workspace**. Studio revokes the current session before
+  returning to the sign-in screen.
+- The session reaches its configured expiry time.
+- An operator revokes the workspace key that created it.
+- The source workspace key expires.
+- A restored backup replaces the active database. Backups intentionally contain
+  no browser sessions, so recovery requires everyone to sign in again.
+
+Revoking a source key invalidates all sessions created from that key without an
+API restart:
+
+```bash
+tracebisect studio keys list --database .tracebisect/studio.db
+tracebisect studio keys revoke --database .tracebisect/studio.db --key-id KEY_ID
+```
+
+## Session lifetime
+
+The default maximum lifetime is eight hours. A session can never outlive its
+source workspace key. To use a shorter or longer window, set a value from 300
+seconds (five minutes) to 604800 seconds (seven days):
+
+```bash
+export TRACEBISECT_STUDIO_BROWSER_SESSION_TTL_SECONDS=28800
+```
+
+Use the shortest lifetime that fits the real workday. Reducing the value affects
+new sessions; it does not rewrite an already-issued session.
+
+Studio retains at most 20 active browser sessions per source key. Issuing a 21st
+session removes the oldest one, which bounds database growth if a client signs
+in repeatedly.
+
+## Production origin and HTTPS requirements
+
+Set the exact frontend origin—never `*`—and serve the browser and API from the
+same HTTPS site, such as `studio.example.com` and `api.example.com`:
+
+```bash
+export TRACEBISECT_STUDIO_ALLOWED_ORIGINS=https://studio.example.com
+```
+
+Studio uses these controls together:
+
+- `HttpOnly` prevents JavaScript from reading the session cookie.
+- `SameSite=Strict` prevents the browser from sending it in cross-site requests.
+- `Secure` limits the cookie to HTTPS in hosted deployments.
+- Hosted cookies use the `__Host-` prefix, a host-only path, and no `Domain`
+  attribute so sibling subdomains cannot overwrite them.
+- Exact Origin checks reject state-changing cookie requests from an unapproved
+  frontend.
+- Studio requires an `X-TraceBisect-CSRF: 1` header on state-changing browser
+  requests, forcing those requests through the approved CORS policy.
+- Credentialed CORS permits the approved frontend to call the API while keeping
+  other origins out.
+
+Cookie security is automatic for a configuration containing only HTTPS origins.
+It is disabled automatically only for the built-in `localhost`/`127.0.0.1`
+development origins. Mixed HTTPS and HTTP origins, or non-loopback HTTP origins,
+fail at startup unless the operator makes an explicit choice:
+
+```bash
+export TRACEBISECT_STUDIO_BROWSER_SESSION_COOKIE_SECURE=true
+```
+
+Do not set that value to `false` for a hosted deployment. If a reverse proxy
+terminates TLS, keep the public allowed origin on HTTPS and leave the cookie
+setting on `auto` or `true`.
+
+## Compatibility boundary
+
+CLI tools and service integrations may continue to send a managed workspace key
+as an `Authorization: Bearer ...` header. Browser sessions are an additional,
+safer browser path; they do not remove API access.
+
+The legacy `TRACEBISECT_STUDIO_API_KEYS` JSON mapping cannot issue managed
+browser sessions because it has no durable key ID, expiry, or revocation record.
+It remains a migration/local-development mode and continues to use tab-scoped
+browser key storage. Use managed keys for a hosted deployment.
+
+## Incident checks
+
+If a user is unexpectedly signed out:
+
+1. Check whether the session or source key expired.
+2. Check key metadata with `tracebisect studio keys list`; do not ask the user to
+   paste the plaintext key into logs or a ticket.
+3. Confirm the frontend origin exactly matches
+   `TRACEBISECT_STUDIO_ALLOWED_ORIGINS`.
+4. Confirm hosted cookies include `Secure`, `HttpOnly`, and `SameSite=Strict`.
+5. Create a replacement key only when the original is expired, revoked, or
+   suspected of exposure.
+
+Request audit events and metrics never contain the browser token or workspace
+key. Keep that same rule in reverse-proxy and incident tooling.

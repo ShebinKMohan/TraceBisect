@@ -39,8 +39,18 @@ temporary files out of the web root, and throttle repeated API calls.
   side-effecting demo seed; legacy environment keys retain admin compatibility.
 - The legacy plaintext `TRACEBISECT_STUDIO_API_KEYS` mapping remains supported
   for migration/local use and is reported separately by the health endpoint.
-- Studio keeps an accepted workspace key in browser `sessionStorage`, not
-  persistent `localStorage`, and offers an explicit **Lock workspace** action.
+- Managed browser sign-in exchanges the workspace key once for a short-lived,
+  opaque session. The browser receives an HttpOnly, SameSite cookie; SQLite
+  stores only a peppered HMAC digest. Hosted HTTPS configurations add `Secure`
+  and the `__Host-` prefix automatically.
+- State-changing cookie requests require both an exact allowed Origin and the
+  frontend's `X-TraceBisect-CSRF` header. **Lock workspace** revokes the current
+  session, while source-key expiry or revocation invalidates every derived
+  session without restarting the API.
+- Browser sessions default to eight hours, cannot outlive the source key, and
+  are stripped from backups so recovery never resurrects authenticated sessions.
+- Legacy environment-key mode continues to use tab-scoped `sessionStorage` and
+  is explicitly reported as lacking managed browser sessions.
 - API keys must contain 32-256 URL-safe characters and are compared using a
   constant-time comparison.
 - Browser origins are allow-listed with
@@ -84,8 +94,9 @@ Studio a real multi-tenant SaaS:
 
 - Managed user identities, account recovery, and team/project RBAC.
 - Managed multi-user database storage beyond the single-node SQLite backend.
-- Browser self-service key rotation and scoped ingestion tokens. Operator-level
-  hashed issuance, expiry, listing, and revocation are implemented.
+- Account-level self-service access management and scoped ingestion tokens.
+  Operator-level hashed key issuance/rotation and managed browser-session
+  lifecycle are implemented.
 - Durable background jobs for large OTel imports and comparisons.
 - Distributed rate limiting backed by Redis or the hosting provider.
 - Durable centralized retention, search, alerting, and access control for the
@@ -102,7 +113,7 @@ Studio a real multi-tenant SaaS:
 
 The current build has restart-safe single-node persistence plus fail-closed
 workspace API-key authorization, not a finished hosted SaaS. The next
-production step is managed identity, browser key lifecycle, and deployment-level
+production step is managed identity/account recovery and deployment-level
 monitoring/error-tracking wiring; do not add Langfuse-scale ClickHouse or queues
 until the comparison workflow needs them.
 
@@ -112,6 +123,10 @@ until the comparison workflow needs them.
   https://owasp.org/API-Security/editions/2023/en/0xa4-unrestricted-resource-consumption/
 - OWASP File Upload Cheat Sheet:
   https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html
+- OWASP Session Management Cheat Sheet:
+  https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html
+- OWASP CSRF Prevention Cheat Sheet:
+  https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html
 - Prometheus exposition formats:
   https://prometheus.io/docs/instrumenting/exposition_formats/
 - Prometheus instrumentation and label-cardinality guidance:

@@ -12,6 +12,10 @@ from tracebisect.studio.access_keys import (
     create_studio_api_key,
     principal_for_managed_api_key,
 )
+from tracebisect.studio.access_sessions import (
+    issue_studio_browser_session,
+    principal_for_studio_browser_session,
+)
 from tracebisect.studio.backup import (
     StudioBackupError,
     create_studio_backup,
@@ -51,6 +55,14 @@ def test_live_backup_verifies_and_restores_all_workspace_data(tmp_path: Path) ->
         expires_in_days=90,
         pepper=pepper,
     )
+    issued_session = issue_studio_browser_session(
+        source_path,
+        api_key=issued_key.api_key,
+        pepper=pepper,
+        ttl_seconds=3600,
+    )
+    with pytest.raises(StudioBackupError, match="contains browser sessions"):
+        inspect_studio_backup(source_path)
 
     inspection = create_studio_backup(source_path, backup_path)
 
@@ -64,6 +76,8 @@ def test_live_backup_verifies_and_restores_all_workspace_data(tmp_path: Path) ->
     assert len(inspection.sha256) == 64
     assert len(inspection.content_sha256) == 64
     assert inspect_studio_backup(backup_path) == inspection
+    with sqlite3.connect(backup_path) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM studio_browser_sessions").fetchone() == (0,)
 
     # Prove that the backup is a point-in-time snapshot, not a reference to the live file.
     source.clear()
@@ -89,6 +103,14 @@ def test_live_backup_verifies_and_restores_all_workspace_data(tmp_path: Path) ->
     assert restored_principal is not None
     assert restored_principal.workspace_id == "workspace-a"
     assert restored_principal.role == "editor"
+    assert (
+        principal_for_studio_browser_session(
+            restored_path,
+            session_token=issued_session.session_token,
+            pepper=pepper,
+        )
+        is None
+    )
 
 
 def test_backup_and_restore_never_replace_existing_files(tmp_path: Path) -> None:

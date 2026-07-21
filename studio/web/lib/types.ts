@@ -16,6 +16,9 @@ export type StudioHealth = {
     mode: "none" | "api-key";
     required: boolean;
     credential_source: "none" | "environment" | "managed";
+    browser_sessions: boolean;
+    browser_session_ttl_seconds: number;
+    browser_session_cookie_secure: boolean;
   };
   audit: {
     enabled: boolean;
@@ -58,6 +61,8 @@ export type StudioSession = {
   authenticated: boolean;
   workspace_id: string;
   role: WorkspaceRole;
+  access_mode: "open_local" | "api_key" | "browser_session";
+  expires_at: string | null;
   runtime: StudioHealth["runtime"];
 };
 

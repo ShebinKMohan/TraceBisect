@@ -139,7 +139,7 @@ export function HomePanel({ authRequired, canEdit, cases, report, runtime, trace
               </strong>{" "}
               {runtime
                 ? authRequired
-                  ? "your session key grants access only to this workspace, and its data survives API restarts."
+                  ? "your signed-in access is limited to this workspace, and its data survives API restarts."
                   : durable
                     ? "traces, comparisons, and guardrails survive API restarts."
                     : "no account is required and data resets when the API restarts."

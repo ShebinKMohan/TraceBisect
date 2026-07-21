@@ -43,9 +43,13 @@ async function authorizedFetch(
   explicitApiKey?: string,
 ): Promise<Response> {
   const headers = new Headers(init.headers);
+  const method = (init.method ?? "GET").toUpperCase();
+  if (!["GET", "HEAD", "OPTIONS"].includes(method)) {
+    headers.set("X-TraceBisect-CSRF", "1");
+  }
   const apiKey = explicitApiKey ?? storedStudioApiKey();
   if (apiKey) headers.set("Authorization", `Bearer ${apiKey}`);
-  return fetch(input, { ...init, headers });
+  return fetch(input, { ...init, credentials: "include", headers });
 }
 
 export function hasStoredStudioApiKey(): boolean {
@@ -76,11 +80,39 @@ export async function fetchStudioSession(apiKey?: string): Promise<StudioSession
   );
 }
 
-export async function unlockStudioWorkspace(apiKey: string): Promise<StudioSession> {
+export async function unlockStudioWorkspace(
+  apiKey: string,
+  managedBrowserSession: boolean,
+): Promise<StudioSession> {
   const normalizedApiKey = apiKey.trim();
+  if (managedBrowserSession) {
+    forgetStudioApiKey();
+    return parseResponse<StudioSession>(
+      await authorizedFetch(
+        `${API_BASE}/api/browser-session`,
+        { method: "POST" },
+        normalizedApiKey,
+      ),
+    );
+  }
   const session = await fetchStudioSession(normalizedApiKey);
   window.sessionStorage.setItem(STUDIO_API_KEY_STORAGE, normalizedApiKey);
   return session;
+}
+
+export async function logoutStudioWorkspace(managedBrowserSession: boolean): Promise<void> {
+  if (!managedBrowserSession) {
+    forgetStudioApiKey();
+    return;
+  }
+  const response = await fetch(`${API_BASE}/api/browser-session/logout`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "X-TraceBisect-CSRF": "1" },
+  });
+  if (!response.ok) {
+    throw new StudioApiError(await responseErrorMessage(response), response.status);
+  }
 }
 
 export async function fetchTraces(): Promise<TraceSummary[]> {

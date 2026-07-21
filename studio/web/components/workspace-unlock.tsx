@@ -7,7 +7,9 @@ import type { FormEvent } from "react";
 type WorkspaceUnlockProps = {
   busy: boolean;
   error: string | null;
+  managedSession: boolean;
   onUnlock: (apiKey: string) => void;
+  sessionTtlSeconds: number;
 };
 
 export function WorkspaceConnecting() {
@@ -29,8 +31,15 @@ export function WorkspaceConnecting() {
   );
 }
 
-export function WorkspaceUnlock({ busy, error, onUnlock }: WorkspaceUnlockProps) {
+export function WorkspaceUnlock({
+  busy,
+  error,
+  managedSession,
+  onUnlock,
+  sessionTtlSeconds,
+}: WorkspaceUnlockProps) {
   const [apiKey, setApiKey] = useState("");
+  const sessionLifetime = formatSessionLifetime(sessionTtlSeconds);
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -72,9 +81,24 @@ export function WorkspaceUnlock({ busy, error, onUnlock }: WorkspaceUnlockProps)
         </form>
         <div className="unlock-privacy-note">
           <ShieldCheck size={17} aria-hidden />
-          <p><strong>Session-only:</strong> the key stays in this browser tab and is cleared when the tab closes.</p>
+          <p>
+            {managedSession ? (
+              <><strong>Safer sign-in:</strong> your key is used once and is not saved in the page. Studio creates a protected session for up to {sessionLifetime}; <strong>Lock workspace</strong> ends it early.</>
+            ) : (
+              <><strong>Session-only:</strong> the key stays in this browser tab and is cleared when the tab closes.</>
+            )}
+          </p>
         </div>
       </section>
     </main>
   );
+}
+
+function formatSessionLifetime(seconds: number): string {
+  if (seconds >= 3600 && seconds % 3600 === 0) {
+    const hours = seconds / 3600;
+    return `${hours} ${hours === 1 ? "hour" : "hours"}`;
+  }
+  const minutes = Math.max(1, Math.ceil(seconds / 60));
+  return `${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
 }

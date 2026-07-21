@@ -95,16 +95,26 @@ or revoked keys immediately. Use `tracebisect studio keys list` to review safe
 metadata. For zero-downtime rotation, create a replacement, update the client,
 then run `tracebisect studio keys revoke --key-id ...` for the old key.
 
+When the browser opens a managed workspace, it sends that key only to the
+session-exchange endpoint. The API replaces it with an opaque, HttpOnly,
+SameSite cookie, stores only a peppered session digest, and expires the session
+after eight hours by default. Locking the workspace revokes that session;
+revoking the source key invalidates every session created from it immediately.
+The session never enters browser JavaScript or `localStorage`/`sessionStorage`.
+See [`docs/operations/studio-browser-sessions.md`](docs/operations/studio-browser-sessions.md)
+for the production HTTPS, origin, expiry, and sign-out contract.
+
 Choose the smallest role that fits: `viewer` can inspect existing evidence,
 `editor` can also upload, compare, save, and rerun guardrails, and `admin` is the
 operator/owner role. Studio enforces the role on every API request and shows a
 clear read-only banner for viewer sessions.
 
-The bearer key—not a client-provided workspace header—selects the authorized
-workspace. Studio keeps an accepted browser key in `sessionStorage`, so closing
-the tab clears it. The older `TRACEBISECT_STUDIO_API_KEYS` JSON mapping remains
-available for migration and local development, but `/api/health` reports it as
-an environment credential source without managed expiry or revocation.
+The bearer key or its derived browser session—not a client-provided workspace
+header—selects the authorized workspace. The older
+`TRACEBISECT_STUDIO_API_KEYS` JSON mapping remains available for migration and
+local development; that legacy mode keeps the key in tab-scoped
+`sessionStorage` and `/api/health` reports that managed expiry, revocation, and
+browser sessions are unavailable.
 
 Studio also emits one secret-safe JSON audit event per API request. Every
 response carries `X-Request-ID`; audit events record the normalized action,
@@ -172,6 +182,10 @@ TRACEBISECT_STUDIO_STORAGE=sqlite \
 TRACEBISECT_STUDIO_SQLITE_PATH=.tracebisect/restored-studio.db \
 uvicorn tracebisect.studio.api:app --port 8000
 ```
+
+Backups intentionally remove browser sessions before they are published. A
+restored workspace therefore keeps data and managed-key metadata but requires
+every browser to sign in again.
 
 Each command reports the verified workspace, trace, comparison, guardrail, and
 managed-access-key counts plus a SHA-256 checksum. Production operators must

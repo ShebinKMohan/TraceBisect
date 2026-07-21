@@ -20,6 +20,7 @@ _REQUIRED_TABLES = frozenset(
         "studio_cases",
         "studio_metadata",
         "studio_api_keys",
+        "studio_browser_sessions",
     }
 )
 _HASH_CHUNK_BYTES = 1024 * 1024
@@ -57,6 +58,7 @@ def create_studio_backup(
     temporary = _temporary_path(output)
     try:
         _copy_database(source, temporary)
+        _clear_browser_sessions(temporary)
         inspection = inspect_studio_backup(temporary)
         _publish_new_file(temporary, output)
     except (OSError, sqlite3.DatabaseError) as exc:
@@ -109,6 +111,10 @@ def inspect_studio_backup(backup_path: str | Path) -> StudioBackupInspection:
             report_count = _table_count(connection, "studio_reports")
             case_count = _table_count(connection, "studio_cases")
             api_key_count = _table_count(connection, "studio_api_keys")
+            if _table_count(connection, "studio_browser_sessions") != 0:
+                raise StudioBackupError(
+                    "the backup contains browser sessions and is unsafe to restore"
+                )
             content_sha256 = _content_sha256(connection)
     except StudioBackupError:
         raise
@@ -163,6 +169,14 @@ def _copy_database(source: Path, destination: Path) -> None:
         source_connection.backup(destination_connection)
         destination_connection.execute("PRAGMA journal_mode = DELETE")
     with destination.open("rb") as handle:
+        os.fsync(handle.fileno())
+
+
+def _clear_browser_sessions(database_path: Path) -> None:
+    """Keep recoverable product data while refusing to resurrect login sessions."""
+    with sqlite3.connect(database_path, timeout=5) as connection:
+        connection.execute("DELETE FROM studio_browser_sessions")
+    with database_path.open("rb") as handle:
         os.fsync(handle.fileno())
 
 
@@ -262,6 +276,13 @@ def _content_sha256(connection: sqlite3.Connection) -> str:
             """
             SELECT key_id, workspace_id, role, label, key_hash, created_at, expires_at, revoked_at
             FROM studio_api_keys ORDER BY key_id
+            """,
+        ),
+        (
+            "browser_sessions",
+            """
+            SELECT session_id, key_id, session_hash, created_at, expires_at, revoked_at
+            FROM studio_browser_sessions ORDER BY session_id
             """,
         ),
     )

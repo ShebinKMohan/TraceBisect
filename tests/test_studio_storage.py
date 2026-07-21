@@ -132,6 +132,12 @@ def test_sqlite_store_migrates_v1_data_to_managed_key_schema(tmp_path: Path) -> 
         assert connection.execute(
             "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'studio_api_keys'"
         ).fetchone() == ("studio_api_keys",)
+        assert connection.execute(
+            """
+            SELECT name FROM sqlite_master
+            WHERE type = 'table' AND name = 'studio_browser_sessions'
+            """
+        ).fetchone() == ("studio_browser_sessions",)
     migrated.close()
 
 
@@ -180,6 +186,29 @@ def test_sqlite_store_migrates_v2_keys_to_admin_role(tmp_path: Path) -> None:
         assert connection.execute("SELECT version FROM studio_schema").fetchone() == (
             SCHEMA_VERSION,
         )
+    migrated.close()
+
+
+def test_sqlite_store_migrates_v3_to_browser_session_schema(tmp_path: Path) -> None:
+    database_path = tmp_path / "studio.sqlite3"
+    current = SQLiteStudioStore(database_path, workspace_id="workspace-a")
+    current.close()
+    with sqlite3.connect(database_path) as connection:
+        connection.execute("DROP TABLE studio_browser_sessions")
+        connection.execute("UPDATE studio_schema SET version = 3")
+
+    migrated = SQLiteStudioStore(database_path, workspace_id="workspace-a")
+
+    with sqlite3.connect(database_path) as connection:
+        assert connection.execute("SELECT version FROM studio_schema").fetchone() == (
+            SCHEMA_VERSION,
+        )
+        assert connection.execute(
+            """
+            SELECT name FROM sqlite_master
+            WHERE type = 'table' AND name = 'studio_browser_sessions'
+            """
+        ).fetchone() == ("studio_browser_sessions",)
     migrated.close()
 
 

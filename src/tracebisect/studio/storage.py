@@ -26,7 +26,7 @@ from tracebisect.studio.service import (
     StudioStore,
 )
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 _WORKSPACE_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 _STORAGE_SETTING_NAMES = (
     "TRACEBISECT_STUDIO_STORAGE",
@@ -365,7 +365,7 @@ def ensure_studio_schema(connection: sqlite3.Connection) -> None:
                 "INSERT INTO studio_schema (version) VALUES (?)",
                 (SCHEMA_VERSION,),
             )
-        elif not isinstance(row[0], int) or row[0] not in {1, 2, SCHEMA_VERSION}:
+        elif not isinstance(row[0], int) or row[0] not in {1, 2, 3, SCHEMA_VERSION}:
             raise StudioPersistenceError(f"unsupported Studio database schema version {row[0]!r}")
         else:
             database_version = row[0]
@@ -438,6 +438,31 @@ def ensure_studio_schema(connection: sqlite3.Connection) -> None:
             """
             CREATE INDEX IF NOT EXISTS studio_api_keys_workspace_idx
             ON studio_api_keys (workspace_id)
+            """,
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS studio_browser_sessions (
+                session_id TEXT PRIMARY KEY,
+                key_id TEXT NOT NULL,
+                session_hash TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                revoked_at TEXT,
+                FOREIGN KEY (key_id) REFERENCES studio_api_keys (key_id) ON DELETE CASCADE
+            )
+            """,
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS studio_browser_sessions_key_idx
+            ON studio_browser_sessions (key_id)
+            """,
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS studio_browser_sessions_expiry_idx
+            ON studio_browser_sessions (expires_at)
             """,
         )
         if database_version < SCHEMA_VERSION:

@@ -64,8 +64,10 @@ class IssuedStudioApiKey:
 class ManagedApiKeyPrincipal:
     """Authorization facts resolved from one valid managed key."""
 
+    key_id: str
     workspace_id: str
     role: WorkspaceRole
+    expires_at: str
 
 
 def api_key_pepper(env: Mapping[str, str] | None = None) -> str:
@@ -269,8 +271,10 @@ def principal_for_managed_api_key(
         if _parse_timestamp(str(expires_at)) <= _utc_now(now):
             return None
         return ManagedApiKeyPrincipal(
+            key_id=key_id,
             workspace_id=validate_workspace_id(str(workspace_id)),
             role=_validate_role(str(role)),
+            expires_at=str(expires_at),
         )
     except (
         OSError,

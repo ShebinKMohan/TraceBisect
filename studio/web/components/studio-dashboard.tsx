@@ -15,6 +15,7 @@ import {
   forgetStudioApiKey,
   hasStoredStudioApiKey,
   isUnauthorizedStudioError,
+  logoutStudioWorkspace,
   runRegressionCase,
   unlockStudioWorkspace,
   uploadTrace,
@@ -127,7 +128,9 @@ export function StudioDashboard() {
       setHealth(studioHealth);
       let role: WorkspaceRole = "admin";
       if (studioHealth.auth.required) {
-        if (!hasStoredStudioApiKey()) {
+        const managedBrowserSession = studioHealth.auth.browser_sessions;
+        if (managedBrowserSession) forgetStudioApiKey();
+        if (!managedBrowserSession && !hasStoredStudioApiKey()) {
           setLocked(true);
           return;
         }
@@ -139,7 +142,11 @@ export function StudioDashboard() {
           if (isUnauthorizedStudioError(err)) {
             forgetStudioApiKey();
             setLocked(true);
-            setUnlockError("Your saved workspace key is no longer valid. Enter a current key.");
+            setUnlockError(
+              managedBrowserSession
+                ? null
+                : "Your saved workspace key is no longer valid. Enter a current key.",
+            );
             return;
           }
           throw err;
@@ -192,7 +199,10 @@ export function StudioDashboard() {
     setBusy(true);
     setUnlockError(null);
     try {
-      const session = await unlockStudioWorkspace(apiKey);
+      const session = await unlockStudioWorkspace(
+        apiKey,
+        health?.auth.browser_sessions ?? false,
+      );
       setHealth((current) => current ? { ...current, runtime: session.runtime } : current);
       setWorkspaceRole(session.role);
       await loadWorkspaceData(session.role);
@@ -209,11 +219,24 @@ export function StudioDashboard() {
     }
   }
 
-  function handleLock() {
-    forgetStudioApiKey();
-    clearWorkspaceData();
-    setUnlockError(null);
-    setLocked(true);
+  async function handleLock() {
+    setBusy(true);
+    setError(null);
+    try {
+      await logoutStudioWorkspace(health?.auth.browser_sessions ?? false);
+      forgetStudioApiKey();
+      clearWorkspaceData();
+      setUnlockError(null);
+      setLocked(true);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Studio could not lock this workspace. Please retry.",
+      );
+    } finally {
+      setBusy(false);
+    }
   }
 
   function clearWorkspaceData() {
@@ -246,7 +269,11 @@ export function StudioDashboard() {
     if (health?.auth.required && isUnauthorizedStudioError(err)) {
       forgetStudioApiKey();
       clearWorkspaceData();
-      setUnlockError("Your workspace key expired or was revoked. Enter a current key.");
+      setUnlockError(
+        health.auth.browser_sessions
+          ? "Your workspace session ended or its source key was revoked. Sign in again."
+          : "Your workspace key expired or was revoked. Enter a current key.",
+      );
       setLocked(true);
       return;
     }
@@ -273,7 +300,7 @@ export function StudioDashboard() {
 
   async function handleUpload(file: File, role: "baseline" | "candidate") {
     if (!canEdit) {
-      setError("This viewer key is read-only. Ask a workspace admin for an editor key to upload traces.");
+      setError("Your current access is read-only. Ask a workspace admin for editor access to upload traces.");
       return;
     }
     setBusy(true);
@@ -293,7 +320,7 @@ export function StudioDashboard() {
 
   async function handleCompare() {
     if (!canEdit) {
-      setError("This viewer key is read-only. Ask a workspace admin for an editor key to run comparisons.");
+      setError("Your current access is read-only. Ask a workspace admin for editor access to run comparisons.");
       return;
     }
     if (!baselineId || !candidateId) return;
@@ -314,7 +341,7 @@ export function StudioDashboard() {
 
   async function handleSaveCase() {
     if (!canEdit) {
-      setError("This viewer key is read-only. Ask a workspace admin for an editor key to save guardrails.");
+      setError("Your current access is read-only. Ask a workspace admin for editor access to save guardrails.");
       return;
     }
     if (!report) return;
@@ -340,7 +367,7 @@ export function StudioDashboard() {
 
   async function handleRunCase(item: RegressionCase) {
     if (!canEdit) {
-      setError("This viewer key is read-only. Ask a workspace admin for an editor key to recheck guardrails.");
+      setError("Your current access is read-only. Ask a workspace admin for editor access to recheck guardrails.");
       return;
     }
     setBusy(true);
@@ -386,7 +413,9 @@ export function StudioDashboard() {
       <WorkspaceUnlock
         busy={busy}
         error={unlockError}
+        managedSession={health?.auth.browser_sessions ?? false}
         onUnlock={(apiKey) => void handleUnlock(apiKey)}
+        sessionTtlSeconds={health?.auth.browser_session_ttl_seconds ?? 0}
       />
     );
   }
@@ -401,7 +430,7 @@ export function StudioDashboard() {
           onPrimaryAction={() => handleSectionChange("sources")}
           authRequired={health?.auth.required ?? false}
           onSectionChange={handleSectionChange}
-          onLock={handleLock}
+          onLock={() => void handleLock()}
           onThemeToggle={toggleTheme}
           onToggleCollapsed={() => setSidebarCollapsed((current) => !current)}
           runtime={health?.runtime ?? null}

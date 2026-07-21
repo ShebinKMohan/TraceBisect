@@ -46,6 +46,7 @@ export function SettingsPanel({ health, workspaceRole }: { health: StudioHealth 
   const durable = health?.runtime.durable ?? false;
   const authRequired = health?.auth.required ?? false;
   const credentialSource = health?.auth.credential_source ?? "none";
+  const browserSessions = health?.auth.browser_sessions ?? false;
   const metricsAccess = health?.metrics.access ?? null;
   const workspaceId = health?.runtime.workspace_id ?? "team-a";
   const createKeyCommand = `tracebisect studio keys create --database .tracebisect/studio.db --workspace ${workspaceId} --name 'Browser access' --role editor`;
@@ -67,7 +68,9 @@ export function SettingsPanel({ health, workspaceRole }: { health: StudioHealth 
             {health
               ? durable
                 ? authRequired
-                  ? `Your ${workspaceRole ?? "workspace"} key grants access to ${health.runtime.workspace_id}. Its traces, comparisons, and guardrails are saved across API restarts.`
+                  ? browserSessions
+                    ? `Your short-lived browser session grants ${workspaceRole ?? "workspace"} access to ${health.runtime.workspace_id}. Its traces, comparisons, and guardrails are saved across API restarts.`
+                    : `Your ${workspaceRole ?? "workspace"} key grants access to ${health.runtime.workspace_id}. Its traces, comparisons, and guardrails are saved across API restarts.`
                   : `Traces, comparisons, and guardrails for ${health.runtime.workspace_id} are saved across API restarts.`
                 : "No account or API key is required. Uploaded data is held in memory and resets with the API process."
               : "Waiting for the API to confirm whether this workspace is temporary or durable."}
@@ -136,7 +139,7 @@ export function SettingsPanel({ health, workspaceRole }: { health: StudioHealth 
             <strong>Workspace access</strong>
             <span>
               {credentialSource === "managed"
-                ? `${workspaceRole ? `${workspaceRole[0].toUpperCase()}${workspaceRole.slice(1)} · ` : ""}hashed, expiring key with operator revocation`
+                ? `${workspaceRole ? `${workspaceRole[0].toUpperCase()}${workspaceRole.slice(1)} · ` : ""}short-lived browser session backed by a revocable key`
                 : credentialSource === "environment"
                   ? "Static environment keys; managed rotation is not enabled"
                   : "Open local mode; no workspace key required"}
@@ -195,7 +198,7 @@ export function SettingsPanel({ health, workspaceRole }: { health: StudioHealth 
         <p>
           {authRequired
             ? credentialSource === "managed"
-              ? "User accounts, account recovery, team membership administration, browser self-service, hosted ingestion, and billing are future production milestones—not active features in this build."
+              ? "User accounts, account recovery, team membership administration, hosted ingestion, and billing are future production milestones—not active features in this build."
               : "Managed user accounts, hashed key rotation, hosted ingestion, team administration, and billing are future production milestones—not active features in this build."
             : "Authentication, request-scoped workspace access, hosted ingestion, team access, billing, and API keys are future production milestones—not active features in this build."}
         </p>
