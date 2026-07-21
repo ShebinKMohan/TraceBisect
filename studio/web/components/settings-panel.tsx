@@ -108,7 +108,7 @@ export function SettingsPanel({ health, workspaceRole }: { health: StudioHealth 
           <UploadCloud size={21} aria-hidden />
           <div>
             <h3>Upload exported traces</h3>
-            <p>Use the Trace library for the simplest path, or send a <code>.tbtrace</code> or OTel/OpenInference JSON file to the local API.</p>
+            <p>Open Choose traces for the simplest path, or send a <code>.tbtrace</code> or OTel/OpenInference JSON file to the local API.</p>
           </div>
           <CopyCommand command={uploadCommand} label="upload command" />
         </article>

@@ -30,8 +30,8 @@ export function UploadComparePanel({
     <section className="panel upload-panel">
       <div className="section-heading compact">
         <div>
-          <p>Trace upload</p>
-          <h2>Add or compare traces</h2>
+          <p>Start a comparison</p>
+          <h2>Choose the expected run and the new run</h2>
         </div>
         <UploadCloud size={19} aria-hidden />
       </div>
@@ -46,7 +46,8 @@ export function UploadComparePanel({
         <TraceUpload
           id="baseline-upload"
           disabled={readOnly}
-          label="Known-good baseline"
+          description="Choose the run whose behavior you trust. This is what TraceBisect treats as expected."
+          label="Known-good run"
           selectedId={baselineId}
           traces={traces}
           onSelect={onBaselineChange}
@@ -55,6 +56,7 @@ export function UploadComparePanel({
         <TraceUpload
           id="candidate-upload"
           disabled={readOnly}
+          description="Choose the newer run you want to check for behavior changes."
           label="New run to check"
           selectedId={candidateId}
           traces={traces}
@@ -80,6 +82,7 @@ export function UploadComparePanel({
 type TraceUploadProps = {
   id: string;
   disabled: boolean;
+  description: string;
   label: string;
   selectedId: string;
   traces: TraceSummary[];
@@ -87,14 +90,31 @@ type TraceUploadProps = {
   onUpload: (file: File) => void;
 };
 
-function TraceUpload({ id, disabled, label, selectedId, traces, onSelect, onUpload }: TraceUploadProps) {
+function TraceUpload({ id, disabled, description, label, selectedId, traces, onSelect, onUpload }: TraceUploadProps) {
+  const selectId = `${id}-select`;
   return (
     <div className="upload-card">
-      <label htmlFor={id}>
-        <span>{label}</span>
-        <strong>Upload .tbtrace or JSON</strong>
-        <small>Max 5 MB. Parsed locally by TraceBisect Studio.</small>
-      </label>
+      <div className="trace-choice-copy">
+        <strong>{label}</strong>
+        <p>{description}</p>
+      </div>
+      <label className="trace-choice-label" htmlFor={selectId}>Choose from the trace library</label>
+      <select
+        id={selectId}
+        aria-label={`${label} trace`}
+        disabled={disabled}
+        value={selectedId}
+        onChange={(event) => onSelect(event.currentTarget.value)}
+      >
+        <option value="">Choose a saved trace</option>
+        {traces.map((trace) => (
+          <option key={trace.id} value={trace.id}>
+            {friendlyTraceName(trace.display_name)}
+          </option>
+        ))}
+      </select>
+      <div className="trace-choice-divider" aria-hidden><span>or</span></div>
+      <label className="trace-choice-label" htmlFor={id}>Upload a new trace file</label>
       <input
         id={id}
         data-testid={id}
@@ -106,19 +126,7 @@ function TraceUpload({ id, disabled, label, selectedId, traces, onSelect, onUplo
           if (file) onUpload(file);
         }}
       />
-      <select
-        aria-label={`${label} trace`}
-        disabled={disabled}
-        value={selectedId}
-        onChange={(event) => onSelect(event.currentTarget.value)}
-      >
-        <option value="">Select uploaded trace</option>
-        {traces.map((trace) => (
-          <option key={trace.id} value={trace.id}>
-            {friendlyTraceName(trace.display_name)}
-          </option>
-        ))}
-      </select>
+      <small><code>.tbtrace</code> or OTel/OpenInference JSON · 5 MB maximum</small>
     </div>
   );
 }

@@ -21,12 +21,12 @@ import type { StudioHealth, StudioSection, WorkspaceRole } from "@/lib/types";
 
 const navItems = [
   { id: "home", label: "Home", icon: Home },
-  { id: "runs", label: "Compare runs", icon: GitCompare },
-  { id: "sources", label: "Trace library", icon: Database },
-  { id: "sessions", label: "Sessions", icon: MessagesSquare },
-  { id: "divergences", label: "Issues", icon: CircleAlert },
+  { id: "sources", label: "Choose traces", icon: Database },
+  { id: "runs", label: "Review changes", icon: GitCompare },
   { id: "cases", label: "Guardrails", icon: ShieldCheck },
-  { id: "setup", label: "Setup guide", icon: BookOpen },
+  { id: "sessions", label: "Sessions", icon: MessagesSquare },
+  { id: "divergences", label: "Repeated issues", icon: CircleAlert },
+  { id: "setup", label: "Workspace setup", icon: BookOpen },
 ] satisfies { id: StudioSection; label: string; icon: LucideIcon }[];
 
 type SidebarProps = {
@@ -98,9 +98,9 @@ export function Sidebar({
           </button>
         </div>
 
-        <button className="new-trace-button" disabled={!canEdit} onClick={onPrimaryAction} title={canEdit ? "Compare two traces" : "Editor access is required"} type="button">
+        <button className="new-trace-button" disabled={!canEdit} onClick={onPrimaryAction} title={canEdit ? "Start a new comparison" : "Editor access is required"} type="button">
           <Sparkles size={16} aria-hidden />
-          <span>Compare traces</span>
+          <span>Start comparison</span>
         </button>
 
         <nav className="nav-stack">

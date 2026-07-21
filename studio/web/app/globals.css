@@ -1290,6 +1290,13 @@ strong {
   cursor: default;
 }
 
+.filter-chip-static:hover {
+  border-color: var(--border);
+  background: var(--shell);
+  color: var(--text);
+  transform: none;
+}
+
 .filter-select {
   padding: 0 8px;
 }
@@ -3063,17 +3070,53 @@ html[data-theme="dark"] .payload-actual {
   background: var(--surface-soft);
 }
 
+.trace-choice-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.upload-card .trace-choice-copy strong {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+.trace-choice-copy p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.trace-choice-label {
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.trace-choice-divider {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 8px;
+  align-items: center;
+  color: var(--text-subtle);
+  font-size: 10px;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.trace-choice-divider::before,
+.trace-choice-divider::after {
+  height: 1px;
+  background: var(--border);
+  content: "";
+}
+
 .upload-card label {
   display: grid;
   gap: 3px;
-}
-
-.upload-card label span {
-  color: var(--text-muted);
-  font-size: 9.5px;
-  font-weight: 600;
-  line-height: 1.2;
-  text-transform: uppercase;
 }
 
 .upload-card strong {
@@ -3577,21 +3620,6 @@ html[data-theme="dark"] .payload-actual {
   font-size: 13px;
 }
 
-.version-pill {
-  display: inline-flex;
-  min-height: 21px;
-  align-items: center;
-  margin-left: 6px;
-  padding: 0 6px;
-  border: 1px solid var(--border);
-  border-radius: 2px;
-  background: var(--surface-soft);
-  color: var(--mono-text);
-  font-family: var(--font-roboto-mono), ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 11px;
-  font-style: normal;
-}
-
 .trace-workbench .workbench-heading,
 .event-details-panel .workbench-heading {
   padding-bottom: 10px;
@@ -3761,10 +3789,6 @@ html[data-theme="dark"] .payload-actual {
   padding: 28px;
 }
 
-.issues-page-frame .compare-drawer {
-  display: none;
-}
-
 .issue-card-list {
   display: grid;
   gap: 12px;
@@ -3830,8 +3854,7 @@ html[data-theme="dark"] .payload-actual {
     transform 160ms ease;
 }
 
-.issue-card:hover,
-.issue-card-active {
+.issue-card:hover {
   border-color: var(--accent-line);
   background: var(--accent-soft);
   box-shadow: inset 3px 0 0 var(--accent);

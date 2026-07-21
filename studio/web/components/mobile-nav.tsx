@@ -1,7 +1,7 @@
 "use client";
 
 import { BookOpen, CircleAlert, Database, GitCompare, Home, Menu, MessagesSquare, ShieldCheck, X } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { StudioSection } from "@/lib/types";
 
 type MobileNavProps = {
@@ -11,31 +11,49 @@ type MobileNavProps = {
 
 const primary = [
   { id: "home" as const, label: "Home", icon: Home },
-  { id: "runs" as const, label: "Compare", icon: GitCompare },
-  { id: "sources" as const, label: "Traces", icon: Database },
-  { id: "sessions" as const, label: "Sessions", icon: MessagesSquare },
+  { id: "sources" as const, label: "Choose traces", icon: Database },
+  { id: "runs" as const, label: "Changes", icon: GitCompare },
+  { id: "cases" as const, label: "Guardrails", icon: ShieldCheck },
 ];
 
 const more = [
-  { id: "divergences" as const, label: "Issues", description: "Repeated behavior changes", icon: CircleAlert },
-  { id: "cases" as const, label: "Guardrails", description: "Saved regression checks", icon: ShieldCheck },
-  { id: "setup" as const, label: "Setup guide", description: "Connect your own traces", icon: BookOpen },
+  { id: "sessions" as const, label: "Sessions", description: "Related runs grouped together", icon: MessagesSquare },
+  { id: "divergences" as const, label: "Repeated issues", description: "Behavior changes that keep returning", icon: CircleAlert },
+  { id: "setup" as const, label: "Workspace setup", description: "Connect data and manage access", icon: BookOpen },
 ];
 
 export function MobileNav({ activeSection, onSectionChange }: MobileNavProps) {
   const [open, setOpen] = useState(false);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const moreButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    closeButtonRef.current?.focus();
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") closeMoreMenu();
+    }
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [open]);
+
   function choose(section: StudioSection) {
     onSectionChange(section);
     setOpen(false);
+  }
+
+  function closeMoreMenu() {
+    setOpen(false);
+    window.requestAnimationFrame(() => moreButtonRef.current?.focus());
   }
   const moreActive = more.some((item) => item.id === activeSection);
   return (
     <>
       {open ? (
-        <div className="mobile-more-sheet" role="dialog" aria-label="More sections" data-testid="mobile-more-sheet">
+        <div className="mobile-more-sheet" id="mobile-more-sections" role="dialog" aria-labelledby="mobile-more-title" data-testid="mobile-more-sheet">
           <div>
-            <strong>More</strong>
-            <button aria-label="Close more menu" onClick={() => setOpen(false)} type="button"><X size={18} /></button>
+            <strong id="mobile-more-title">More sections</strong>
+            <button aria-label="Close more menu" onClick={closeMoreMenu} ref={closeButtonRef} type="button"><X size={18} /></button>
           </div>
           {more.map((item) => {
             const Icon = item.icon;
@@ -58,7 +76,15 @@ export function MobileNav({ activeSection, onSectionChange }: MobileNavProps) {
             </button>
           );
         })}
-        <button aria-expanded={open} className={moreActive ? "mobile-nav-active" : ""} onClick={() => setOpen((value) => !value)} type="button">
+        <button
+          aria-controls="mobile-more-sections"
+          aria-expanded={open}
+          aria-label={open ? "Close more sections" : "Open more sections"}
+          className={moreActive ? "mobile-nav-active" : ""}
+          onClick={() => open ? closeMoreMenu() : setOpen(true)}
+          ref={moreButtonRef}
+          type="button"
+        >
           <Menu size={19} aria-hidden />
           <span>More</span>
         </button>

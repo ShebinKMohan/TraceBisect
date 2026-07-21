@@ -1,4 +1,4 @@
-import { CheckCircle2, CircleAlert, Filter, GitCompare, Search } from "lucide-react";
+import { CheckCircle2, CircleAlert, GitCompare, Search } from "lucide-react";
 import type { Divergence, Report, RunSummary, RunStatus } from "@/lib/types";
 import {
   friendlyDivergenceType,
@@ -96,12 +96,9 @@ export function RunList({
     <section className="panel run-list-panel" aria-label="Comparison history" data-testid="runs-table">
       <div className="comparison-list-header">
         <div>
-          <p>Recent comparisons</p>
+          <p>Comparison history</p>
           <strong>{pluralize(displayRuns.length, "check")}</strong>
         </div>
-        <button aria-label="Filter comparisons" type="button">
-          <Filter size={15} aria-hidden />
-        </button>
       </div>
 
       <div className="run-toolbar" aria-label="Run filters">
@@ -184,7 +181,6 @@ export function RunList({
               </span>
               <span>
                 <em className={`tier-pill tier-${run.status}`}>{statusLabel}</em>
-                <em className="version-pill">v1.2 vs v1.3</em>
               </span>
               <span>
                 <strong className="run-signal">{divergenceLabel}</strong>

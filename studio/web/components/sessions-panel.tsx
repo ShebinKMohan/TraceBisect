@@ -92,6 +92,7 @@ export function SessionsPanel({ traces, searchQuery }: SessionsPanelProps) {
     });
   }, [groups, searchQuery, sortKey, statusFilter]);
   const [expandedIds, setExpandedIds] = useState<string[]>([]);
+  const [showAllTraceIds, setShowAllTraceIds] = useState<string[]>([]);
   const traceCount = traces.length;
   const successCount = traces.filter((trace) => trace.status !== "error").length;
   const successRate = traceCount > 0 ? (successCount / traceCount) * 100 : 0;
@@ -113,6 +114,14 @@ export function SessionsPanel({ traces, searchQuery }: SessionsPanelProps) {
     );
   }
 
+  function toggleAllTraces(groupId: string) {
+    setShowAllTraceIds((current) =>
+      current.includes(groupId)
+        ? current.filter((id) => id !== groupId)
+        : [...current, groupId],
+    );
+  }
+
   return (
     <section className="panel session-panel" data-testid="sessions-table">
       <div className="section-heading session-page-heading">
@@ -121,10 +130,10 @@ export function SessionsPanel({ traces, searchQuery }: SessionsPanelProps) {
           <h2>Grouped traces by scenario, session, or thread ID.</h2>
         </div>
         <div className="session-actions">
-          <button className="filter-chip filter-chip-static" disabled type="button">
+          <span className="filter-chip filter-chip-static">
             <CalendarDays size={14} aria-hidden />
-            Last 7 Days
-          </button>
+            All saved sessions
+          </span>
         </div>
       </div>
 
@@ -191,6 +200,8 @@ export function SessionsPanel({ traces, searchQuery }: SessionsPanelProps) {
         </div>
         {filtered.map((group) => {
           const expanded = expandedIds.includes(group.id);
+          const showingAllTraces = showAllTraceIds.includes(group.id);
+          const visibleTraces = showingAllTraces ? group.traces : group.traces.slice(0, 3);
           return (
             <div className={expanded ? "session-group session-group-open" : "session-group"} key={group.id}>
               <button
@@ -231,7 +242,7 @@ export function SessionsPanel({ traces, searchQuery }: SessionsPanelProps) {
                     <span>Duration</span>
                     <span>Status</span>
                   </div>
-                  {group.traces.slice(0, 3).map((trace) => (
+                  {visibleTraces.map((trace) => (
                     <div className="session-trace-row" key={trace.id}>
                       <code>{trace.trace_id}</code>
                       <span>{formatShortDate(trace.created_at)}</span>
@@ -244,8 +255,15 @@ export function SessionsPanel({ traces, searchQuery }: SessionsPanelProps) {
                     </div>
                   ))}
                   {group.traces.length > 3 ? (
-                    <button className="session-more-row" type="button">
-                      View {(group.traces.length - 3).toLocaleString()} more traces...
+                    <button
+                      aria-expanded={showingAllTraces}
+                      className="session-more-row"
+                      onClick={() => toggleAllTraces(group.id)}
+                      type="button"
+                    >
+                      {showingAllTraces
+                        ? "Show only the first 3 traces"
+                        : `Show ${(group.traces.length - 3).toLocaleString()} more traces`}
                     </button>
                   ) : null}
                 </div>

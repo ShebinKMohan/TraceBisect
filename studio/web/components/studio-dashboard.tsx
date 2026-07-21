@@ -22,7 +22,6 @@ import {
   uploadTrace,
 } from "@/lib/api";
 import type { IdentityLoginResult, RegressionCase, Report, RunSummary, StudioHealth, StudioSection, TraceEvent, TraceSummary, WorkspaceRole } from "@/lib/types";
-import { CompareDrawer } from "@/components/compare-drawer";
 import { EventDetailsPanel } from "@/components/event-details-panel";
 import { HomePanel } from "@/components/home-panel";
 import { IntegrationPanel } from "@/components/integration-panel";
@@ -46,6 +45,8 @@ import {
   studioSectionFromUrl,
   studioSectionUrl,
 } from "@/lib/navigation";
+
+const comparisonContextSections = new Set<StudioSection>(["runs", "divergences", "cases"]);
 
 export function StudioDashboard() {
   const [report, setReport] = useState<Report | null>(null);
@@ -450,6 +451,8 @@ export function StudioDashboard() {
       setSelectedReportId(result.report.report_id);
       await refreshCases();
       await refreshRuns();
+      handleSectionChange("runs");
+      setNotice("Guardrail rechecked. The latest comparison result is open below.");
     } catch (err) {
       presentApiError(err, "Failed to recheck regression case.");
     } finally {
@@ -531,7 +534,7 @@ export function StudioDashboard() {
               <h1 data-testid="studio-title">{content.title}</h1>
               <p>{content.description}</p>
             </div>
-            {activeSection !== "home" && activeSection !== "setup" ? (
+            {comparisonContextSections.has(activeSection) ? (
               <div className="page-header-actions">
                 <div className="header-action" data-testid="comparison-summary">
                   <GitCompare size={15} aria-hidden />
@@ -626,8 +629,14 @@ export function StudioDashboard() {
 
           {activeSection === "divergences" ? (
             <div className="issues-page-frame" data-testid="review-workbench">
-              <IssuesPanel runs={runs} searchQuery={searchQuery} />
-              <CompareDrawer divergence={first} report={report} />
+              <IssuesPanel
+                onOpenComparison={(reportId) => {
+                  handleSectionChange("runs");
+                  void handleSelectRun(reportId);
+                }}
+                runs={runs}
+                searchQuery={searchQuery}
+              />
             </div>
           ) : null}
 

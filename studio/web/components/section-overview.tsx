@@ -11,12 +11,12 @@ const sectionCopy: Record<StudioSection, { title: string; description: string }>
     description: "Follow one clear path from two AI runs to a regression test you can keep.",
   },
   runs: {
-    title: "Compare two runs",
+    title: "Review the first behavior change",
     description:
-      "Find the first meaningful behavior change between a known-good run and a new run.",
+      "Choose a comparison, inspect where the new run first changed, then save the behavior you want to protect.",
   },
   sources: {
-    title: "Choose your traces",
+    title: "Choose two traces to compare",
     description:
       "A trace is the step-by-step record of one AI run. Choose the expected run first, then the new run to check.",
   },
@@ -36,9 +36,9 @@ const sectionCopy: Record<StudioSection, { title: string; description: string }>
       "A guardrail is a saved regression check. Copy its generated pytest test into your repository to catch the bug in CI.",
   },
   setup: {
-    title: "Setup guide",
+    title: "Workspace setup",
     description:
-      "Start with the demo, upload exported traces, or record a run from your own Python scenario.",
+      "Learn the simplest setup path, connect your own traces, and manage workspace access in one place.",
   },
 };
 

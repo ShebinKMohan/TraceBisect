@@ -11,6 +11,7 @@ import {
 type IssuesPanelProps = {
   runs: RunSummary[];
   searchQuery: string;
+  onOpenComparison: (reportId: string) => void;
 };
 
 type IssueGroup = {
@@ -20,6 +21,7 @@ type IssueGroup = {
   comparisonCount: number;
   changeCount: number;
   latestCreatedAt: string;
+  latestReportId: string;
   scenarios: string[];
 };
 
@@ -61,6 +63,7 @@ function buildIssueGroups(runs: RunSummary[]): IssueGroup[] {
         comparisonCount: 1,
         changeCount: run.divergence_count,
         latestCreatedAt: run.created_at,
+        latestReportId: run.report_id,
         scenarios: [scenario],
       });
       continue;
@@ -70,6 +73,7 @@ function buildIssueGroups(runs: RunSummary[]): IssueGroup[] {
     existing.severity = strongerSeverity(existing.severity, run.severity);
     if (Date.parse(run.created_at) > Date.parse(existing.latestCreatedAt)) {
       existing.latestCreatedAt = run.created_at;
+      existing.latestReportId = run.report_id;
     }
     if (!existing.scenarios.includes(scenario)) {
       existing.scenarios.push(scenario);
@@ -82,10 +86,9 @@ function buildIssueGroups(runs: RunSummary[]): IssueGroup[] {
   );
 }
 
-export function IssuesPanel({ runs, searchQuery }: IssuesPanelProps) {
+export function IssuesPanel({ runs, searchQuery, onOpenComparison }: IssuesPanelProps) {
   const [severityFilter, setSeverityFilter] = useState<IssueSeverityFilter>("all");
   const [sortKey, setSortKey] = useState<IssueSortKey>("severity");
-  const [selectedIssueKey, setSelectedIssueKey] = useState<string | null>(null);
   const issues = useMemo(() => buildIssueGroups(runs), [runs]);
   const query = searchQuery.trim().toLowerCase();
   const filtered = useMemo(() => {
@@ -104,7 +107,6 @@ export function IssuesPanel({ runs, searchQuery }: IssuesPanelProps) {
       return (severityRank[right.severity] ?? 0) - (severityRank[left.severity] ?? 0);
     });
   }, [issues, query, severityFilter, sortKey]);
-  const selectedIssue = filtered.find((issue) => issue.key === selectedIssueKey) ?? filtered[0] ?? null;
   const totalChanges = issues.reduce((total, issue) => total + issue.changeCount, 0);
   const failingComparisons = runs.filter((run) => run.status === "failing").length;
   const highestSeverity = issues[0]?.severity ?? "INFO";
@@ -117,10 +119,10 @@ export function IssuesPanel({ runs, searchQuery }: IssuesPanelProps) {
           <h2>Repeated failures grouped by first behavior change.</h2>
         </div>
         <div className="session-actions">
-          <button className="filter-chip filter-chip-static" disabled type="button">
+          <span className="filter-chip filter-chip-static">
             <GitCompare size={14} aria-hidden />
             {failingComparisons} failing comparisons
-          </button>
+          </span>
         </div>
       </div>
 
@@ -173,10 +175,10 @@ export function IssuesPanel({ runs, searchQuery }: IssuesPanelProps) {
       <div className="issue-card-list" aria-label="Regression issues">
         {filtered.map((issue) => (
           <button
-            aria-pressed={selectedIssue?.key === issue.key}
-            className={selectedIssue?.key === issue.key ? "issue-card issue-card-active" : "issue-card"}
+            aria-label={`Open the latest ${friendlyDivergenceType(issue.type)} comparison`}
+            className="issue-card"
             key={issue.key}
-            onClick={() => setSelectedIssueKey(issue.key)}
+            onClick={() => onOpenComparison(issue.latestReportId)}
             type="button"
           >
             <div className="issue-card-icon" aria-hidden>
@@ -203,8 +205,8 @@ export function IssuesPanel({ runs, searchQuery }: IssuesPanelProps) {
               </small>
             </div>
             <div className="issue-card-metric">
-              <span>{issue.key.includes("cost") ? "Impact cost" : "Frequency"}</span>
-              <strong>{issue.key.includes("cost") ? "$142.50" : issue.comparisonCount.toLocaleString()}</strong>
+              <span>Comparisons</span>
+              <strong>{issue.comparisonCount.toLocaleString()}</strong>
               <em>{issue.changeCount.toLocaleString()} behavior changes</em>
             </div>
           </button>

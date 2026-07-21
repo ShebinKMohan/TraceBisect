@@ -307,20 +307,20 @@ async function main() {
   await expectText(page, '[data-testid="home-page"]', "One workflow, three steps", "beginner workflow");
   await expectText(page, '[data-testid="home-page"]', "Plain-English glossary", "beginner glossary");
   await expectText(page, ".sidebar", "Home", "desktop sidebar labels");
-  await expectText(page, ".sidebar", "Compare runs", "desktop sidebar labels");
-  await expectText(page, ".sidebar", "Trace library", "desktop sidebar labels");
+  await expectText(page, ".sidebar", "Choose traces", "desktop sidebar labels");
+  await expectText(page, ".sidebar", "Review changes", "desktop sidebar labels");
   await expectText(page, ".sidebar", "Sessions", "desktop sidebar labels");
-  await expectText(page, ".sidebar", "Issues", "desktop sidebar labels");
+  await expectText(page, ".sidebar", "Repeated issues", "desktop sidebar labels");
   await expectText(page, ".sidebar", "Guardrails", "desktop sidebar labels");
-  await expectText(page, ".sidebar", "Setup guide", "desktop sidebar labels");
+  await expectText(page, ".sidebar", "Workspace setup", "desktop sidebar labels");
   await page.getByTestId("sidebar-section-runs").click();
-  await expectText(page, '[data-testid="studio-title"]', "Compare two runs", "comparison title");
+  await expectText(page, '[data-testid="studio-title"]', "Review the first behavior change", "comparison title");
   assert(
     new URL(page.url()).searchParams.get("view") === "comparisons",
     `Comparison navigation did not create a shareable URL. Actual: ${page.url()}`,
   );
   assert(
-    (await page.title()) === "Compare two runs · TraceBisect Studio",
+    (await page.title()) === "Review the first behavior change · TraceBisect Studio",
     `Comparison navigation did not update the page title. Actual: ${await page.title()}`,
   );
   await expectText(page, '[data-testid="workflow-steps"]', "Choose traces", "comparison workflow");
@@ -341,28 +341,33 @@ async function main() {
     await page.getByTestId("section-search").evaluate((input) => document.activeElement === input),
     "Control+K did not focus the page search input",
   );
-  await expectText(page, '[role="status"]', "Opened Compare two runs", "section announcement");
+  await expectText(page, '[role="status"]', "Opened Review the first behavior change", "section announcement");
   await expectText(page, '[data-testid="runs-table"]', "Refund search", "runs table");
   await expectText(page, '[data-testid="runs-table"]', "Tool arguments changed", "run divergence signal");
   await expectNotText(page, '[data-testid="runs-table"]', ".tbtrace", "runs table primary labels");
   await expectNotText(page, '[data-testid="runs-table"]', "changed_tool_args", "runs table primary labels");
+  await expectNotText(page, '[data-testid="runs-table"]', "v1.2 vs v1.3", "invented version labels");
+  assert(
+    (await page.getByRole("button", { name: "Filter comparisons" }).count()) === 0,
+    "Comparison history exposed an inert filter button",
+  );
   await assertWorkbenchLayout(page, "comparison-workbench", "comparison history workbench");
   await page.locator(".search-control input").fill("does-not-exist");
   await expectText(page, '[data-testid="runs-table"]', "No comparison runs match", "empty run filter");
   await page.getByTestId("clear-run-filters").click();
   await expectText(page, '[data-testid="runs-table"]', "Refund search", "cleared run filters");
   await page.getByTestId("sidebar-section-sources").click();
-  await expectText(page, '[data-testid="studio-title"]', "Choose your traces", "traces title");
+  await expectText(page, '[data-testid="studio-title"]', "Choose two traces to compare", "traces title");
   assert(
     new URL(page.url()).searchParams.get("view") === "traces",
     `Trace navigation did not create a shareable URL. Actual: ${page.url()}`,
   );
   await page.goBack({ waitUntil: "domcontentloaded" });
-  await expectText(page, '[data-testid="studio-title"]', "Compare two runs", "browser back navigation");
+  await expectText(page, '[data-testid="studio-title"]', "Review the first behavior change", "browser back navigation");
   await page.goForward({ waitUntil: "domcontentloaded" });
-  await expectText(page, '[data-testid="studio-title"]', "Choose your traces", "browser forward navigation");
+  await expectText(page, '[data-testid="studio-title"]', "Choose two traces to compare", "browser forward navigation");
   await page.reload({ waitUntil: "load" });
-  await expectText(page, '[data-testid="studio-title"]', "Choose your traces", "deep-link refresh");
+  await expectText(page, '[data-testid="studio-title"]', "Choose two traces to compare", "deep-link refresh");
   await expectText(page, '[data-testid="trace-table"]', "Captured traces", "trace table");
   await expectText(page, '[data-testid="trace-table"]', "gpt-4o-mini", "trace table model");
   await expectText(page, '[data-testid="trace-table"]', "refund_search:v3", "trace table prompt");
@@ -374,7 +379,9 @@ async function main() {
   await expectText(page, '[data-testid="trace-detail-panel"]', "106", "trace detail follows sorted selection");
   await page.getByTestId("trace-filter-source").selectOption("native");
   await expectText(page, '[data-testid="trace-detail-panel"]', "TraceBisect", "trace source filter keeps selected detail");
-  await expectText(page, ".upload-panel", "Known-good baseline", "baseline upload label");
+  await expectText(page, ".upload-panel", "Known-good run", "baseline selection label");
+  await expectText(page, ".upload-panel", "Choose from the trace library", "existing trace choice");
+  await expectText(page, ".upload-panel", "Upload a new trace file", "new trace upload choice");
   await expectText(page, ".upload-panel", "New run to check", "candidate upload label");
   await expectText(page, ".upload-panel", "Find first behavior change", "compare action label");
   await expectText(page, '[data-testid="integration-otel"]', "OpenTelemetry", "OTel integration card");
@@ -404,15 +411,19 @@ async function main() {
   await expectText(page, '[data-testid="issues-table"]', "Open issues", "issues summary");
   await expectText(page, '[data-testid="issues-table"]', "Failing comparisons", "issues failing comparisons");
   await expectText(page, '[data-testid="issues-table"]', "Behavior changes", "issues behavior changes");
-  await expectText(page, '[data-testid="issues-table"]', "Frequency", "issues metric");
+  await expectText(page, '[data-testid="issues-table"]', "Comparisons", "issues metric");
+  await expectNotText(page, '[data-testid="issues-table"]', "$142.50", "invented issue cost");
   await page.getByTestId("issue-sort").selectOption("frequency");
-  await expectText(page, '[data-testid="issues-table"]', "Frequency", "issues sorted by frequency");
+  await expectText(page, '[data-testid="issues-table"]', "Comparisons", "issues sorted by frequency");
   await page.getByRole("button", { exact: true, name: "Critical" }).click();
   await expectText(page, '[data-testid="issues-table"]', "Tool arguments changed", "critical issue filter");
-  const selectedIssueCards = await page.locator(".issue-card-active").count();
-  assert(selectedIssueCards === 1, `Expected one selected issue card, found ${selectedIssueCards}`);
-  await expectText(page, '[data-testid="review-workbench"]', "Tool arguments changed", "issues frame");
-  await assertNoHorizontalOverflow(page, "divergences section");
+  await page.getByRole("button", { name: "Open the latest Tool arguments changed comparison" }).click();
+  await expectText(page, '[data-testid="studio-title"]', "Review the first behavior change", "issue comparison destination");
+  assert(
+    new URL(page.url()).searchParams.get("view") === "comparisons",
+    `Opening an issue did not navigate to its comparison. Actual: ${page.url()}`,
+  );
+  await assertNoHorizontalOverflow(page, "comparison opened from repeated issues");
   await page.getByTestId("sidebar-section-cases").click();
   await expectText(page, '[data-testid="studio-title"]', "Protect fixed behavior", "cases title");
   await expectText(page, '[data-testid="regression-case-library"]', "Saved guardrails", "cases section");
@@ -429,7 +440,7 @@ async function main() {
   }
   await assertNoHorizontalOverflow(page, "cases section");
   await page.getByTestId("sidebar-settings-link").click();
-  await expectText(page, '[data-testid="studio-title"]', "Setup guide", "setup title");
+  await expectText(page, '[data-testid="studio-title"]', "Workspace setup", "setup title");
   await expectText(page, '[data-testid="setup-section"]', "Running as a local workspace", "truthful setup mode");
   await expectText(page, '[data-testid="setup-section"]', "Choose the easiest way to start", "setup paths");
   await expectText(page, '[data-testid="setup-section"]', "What is not enabled yet", "setup boundary");
@@ -479,7 +490,7 @@ async function main() {
   );
 
   await page.getByTestId("sidebar-section-runs").click();
-  await expectText(page, '[data-testid="studio-title"]', "Compare two runs", "runs title after section navigation");
+  await expectText(page, '[data-testid="studio-title"]', "Review the first behavior change", "runs title after section navigation");
   await expectText(page, '[data-testid="trace-tree"]', "Tool call", "trace tree event type");
   await expectText(page, '[data-testid="trace-tree"]', "search_database", "trace tree event name");
   await expectText(page, '[data-testid="details-panel"]', "Expected · known-good run", "details panel");
@@ -575,6 +586,9 @@ async function main() {
     "regression case divergence",
   );
   await page.getByTestId("regression-case-library").getByRole("button", { name: "Recheck saved trace" }).first().click();
+  await expectText(page, '[data-testid="studio-title"]', "Review the first behavior change", "recheck result navigation");
+  await expectText(page, ".success-band", "latest comparison result is open", "recheck result notice");
+  await page.getByTestId("sidebar-section-cases").click();
   await expectText(page, '[data-testid="regression-case-library"]', "Needs review", "regression case run status");
 
   await page.evaluate(() => {
@@ -586,9 +600,9 @@ async function main() {
   await page.getByTestId("studio-title").waitFor({ state: "visible" });
   await assertFullScreenAppShell(page, "mobile light");
   await expectText(page, '[data-testid="studio-title"]', "Welcome to TraceBisect", "mobile product title");
-  await expectText(page, ".mobile-nav", "Compare", "mobile navigation");
-  await page.getByRole("button", { exact: true, name: "Compare" }).click();
-  await expectText(page, '[data-testid="studio-title"]', "Compare two runs", "mobile comparison title");
+  await expectText(page, ".mobile-nav", "Choose traces", "mobile navigation");
+  await page.getByRole("button", { exact: true, name: "Changes" }).click();
+  await expectText(page, '[data-testid="studio-title"]', "Review the first behavior change", "mobile comparison title");
   await expectText(page, '[data-testid="details-panel"]', "First behavior change", "mobile detail-first comparison");
   await assertNoHorizontalOverflow(page, "mobile light");
   await page.screenshot({ path: path.join(screenshotDir, "mobile-light.png"), fullPage: false });
