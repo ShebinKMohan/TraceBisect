@@ -18,6 +18,9 @@ multi-region SaaS topology.
   public origin, so credentials do not need a second public API hostname.
 - The optional email worker is a supervised Python process with graceful
   `SIGTERM` handling. It shares only the SQLite volume and outbound network.
+- The optional Prometheus service scrapes the private API with a file-mounted
+  operations token, evaluates the starter alerts, and keeps a bounded 30-day or
+  2 GB local history. Its UI binds to host loopback only.
 - Python dependencies are resolved from the committed `uv.lock`; frontend
   dependencies use `package-lock.json`.
 
@@ -36,18 +39,21 @@ Create the private environment file:
 cp deploy/.env.production.example deploy/.env.production
 tracebisect studio keys generate-pepper
 tracebisect studio identity generate-secret
-tracebisect studio metrics generate-token
+tracebisect studio metrics generate-token \
+  --output deploy/secrets/tracebisect_metrics_token
 ```
 
-Paste the three generated values into `deploy/.env.production`, set the real
-hostname, and keep the file mode owner-only:
+Paste the two printed server secrets into `deploy/.env.production`, set the real
+hostname, and leave the metrics-token file path at its documented default. Keep
+both the environment file and generated secret directory private:
 
 ```bash
 chmod 600 deploy/.env.production
+chmod 700 deploy/secrets
 ```
 
-Do not commit that file. For a serious hosted deployment, inject these values
-from the host or cloud secret manager instead of leaving them on disk.
+Do not commit either secret file. For a serious hosted deployment, inject these
+values from the host or cloud secret manager instead of leaving them on disk.
 
 ## Validate and start
 
@@ -106,6 +112,30 @@ docker compose \
 Do not enable the profile while `TRACEBISECT_STUDIO_EMAIL_PROVIDER=none`; the
 worker intentionally fails rather than pretending delivery is configured.
 
+## Enable local monitoring
+
+Start the monitoring profile after the normal services are healthy:
+
+```bash
+docker compose \
+  --profile monitoring \
+  --env-file deploy/.env.production \
+  -f deploy/compose.production.yml \
+  up --build -d
+
+curl --fail --show-error http://127.0.0.1:9090/-/ready
+```
+
+Prometheus is reachable only from the Docker host at
+`http://127.0.0.1:9090`. Use an SSH tunnel for remote operator access; do not
+publish this port to the internet. Open **Status → Targets** and confirm the
+single `tracebisect-studio` target is `UP`, then open **Alerts** and confirm the
+rules loaded.
+
+The named `prometheus-data` volume retains at most 30 days or 2 GB, whichever
+limit is reached first. This gives the single host restart-durable metrics and
+rule evaluation; it does not send notifications or copy history off the host.
+
 ## Verify the live boundary
 
 ```bash
@@ -117,8 +147,8 @@ Replace the hostname. `/api/ready` must report storage ready. `/api/health`
 must report secure browser cookies, managed identity, durable SQLite, and the
 actual email/webhook state. It will continue to report
 `production_saas_ready: false`; this topology still needs scheduled encrypted
-off-site backups, centralized log/metric retention, external alert delivery,
-and recovery drills.
+off-site backups, centralized request-log retention, external alert delivery,
+off-host metrics retention, and recovery drills.
 
 ## Back up before every upgrade
 

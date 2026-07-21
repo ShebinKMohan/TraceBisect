@@ -10,11 +10,13 @@ import time
 from collections import Counter
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from tracebisect.studio.audit import AuditAuthOutcome, request_action, request_result
 from tracebisect.studio.storage import StudioConfigurationError
 
 METRICS_TOKEN_ENV = "TRACEBISECT_STUDIO_METRICS_TOKEN"
+METRICS_TOKEN_FILE_ENV = "TRACEBISECT_STUDIO_METRICS_TOKEN_FILE"
 PROMETHEUS_CONTENT_TYPE = "text/plain; version=0.0.4; charset=utf-8"
 HTTP_DURATION_BUCKETS_SECONDS = (0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0)
 _TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9._~-]{32,256}$")
@@ -23,6 +25,27 @@ _TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9._~-]{32,256}$")
 def generate_metrics_token() -> str:
     """Generate a high-entropy token suitable for one monitoring scraper."""
     return secrets.token_urlsafe(32)
+
+
+def create_metrics_token_file(output: str | Path) -> Path:
+    """Create one owner-only token file without replacing an existing secret."""
+    target = Path(output).expanduser().resolve()
+    created = False
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        descriptor = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        created = True
+        with os.fdopen(descriptor, "w", encoding="utf-8") as token_file:
+            token_file.write(f"{generate_metrics_token()}\n")
+    except FileExistsError as exc:
+        raise StudioConfigurationError(
+            "metrics token file already exists; choose a new path or rotate it deliberately"
+        ) from exc
+    except OSError as exc:
+        if created:
+            target.unlink(missing_ok=True)
+        raise StudioConfigurationError("could not create the metrics token file") from exc
+    return target
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,9 +58,16 @@ class StudioMetricsAccess:
     def from_env(cls, env: Mapping[str, str] | None = None) -> StudioMetricsAccess:
         values = os.environ if env is None else env
         token = values.get(METRICS_TOKEN_ENV, "").strip() or None
+        token_file = values.get(METRICS_TOKEN_FILE_ENV, "").strip() or None
+        if token is not None and token_file is not None:
+            raise StudioConfigurationError(
+                f"set only one of {METRICS_TOKEN_ENV} or {METRICS_TOKEN_FILE_ENV}"
+            )
+        if token_file is not None:
+            token = _read_metrics_token_file(token_file)
         if token is not None and _TOKEN_PATTERN.fullmatch(token) is None:
             raise StudioConfigurationError(
-                f"{METRICS_TOKEN_ENV} must contain 32-256 URL-safe characters"
+                "Studio metrics token must contain 32-256 URL-safe characters"
             )
         return cls(token=token)
 
@@ -213,6 +243,15 @@ class StudioMetrics:
 
 def _label(value: str) -> str:
     return value.replace("\\", "\\\\").replace("\n", "\\n").replace('"', '\\"')
+
+
+def _read_metrics_token_file(raw_path: str) -> str:
+    try:
+        with Path(raw_path).expanduser().open(encoding="utf-8") as token_file:
+            token = token_file.read(258)
+    except (OSError, UnicodeError) as exc:
+        raise StudioConfigurationError("could not read the Studio metrics token file") from exc
+    return token.strip()
 
 
 def _metric_number(value: float) -> str:

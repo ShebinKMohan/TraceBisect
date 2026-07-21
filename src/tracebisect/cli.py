@@ -400,9 +400,16 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="<metrics-command>",
     )
     studio_metrics.set_defaults(studio_metrics_parser=studio_metrics)
-    studio_metrics_commands.add_parser(
+    studio_metrics_generate = studio_metrics_commands.add_parser(
         "generate-token",
         help="Generate the dedicated bearer token used by a metrics scraper.",
+    )
+    studio_metrics_generate.add_argument(
+        "--output",
+        help=(
+            "Write the token to a new owner-only file instead of printing it. "
+            "Existing files are never replaced."
+        ),
     )
 
     studio_identity = studio_commands.add_parser(
@@ -1069,14 +1076,27 @@ def _studio_key_database(database: str | None) -> Iterator[StudioDatabaseTarget]
         store.close()
 
 
-def run_studio_metrics_generate_token() -> int:
-    from tracebisect.studio.metrics import METRICS_TOKEN_ENV, generate_metrics_token
+def run_studio_metrics_generate_token(output: str | None = None) -> int:
+    from tracebisect.studio.metrics import (
+        METRICS_TOKEN_ENV,
+        METRICS_TOKEN_FILE_ENV,
+        create_metrics_token_file,
+        generate_metrics_token,
+    )
 
-    print("Studio metrics token generated")
-    print("Store this value in your deployment secret manager. Do not use a workspace key.")
-    print(f"  {METRICS_TOKEN_ENV}={generate_metrics_token()}")
-    print()
-    print("Next: configure your metrics scraper to send this value as a bearer token.")
+    if output is not None:
+        target = create_metrics_token_file(output)
+        print("Studio metrics token file created")
+        print("The secret was written with owner-only permissions and was not printed.")
+        print(f"  {target}")
+        print()
+        print(f"Next: set {METRICS_TOKEN_FILE_ENV} to this file in your deployment.")
+    else:
+        print("Studio metrics token generated")
+        print("Store this value in your deployment secret manager. Do not use a workspace key.")
+        print(f"  {METRICS_TOKEN_ENV}={generate_metrics_token()}")
+        print()
+        print("Next: configure your metrics scraper to send this value as a bearer token.")
     return 0
 
 
@@ -1205,7 +1225,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     args.studio_metrics_parser.print_help()
                     return 0
                 if args.studio_metrics_command == "generate-token":
-                    return run_studio_metrics_generate_token()
+                    return run_studio_metrics_generate_token(args.output)
             if args.studio_command == "identity":
                 if args.studio_identity_command is None:
                     args.studio_identity_parser.print_help()

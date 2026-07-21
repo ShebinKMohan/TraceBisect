@@ -28,6 +28,31 @@ IDs, trace IDs, filenames, user details, request IDs, or credentials.
 
 ## One-time Prometheus setup
 
+### Bundled single-node setup
+
+The repository's production Compose file can perform the scrape and rule wiring
+without a separate Prometheus installation:
+
+```bash
+tracebisect studio metrics generate-token \
+  --output deploy/secrets/tracebisect_metrics_token
+
+docker compose \
+  --profile monitoring \
+  --env-file deploy/.env.production \
+  -f deploy/compose.production.yml \
+  up --build -d
+```
+
+The profile mounts the same secret file into the API and Prometheus, scrapes the
+private `api:8000` service every 30 seconds, evaluates the checked-in rules, and
+keeps at most 30 days or 2 GB on its named volume. The Prometheus UI is available
+only at `http://127.0.0.1:9090` on the Docker host. It does not deliver alert
+notifications; connect a protected Alertmanager or managed provider before
+depending on alerts for production response.
+
+The remaining steps describe an external or managed Prometheus installation.
+
 ### 1. Generate a monitoring-only token
 
 ```bash
@@ -35,9 +60,10 @@ tracebisect studio metrics generate-token
 ```
 
 Save the printed value as `TRACEBISECT_STUDIO_METRICS_TOKEN` in the API secret
-manager. Put the same value in a file readable only by Prometheus, such as
-`/run/secrets/tracebisect_metrics_token`. Do not reuse a workspace key and do
-not commit either secret.
+manager. Alternatively, write it to an owner-only file with `--output` and set
+`TRACEBISECT_STUDIO_METRICS_TOKEN_FILE`. Put the same value in a file readable
+only by Prometheus, such as `/run/secrets/tracebisect_metrics_token`. Do not reuse a workspace key.
+Do not commit either secret.
 
 ### 2. Add the scrape job and rule file
 

@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from tracebisect.studio.metrics import StudioMetrics, StudioMetricsAccess
+from tracebisect.studio.metrics import (
+    METRICS_TOKEN_FILE_ENV,
+    StudioMetrics,
+    StudioMetricsAccess,
+)
 from tracebisect.studio.storage import StudioConfigurationError
 
 
@@ -19,6 +23,36 @@ def test_metrics_access_uses_a_dedicated_constant_time_bearer_token() -> None:
     assert access.authorizes("Bearer wrong-token", auth_required=True) is False
     assert access.authorizes(None, auth_required=True) is False
     assert token not in repr(access)
+
+
+def test_metrics_access_reads_a_compose_secret_file(tmp_path) -> None:
+    token = "metrics-token-from-a-protected-secret-file"
+    token_file = tmp_path / "metrics-token"
+    token_file.write_text(f"{token}\n", encoding="utf-8")
+
+    access = StudioMetricsAccess.from_env({METRICS_TOKEN_FILE_ENV: str(token_file)})
+
+    assert access.token_configured is True
+    assert access.authorizes(f"Bearer {token}", auth_required=True) is True
+    assert token not in repr(access)
+
+
+def test_metrics_access_rejects_ambiguous_token_sources(tmp_path) -> None:
+    token_file = tmp_path / "metrics-token"
+    token_file.write_text("x" * 32, encoding="utf-8")
+
+    with pytest.raises(StudioConfigurationError, match="set only one"):
+        StudioMetricsAccess.from_env(
+            {
+                "TRACEBISECT_STUDIO_METRICS_TOKEN": "x" * 32,
+                METRICS_TOKEN_FILE_ENV: str(token_file),
+            }
+        )
+
+
+def test_metrics_access_rejects_an_unreadable_token_file(tmp_path) -> None:
+    with pytest.raises(StudioConfigurationError, match="could not read"):
+        StudioMetricsAccess.from_env({METRICS_TOKEN_FILE_ENV: str(tmp_path / "missing")})
 
 
 def test_metrics_access_is_open_only_when_workspace_auth_is_not_required() -> None:

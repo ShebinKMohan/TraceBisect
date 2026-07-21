@@ -19,5 +19,6 @@ studio/web/vite.config.d.ts
 studio/web/vite.config.js
 /.tracebisect/
 /deploy/.env.production
+/deploy/secrets/
 
 /.claude/worktrees/feature-design-docs/

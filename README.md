@@ -239,19 +239,40 @@ clear unavailable response until the dedicated token is configured. Metrics are
 per API process and reset when that process restarts; the monitoring system owns
 retention and multi-instance aggregation.
 
+Container deployments can keep the same secret out of the process environment:
+
+```bash
+tracebisect studio metrics generate-token \
+  --output deploy/secrets/tracebisect_metrics_token
+```
+
+Set `TRACEBISECT_STUDIO_METRICS_TOKEN_FILE` to that file. Studio refuses an
+ambiguous configuration when both token settings are present, and the command
+never prints or replaces a file-backed secret.
+
 Production-ready starter alerts live in
 [`deploy/prometheus/tracebisect-alerts.yml`](deploy/prometheus/tracebisect-alerts.yml).
 They cover reachability, storage, server errors, latency, rate limiting, and
 authentication failures without putting customer identifiers into labels. The
 plain-English response steps and provisional service objectives are in
 [`docs/operations/studio-alert-runbook.md`](docs/operations/studio-alert-runbook.md).
-Validate both the rules and your deployment configuration before reloading
-Prometheus:
+The production Compose bundle has an optional `monitoring` profile that scrapes
+the private API, evaluates those rules, and keeps a bounded 30-day/2 GB local
+history. Validate both the rules and your deployment configuration before
+starting it:
 
 ```bash
 promtool check rules deploy/prometheus/tracebisect-alerts.yml
-promtool check config /etc/prometheus/prometheus.yml
+docker compose \
+  --profile monitoring \
+  --env-file deploy/.env.production \
+  -f deploy/compose.production.yml \
+  config --quiet
 ```
+
+The bundled Prometheus UI binds only to the host loopback interface. Alert
+notifications and managed off-host retention still require an external receiver
+or monitoring provider.
 
 ### Back up and restore Studio data
 

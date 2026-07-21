@@ -151,10 +151,16 @@ temporary files out of the web root, and throttle repeated API calls.
 - Protected deployments require a separate
   `TRACEBISECT_STUDIO_METRICS_TOKEN` for scrapes. Workspace keys are rejected so
   a monitoring agent never needs permission to read or mutate product data.
+- The metrics token can be mounted from an owner-only secret file instead of a
+  process environment value. The CLI creates the file without printing or
+  replacing it, and ambiguous dual-source configuration fails closed.
 - The repository includes low-noise Prometheus alert rules with minimum-traffic
   gates, sustained `for` windows, safe first actions, and a beginner-readable
   incident runbook. Targets are provisional operating goals, not an advertised
   SLA.
+- The single-node Compose bundle has an opt-in Prometheus profile that scrapes
+  the private API, evaluates the starter rules, and keeps restart-durable local
+  metrics bounded to 30 days or 2 GB. Its UI is loopback-only.
 - `tracebisect studio backup`, `verify`, and `restore` provide an integrity-
   checked recovery workflow. Backups use SQLite's online snapshot API, and
   restore refuses to overwrite an existing database.
@@ -191,10 +197,10 @@ Studio a real multi-tenant SaaS:
 - Scheduled encrypted off-site backups, retention policy, and deployment-level
   recovery drills. The local CLI proves snapshot and restore mechanics only.
 - Object storage and antivirus/sandbox scanning for untrusted uploads.
-- Deployment wiring for centralized metrics collection, alert delivery, and
-  dashboards. The process exposes scrapeable metrics, starter alerts, and
-  retained structured error events, but does not configure the hosting platform
-  around them.
+- Managed off-host metrics retention, protected dashboards, and alert delivery.
+  The single-node bundle now configures bounded local collection and rule
+  evaluation, while retained structured error events remain separate from the
+  high-volume request-audit stream.
 - A managed hosting target and automated deployment workflow. The included
   Caddy/Compose bundle is an operator-run single-host topology, not a managed
   multi-region platform.
@@ -204,8 +210,9 @@ managed access, upload-only ingestion tokens, human identity, encrypted
 invitation delivery, shared exact rate limiting, and bounded server-error
 retention, but it is not a finished hosted SaaS. The next production step is
 a real provider migration rehearsal plus backup/restore drills, followed by
-email-domain operations and hosted monitoring/alert delivery. Do not add
-Langfuse-scale ClickHouse or queues until the comparison workflow needs them.
+email-domain operations and hosted monitoring/alert delivery. Bounded local
+monitoring is available for the operator-run host; do not add Langfuse-scale
+ClickHouse or queues until the comparison workflow needs them.
 
 ## References
 

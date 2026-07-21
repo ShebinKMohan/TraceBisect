@@ -13,7 +13,7 @@ services:
       TRACEBISECT_STUDIO_AUTH_MODE: api-key
       TRACEBISECT_STUDIO_API_KEY_PEPPER: ${TRACEBISECT_STUDIO_API_KEY_PEPPER:?set the generated managed-key secret}
       TRACEBISECT_STUDIO_IDENTITY_SECRET: ${TRACEBISECT_STUDIO_IDENTITY_SECRET:?set the generated identity secret}
-      TRACEBISECT_STUDIO_METRICS_TOKEN: ${TRACEBISECT_STUDIO_METRICS_TOKEN:?set the generated metrics token}
+      TRACEBISECT_STUDIO_METRICS_TOKEN_FILE: /run/secrets/tracebisect_metrics_token
       TRACEBISECT_STUDIO_ALLOWED_ORIGINS: https://${TRACEBISECT_STUDIO_DOMAIN:?set the public Studio hostname}
       TRACEBISECT_STUDIO_BROWSER_SESSION_COOKIE_SECURE: "true"
       TRACEBISECT_STUDIO_AUDIT_LOG_ENABLED: "true"
@@ -26,6 +26,9 @@ services:
       RESEND_WEBHOOK_SECRET: ${RESEND_WEBHOOK_SECRET:-}
     volumes:
       - studio-data:/data
+    secrets:
+      - source: tracebisect_metrics_token
+        target: tracebisect_metrics_token
     networks:
       - backend
       - egress
@@ -139,10 +142,46 @@ services:
       web:
         condition: service_healthy
 
+  prometheus:
+    profiles: ["monitoring"]
+    image: prom/prometheus:v3.12.0-distroless
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+      - --storage.tsdb.retention.size=2GB
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/tracebisect-alerts.yml:/etc/prometheus/rules/tracebisect-alerts.yml:ro
+      - prometheus-data:/prometheus
+    secrets:
+      - source: tracebisect_metrics_token
+        target: tracebisect_metrics_token
+    networks:
+      - backend
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      api:
+        condition: service_healthy
+
 volumes:
   studio-data:
   caddy-data:
   caddy-config:
+  prometheus-data:
+
+secrets:
+  tracebisect_metrics_token:
+    file: ${TRACEBISECT_STUDIO_METRICS_TOKEN_FILE:?create the metrics token file}
 
 networks:
   backend:

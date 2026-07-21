@@ -132,6 +132,7 @@ def test_studio_parser_exposes_beginner_safe_recovery_commands() -> None:
     metrics = parser.parse_args(["studio", "metrics", "generate-token"])
     assert metrics.studio_command == "metrics"
     assert metrics.studio_metrics_command == "generate-token"
+    assert metrics.output is None
 
     email = parser.parse_args(
         ["studio", "email", "deliver", "--database", "studio.db", "--limit", "12"]
@@ -187,6 +188,37 @@ def test_metrics_token_command_shows_one_secret_once(
     token = secret_lines[0].partition("=")[2]
     assert len(token) == 43
     assert all(character.isalnum() or character in "_-" for character in token)
+
+
+def test_metrics_token_command_can_create_a_private_secret_file(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    output_path = tmp_path / "secrets" / "metrics-token"
+
+    assert main(["studio", "metrics", "generate-token", "--output", str(output_path)]) == 0
+
+    output = capsys.readouterr().out
+    token = output_path.read_text(encoding="utf-8").strip()
+    assert "Studio metrics token file created" in output
+    assert "was not printed" in output
+    assert token not in output
+    assert len(token) == 43
+    assert output_path.stat().st_mode & 0o777 == 0o600
+
+
+def test_metrics_token_command_never_replaces_an_existing_secret_file(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    output_path = tmp_path / "metrics-token"
+    output_path.write_text("keep-me", encoding="utf-8")
+
+    assert main(["studio", "metrics", "generate-token", "--output", str(output_path)]) == 2
+
+    captured = capsys.readouterr()
+    assert "already exists" in captured.err
+    assert output_path.read_text(encoding="utf-8") == "keep-me"
 
 
 def test_ingest_otel_json_writes_canonical_tbtrace(
