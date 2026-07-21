@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
 
@@ -21,6 +22,7 @@ from tracebisect.studio.backup import (
     create_studio_backup,
     inspect_studio_backup,
     restore_studio_backup,
+    run_studio_recovery_drill,
 )
 from tracebisect.studio.email_delivery import StudioEmailDelivery
 from tracebisect.studio.error_reporting import (
@@ -263,6 +265,73 @@ def test_backup_and_restore_never_replace_existing_files(tmp_path: Path) -> None
     assert restored_path.read_bytes() == b"keep this database"
 
 
+def test_recovery_drill_proves_an_isolated_restore_and_writes_evidence(
+    tmp_path: Path,
+) -> None:
+    source_path = tmp_path / "studio.db"
+    report_path = tmp_path / "operations" / "recovery-drill.json"
+    scratch_path = tmp_path / "private-scratch"
+    source = SQLiteStudioStore(source_path, workspace_id="workspace-a")
+    seed_demo_report(source)
+    source.close()
+    source_before = source_path.read_bytes()
+
+    report = run_studio_recovery_drill(
+        source_path,
+        report_path,
+        scratch_directory=scratch_path,
+    )
+
+    assert source_path.read_bytes() == source_before
+    assert report.restored_store_ready is True
+    assert report.backup.workspace_count == 1
+    assert report.backup.trace_count == 2
+    assert report.backup.report_count == 1
+    assert report.backup.content_sha256 == report.restored_content_sha256
+    assert report.duration_ms >= 0
+    report_text = report_path.read_text(encoding="utf-8")
+    payload = json.loads(report_text)
+    assert payload["report_version"] == 1
+    assert payload["result"] == "passed"
+    assert payload["checks"] == {
+        "backup_integrity": "passed",
+        "ephemeral_state_stripped": "passed",
+        "live_database_replaced": False,
+        "restore_content_match": "passed",
+        "restored_store_readiness": "passed",
+    }
+    assert payload["evidence"]["content_sha256"] == report.backup.content_sha256
+    assert payload["evidence"]["restored_content_sha256"] == report.backup.content_sha256
+    assert len(payload["evidence"]["backup_sha256"]) == 64
+    assert report_path.stat().st_mode & 0o777 == 0o600
+    assert str(source_path) not in report_text
+    assert "tracebisect-studio-recovery-" not in report_text
+    assert list(scratch_path.iterdir()) == []
+
+    with pytest.raises(StudioBackupError, match="already exists"):
+        run_studio_recovery_drill(source_path, report_path)
+    assert json.loads(report_path.read_text(encoding="utf-8")) == payload
+
+
+def test_recovery_drill_failure_never_publishes_a_pass_report(tmp_path: Path) -> None:
+    source_path = tmp_path / "studio.db"
+    report_path = tmp_path / "recovery-drill.json"
+    scratch_path = tmp_path / "not-a-directory"
+    source = SQLiteStudioStore(source_path, workspace_id="workspace-a")
+    source.close()
+    scratch_path.write_text("keep this file", encoding="utf-8")
+
+    with pytest.raises(StudioBackupError, match="not a directory"):
+        run_studio_recovery_drill(
+            source_path,
+            report_path,
+            scratch_directory=scratch_path,
+        )
+
+    assert not report_path.exists()
+    assert scratch_path.read_text(encoding="utf-8") == "keep this file"
+
+
 def test_backup_verification_rejects_corruption_and_unknown_schema(tmp_path: Path) -> None:
     corrupt_path = tmp_path / "corrupt.db"
     corrupt_path.write_text("not sqlite", encoding="utf-8")
@@ -331,6 +400,40 @@ def test_studio_backup_cli_guides_backup_verify_and_restore(
     restore_output = capsys.readouterr().out
     assert "Studio backup restored" in restore_output
     assert "TRACEBISECT_STUDIO_SQLITE_PATH" in restore_output
+
+
+def test_studio_recovery_drill_cli_explains_the_result(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    source_path = tmp_path / "studio.db"
+    report_path = tmp_path / "recovery-drill.json"
+    source = SQLiteStudioStore(source_path, workspace_id="workspace-a")
+    seed_demo_report(source)
+    source.close()
+
+    assert (
+        main(
+            [
+                "studio",
+                "recovery-drill",
+                "--database",
+                str(source_path),
+                "--report",
+                str(report_path),
+            ]
+        )
+        == 0
+    )
+    output = capsys.readouterr().out
+    assert "Studio recovery drill passed" in output
+    assert "Live database replaced: no" in output
+    assert "Backup integrity: passed" in output
+    assert "Restore content match: passed" in output
+    assert "Restored Studio readiness: passed" in output
+    assert "Evidence report:" in output
+    assert "Next:" in output
+    assert report_path.exists()
 
 
 def test_studio_backup_cli_reports_safe_errors(

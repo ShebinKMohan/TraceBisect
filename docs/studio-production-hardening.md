@@ -164,6 +164,11 @@ temporary files out of the web root, and throttle repeated API calls.
 - `tracebisect studio backup`, `verify`, and `restore` provide an integrity-
   checked recovery workflow. Backups use SQLite's online snapshot API, and
   restore refuses to overwrite an existing database.
+- `tracebisect studio recovery-drill` turns those steps into one non-destructive
+  rehearsal. It verifies stripped ephemeral state, restores into a temporary
+  database, starts the restored SQLite store, checks logical content, removes
+  temporary copies, and writes a secret-safe evidence report without replacing
+  the live database or an earlier report.
 - `/api/ready` checks the configured store, while `/api/health` separates
   process readiness from full production-SaaS readiness.
 - A production-style single-node Compose bundle keeps the API and web services
@@ -195,7 +200,9 @@ Studio a real multi-tenant SaaS:
   high-volume structured request-audit stream. Server-error events now have
   bounded SQLite/PostgreSQL retention and operator-only request-ID search.
 - Scheduled encrypted off-site backups, retention policy, and deployment-level
-  recovery drills. The local CLI proves snapshot and restore mechanics only.
+  recovery drills from the real backup source. The local CLI now automates and
+  records an isolated SQLite recovery rehearsal, but it does not test host loss,
+  off-site access, encryption, or provider recovery.
 - Object storage and antivirus/sandbox scanning for untrusted uploads.
 - Managed off-host metrics retention, protected dashboards, and alert delivery.
   The single-node bundle now configures bounded local collection and rule

@@ -7,7 +7,9 @@ import json
 import os
 import sqlite3
 import tempfile
+import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 from tracebisect.studio.storage import SCHEMA_VERSION
@@ -55,6 +57,19 @@ class StudioBackupInspection:
     size_bytes: int
     sha256: str
     content_sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class StudioRecoveryDrillReport:
+    """Portable evidence from one isolated backup-and-restore rehearsal."""
+
+    started_at: str
+    completed_at: str
+    duration_ms: int
+    backup: StudioBackupInspection
+    restored_content_sha256: str
+    restored_store_ready: bool
+    report_version: int = 1
 
 
 def create_studio_backup(
@@ -198,6 +213,55 @@ def restore_studio_backup(
     return restored_inspection
 
 
+def run_studio_recovery_drill(
+    database_path: str | Path,
+    report_path: str | Path,
+    *,
+    scratch_directory: str | Path | None = None,
+) -> StudioRecoveryDrillReport:
+    """Prove backup, restore, and store readiness without replacing the live database."""
+    source = _existing_file(database_path, label="Studio database")
+    report_destination = _new_destination(report_path, label="recovery drill report")
+    scratch = _recovery_scratch_directory(scratch_directory)
+    started_at = datetime.now(timezone.utc)
+    started_clock = time.monotonic()
+
+    try:
+        with tempfile.TemporaryDirectory(
+            prefix="tracebisect-studio-recovery-",
+            dir=scratch,
+        ) as raw_dir:
+            drill_directory = Path(raw_dir)
+            backup_path = drill_directory / "verified-backup.db"
+            restored_path = drill_directory / "restored-studio.db"
+            backup_inspection = create_studio_backup(source, backup_path)
+            restored_inspection = restore_studio_backup(backup_path, restored_path)
+            restored_store_ready = _restored_store_is_ready(restored_path)
+            final_restored_inspection = inspect_studio_backup(restored_path)
+            if _logical_signature(final_restored_inspection) != _logical_signature(
+                backup_inspection
+            ):
+                raise StudioBackupError(
+                    "the restored Studio changed while its readiness was checked"
+                )
+    except StudioBackupError:
+        raise
+    except OSError as exc:
+        raise StudioBackupError("could not complete the isolated recovery drill") from exc
+
+    completed_at = datetime.now(timezone.utc)
+    report = StudioRecoveryDrillReport(
+        started_at=_timestamp(started_at),
+        completed_at=_timestamp(completed_at),
+        duration_ms=round(max(0.0, time.monotonic() - started_clock) * 1000),
+        backup=backup_inspection,
+        restored_content_sha256=restored_inspection.content_sha256,
+        restored_store_ready=restored_store_ready,
+    )
+    _write_recovery_drill_report(report_destination, report)
+    return report
+
+
 def _copy_database(source: Path, destination: Path) -> None:
     with (
         _read_only_connection(source) as source_connection,
@@ -219,6 +283,21 @@ def _clear_ephemeral_state(database_path: Path) -> None:
         connection.execute("DELETE FROM studio_error_events")
     with database_path.open("rb") as handle:
         os.fsync(handle.fileno())
+
+
+def _restored_store_is_ready(database_path: Path) -> bool:
+    from tracebisect.studio.storage import SQLiteStudioStore, StudioPersistenceError
+
+    try:
+        store = SQLiteStudioStore(database_path, workspace_id="recovery-drill")
+    except StudioPersistenceError as exc:
+        raise StudioBackupError("the restored Studio could not start") from exc
+    try:
+        if not store.check_health():
+            raise StudioBackupError("the restored Studio did not pass its readiness check")
+        return True
+    finally:
+        store.close()
 
 
 def _read_only_connection(path: Path) -> sqlite3.Connection:
@@ -255,13 +334,86 @@ def _temporary_path(destination: Path) -> Path:
     return temporary
 
 
-def _publish_new_file(temporary: Path, destination: Path) -> None:
+def _recovery_scratch_directory(path: str | Path | None) -> Path | None:
+    if path is None:
+        return None
+    scratch = Path(path).expanduser().resolve()
+    if scratch.exists() and not scratch.is_dir():
+        raise StudioBackupError("recovery drill scratch path is not a directory")
+    try:
+        scratch.mkdir(parents=True, exist_ok=True, mode=0o700)
+    except OSError as exc:
+        raise StudioBackupError("could not create the recovery drill scratch directory") from exc
+    if not scratch.is_dir():
+        raise StudioBackupError("recovery drill scratch path is not a directory")
+    return scratch
+
+
+def _publish_new_file(
+    temporary: Path,
+    destination: Path,
+    *,
+    label: str = "database file",
+) -> None:
     try:
         os.link(temporary, destination)
     except FileExistsError as exc:
-        raise StudioBackupError("destination already exists; no data was replaced") from exc
+        raise StudioBackupError(f"{label} already exists; no data was replaced") from exc
     except OSError as exc:
-        raise StudioBackupError("could not publish the completed database file") from exc
+        raise StudioBackupError(f"could not publish the completed {label}") from exc
+
+
+def _write_recovery_drill_report(
+    destination: Path,
+    report: StudioRecoveryDrillReport,
+) -> None:
+    temporary = _temporary_path(destination)
+    payload = {
+        "report_version": report.report_version,
+        "result": "passed",
+        "started_at": report.started_at,
+        "completed_at": report.completed_at,
+        "duration_ms": report.duration_ms,
+        "checks": {
+            "backup_integrity": "passed",
+            "ephemeral_state_stripped": "passed",
+            "restore_content_match": "passed",
+            "restored_store_readiness": "passed",
+            "live_database_replaced": False,
+        },
+        "evidence": {
+            "schema_version": report.backup.schema_version,
+            "workspace_count": report.backup.workspace_count,
+            "trace_count": report.backup.trace_count,
+            "comparison_count": report.backup.report_count,
+            "guardrail_count": report.backup.case_count,
+            "api_key_count": report.backup.api_key_count,
+            "ingestion_token_count": report.backup.ingestion_token_count,
+            "user_count": report.backup.user_count,
+            "membership_count": report.backup.membership_count,
+            "backup_size_bytes": report.backup.size_bytes,
+            "backup_sha256": report.backup.sha256,
+            "content_sha256": report.backup.content_sha256,
+            "restored_content_sha256": report.restored_content_sha256,
+        },
+    }
+    try:
+        with temporary.open("w", encoding="utf-8") as report_file:
+            json.dump(payload, report_file, ensure_ascii=True, indent=2, sort_keys=True)
+            report_file.write("\n")
+            report_file.flush()
+            os.fsync(report_file.fileno())
+        _publish_new_file(temporary, destination, label="recovery drill report")
+    except StudioBackupError:
+        raise
+    except OSError as exc:
+        raise StudioBackupError("could not write the recovery drill report") from exc
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _timestamp(value: datetime) -> str:
+    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def _table_count(connection: sqlite3.Connection, table_name: str) -> int:

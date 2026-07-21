@@ -107,10 +107,24 @@ def test_studio_parser_exposes_beginner_safe_recovery_commands() -> None:
     restore = parser.parse_args(
         ["studio", "restore", "--backup", "backup.db", "--database", "restored.db"]
     )
+    recovery_drill = parser.parse_args(
+        [
+            "studio",
+            "recovery-drill",
+            "--database",
+            "studio.db",
+            "--report",
+            "recovery-drill.json",
+            "--scratch-directory",
+            "private-scratch",
+        ]
+    )
 
     assert backup.studio_command == "backup"
     assert verify.studio_command == "verify"
     assert restore.studio_command == "restore"
+    assert recovery_drill.studio_command == "recovery-drill"
+    assert recovery_drill.scratch_directory == "private-scratch"
 
     keys = parser.parse_args(
         [

@@ -150,6 +150,33 @@ actual email/webhook state. It will continue to report
 off-site backups, centralized request-log retention, external alert delivery,
 off-host metrics retention, and recovery drills.
 
+## Practice recovery monthly
+
+Run the isolated drill inside the API container, then copy its evidence report
+to the operator's records:
+
+```bash
+docker compose \
+  --env-file deploy/.env.production \
+  -f deploy/compose.production.yml \
+  exec api tracebisect studio recovery-drill \
+  --database /data/studio.db \
+  --report /tmp/recovery-drill-2026-07-21.json
+
+mkdir -p operations/recovery-drills
+docker compose \
+  --env-file deploy/.env.production \
+  -f deploy/compose.production.yml \
+  cp api:/tmp/recovery-drill-2026-07-21.json operations/recovery-drills/2026-07-21.json
+```
+
+Use a new date for every drill. The container's private `/tmp` is limited to
+64 MB, and the drill needs room for two database copies. For a larger database,
+run the CLI from a restricted operator host with a larger private
+`--scratch-directory`. See
+[studio-recovery-drill.md](studio-recovery-drill.md) for pass criteria and the
+remaining off-site/provider boundary.
+
 ## Back up before every upgrade
 
 ```bash

@@ -42,7 +42,7 @@ from tracebisect.testing import capture_trace
 from tracebisect.version import __version__
 
 if TYPE_CHECKING:
-    from tracebisect.studio.backup import StudioBackupInspection
+    from tracebisect.studio.backup import StudioBackupInspection, StudioRecoveryDrillReport
     from tracebisect.studio.email_delivery import StudioEmailDelivery
     from tracebisect.studio.managed_database import StudioDatabaseTarget
     from tracebisect.studio.postgres_migration import StudioPostgresMigrationReport
@@ -190,6 +190,25 @@ def build_parser() -> argparse.ArgumentParser:
         "--database",
         required=True,
         help="New database path. Existing files are never replaced.",
+    )
+
+    studio_recovery_drill = studio_commands.add_parser(
+        "recovery-drill",
+        help="Rehearse backup and restore safely, then write a pass report.",
+    )
+    studio_recovery_drill.add_argument(
+        "--database",
+        required=True,
+        help="Current TRACEBISECT_STUDIO_SQLITE_PATH value. It is never replaced.",
+    )
+    studio_recovery_drill.add_argument(
+        "--report",
+        required=True,
+        help="New JSON evidence file. Existing files are never replaced.",
+    )
+    studio_recovery_drill.add_argument(
+        "--scratch-directory",
+        help="Optional private directory with room for the temporary backup and restore.",
     )
 
     studio_migrate_postgres = studio_commands.add_parser(
@@ -712,6 +731,22 @@ def run_studio_restore(backup: str, database: str) -> int:
     return 0
 
 
+def run_studio_recovery_drill(
+    database: str,
+    report_path: str,
+    scratch_directory: str | None = None,
+) -> int:
+    from tracebisect.studio.backup import run_studio_recovery_drill as execute_recovery_drill
+
+    report = execute_recovery_drill(
+        database,
+        report_path,
+        scratch_directory=scratch_directory,
+    )
+    _print_studio_recovery_drill_summary(Path(report_path), report)
+    return 0
+
+
 def run_studio_postgres_migration(source: str, *, verify_only: bool) -> int:
     from tracebisect.studio.postgres_migration import (
         migrate_sqlite_to_postgres,
@@ -867,6 +902,25 @@ def _print_studio_backup_summary(
     print(f"  Memberships: {inspection.membership_count}")
     print(f"  Size: {inspection.size_bytes} bytes")
     print(f"  SHA-256: {inspection.sha256}")
+
+
+def _print_studio_recovery_drill_summary(
+    path: Path,
+    report: StudioRecoveryDrillReport,
+) -> None:
+    print("Studio recovery drill passed")
+    print("  Live database replaced: no")
+    print("  Backup integrity: passed")
+    print("  Restore content match: passed")
+    print("  Restored Studio readiness: passed")
+    print(f"  Workspaces recovered: {report.backup.workspace_count}")
+    print(f"  Traces recovered: {report.backup.trace_count}")
+    print(f"  Comparisons recovered: {report.backup.report_count}")
+    print(f"  Guardrails recovered: {report.backup.case_count}")
+    print(f"  Duration: {report.duration_ms} ms")
+    print(f"  Evidence report: {path.expanduser().resolve()}")
+    print()
+    print("Next: store this report with the date of the drill and the operator's name.")
 
 
 def run_studio_keys_generate_pepper() -> int:
@@ -1171,6 +1225,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return run_studio_verify(args.backup)
             if args.studio_command == "restore":
                 return run_studio_restore(args.backup, args.database)
+            if args.studio_command == "recovery-drill":
+                return run_studio_recovery_drill(
+                    args.database,
+                    args.report,
+                    args.scratch_directory,
+                )
             if args.studio_command == "migrate-postgres":
                 return run_studio_postgres_migration(
                     args.source,

@@ -288,6 +288,19 @@ tracebisect studio verify \
   --backup backups/studio-2026-07-21.db
 ```
 
+Practice the complete local recovery path with one non-destructive command:
+
+```bash
+tracebisect studio recovery-drill \
+  --database .tracebisect/studio.db \
+  --report operations/recovery-drills/2026-07-21.json
+```
+
+It creates and verifies a temporary backup, restores it in isolation, opens the
+restored Studio store, compares its logical content, removes the temporary
+files, and writes a secret-safe pass report. Follow the plain-language guide in
+[`docs/operations/studio-recovery-drill.md`](docs/operations/studio-recovery-drill.md).
+
 Recovery is deliberately non-destructive: it writes a new database and refuses
 to replace any existing file. After restoring, point Studio at the new file and
 restart the API:
@@ -314,8 +327,8 @@ decision.
 Each command reports the verified workspace, trace, comparison, guardrail,
 managed-access-key, person, and membership counts plus a SHA-256 checksum.
 Production operators must
-still schedule encrypted, off-site backups and practice recovery in their
-deployment environment.
+still schedule encrypted, off-site backups and rehearse recovery from that real
+backup source in their deployment environment.
 
 For a TLS-terminated, non-root, single-host SQLite deployment with private
 backend networking and an optional supervised email worker, follow
@@ -339,6 +352,8 @@ It is deliberately not described as horizontally scalable SaaS infrastructure.
 - `tracebisect studio verify` — checks backup integrity and schema compatibility.
 - `tracebisect studio restore` — restores into a new database without replacing
   current data.
+- `tracebisect studio recovery-drill` — proves an isolated backup, restore, and
+  readiness path and writes a JSON evidence report.
 - `tracebisect studio migrate-postgres` — atomically copies a consistent SQLite
   snapshot into an empty PostgreSQL store and reconciles every migrated table.
 - `tracebisect studio keys generate-pepper` — creates the server secret used to
