@@ -96,6 +96,10 @@ def request_action(method: str, path: str) -> str:
         return "browser_session_revoke"
     if path == "/api/browser-session":
         return "browser_session_create"
+    if path == "/api/access-keys":
+        return "access_key_create" if normalized_method == "POST" else "access_key_list"
+    if path.startswith("/api/access-keys/"):
+        return "access_key_revoke"
     if path == "/api/demo-report":
         return "demo_seed"
     if path == "/api/traces":

@@ -15,10 +15,18 @@ from urllib.parse import urlsplit
 
 from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from starlette.responses import JSONResponse
 
 from tracebisect.schema import JsonObject, JsonValue, TraceBisectSchemaError
+from tracebisect.studio.access_keys import (
+    MAX_ACTIVE_STUDIO_API_KEYS_PER_WORKSPACE,
+    MAX_KEY_LABEL_LENGTH,
+    MAX_KEY_LIFETIME_DAYS,
+    StudioApiKeyError,
+    StudioApiKeyRecord,
+    WorkspaceRole,
+)
 from tracebisect.studio.access_sessions import (
     LOCAL_BROWSER_SESSION_COOKIE_NAME,
     SECURE_BROWSER_SESSION_COOKIE_NAME,
@@ -168,6 +176,7 @@ BROWSER_SESSION_COOKIE_SECURE = _configured_secure_session_cookie(ALLOWED_ORIGIN
 BROWSER_SESSION_COOKIE_NAME = _browser_session_cookie_name(secure=BROWSER_SESSION_COOKIE_SECURE)
 BROWSER_CSRF_HEADER = "X-TraceBisect-CSRF"
 BROWSER_CSRF_VALUE = "1"
+ACCESS_KEYS_API_PATH = "/api/access-keys"
 
 app = FastAPI(
     title="TraceBisect Studio API",
@@ -214,6 +223,24 @@ class RegressionCaseCreateRequest(BaseModel):
 class RegressionCaseRunRequest(BaseModel):
     candidate_trace_id: str = Field(min_length=1, max_length=256)
     scenario_cmd: list[str] | None = None
+
+
+class AccessKeyCreateRequest(BaseModel):
+    label: str = Field(
+        min_length=1,
+        max_length=MAX_KEY_LABEL_LENGTH,
+        pattern=r"^[^\x00-\x1f\x7f]+$",
+    )
+    role: WorkspaceRole
+    expires_in_days: int = Field(default=90, ge=1, le=MAX_KEY_LIFETIME_DAYS)
+
+    @field_validator("label")
+    @classmethod
+    def normalize_label(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Enter who or what will use this key.")
+        return normalized
 
 
 class RateLimiter:
@@ -352,6 +379,7 @@ async def apply_api_guardrails(
                 )
             request.state.workspace_id = principal.workspace_id
             request.state.workspace_role = principal.role
+            request.state.key_id = principal.key_id
             request.state.auth_kind = principal.auth_kind
             request.state.session_id = principal.session_id
             request.state.session_expires_at = principal.expires_at
@@ -384,7 +412,12 @@ async def apply_api_guardrails(
             ):
                 forbidden_response = JSONResponse(
                     status_code=403,
-                    content={"detail": _role_denied_detail(principal.role)},
+                    content={
+                        "detail": _role_denied_detail(
+                            principal.role,
+                            path=request.url.path,
+                        )
+                    },
                 )
                 return _finalize_audited_response(
                     request=request,
@@ -397,6 +430,7 @@ async def apply_api_guardrails(
         else:
             request.state.workspace_id = STORE.workspace_id
             request.state.workspace_role = "admin"
+            request.state.key_id = None
             request.state.auth_kind = "open_local"
             if AUTH_CONFIG.required:
                 auth_outcome = "public"
@@ -515,6 +549,7 @@ def health() -> JsonObject:
             "rate_limit_window_seconds": RATE_LIMIT_WINDOW_SECONDS,
             "rate_limit_requests": RATE_LIMIT_REQUESTS,
             "rate_limit_upload_requests": RATE_LIMIT_UPLOAD_REQUESTS,
+            "max_active_workspace_keys": MAX_ACTIVE_STUDIO_API_KEYS_PER_WORKSPACE,
         },
     }
 
@@ -638,6 +673,90 @@ def _session_payload(request: Request, store: StudioStore) -> JsonObject:
         "expires_at": session_expires_at,
         "runtime": store.runtime_status(),
     }
+
+
+@app.get(ACCESS_KEYS_API_PATH, response_model=None)
+def list_workspace_access_keys(request: Request) -> JsonObject:
+    """List only non-secret access metadata for the authenticated workspace."""
+    workspace_id, current_key_id = _admin_access_context(request)
+    _require_managed_access()
+    try:
+        records = AUTH_CONFIG.list_workspace_access_keys(workspace_id)
+    except StudioApiKeyError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Studio could not load workspace access. Please retry.",
+        ) from exc
+    return {
+        "keys": cast(JsonValue, [_access_key_payload(record) for record in records]),
+        "current_key_id": current_key_id,
+    }
+
+
+@app.post(ACCESS_KEYS_API_PATH, response_model=None, status_code=201)
+def create_workspace_access_key(
+    payload: AccessKeyCreateRequest,
+    request: Request,
+) -> JsonObject:
+    """Issue one role-based key and return its plaintext value exactly once."""
+    workspace_id, current_key_id = _admin_access_context(request)
+    _require_managed_access()
+    try:
+        issued = AUTH_CONFIG.create_workspace_access_key(
+            workspace_id=workspace_id,
+            role=payload.role,
+            label=payload.label,
+            expires_in_days=payload.expires_in_days,
+        )
+    except StudioApiKeyError as exc:
+        if str(exc).startswith("workspace already has the maximum"):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "This workspace has reached its active access-key limit. "
+                    "Revoke an unused key before creating another."
+                ),
+            ) from exc
+        raise HTTPException(
+            status_code=503,
+            detail="Studio could not create workspace access. Please retry.",
+        ) from exc
+    return {
+        "api_key": issued.api_key,
+        "record": _access_key_payload(issued.record),
+        "current_key_id": current_key_id,
+    }
+
+
+@app.delete(f"{ACCESS_KEYS_API_PATH}/{{key_id}}", response_model=None)
+def revoke_workspace_access_key(key_id: str, request: Request) -> JsonObject:
+    """Revoke one workspace key while protecting the credential in current use."""
+    workspace_id, current_key_id = _admin_access_context(request)
+    _require_managed_access()
+    if key_id == current_key_id:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "This key opened your current session. Create a replacement, lock the workspace, "
+                "sign in with the replacement, then revoke this key."
+            ),
+        )
+    try:
+        record = AUTH_CONFIG.revoke_workspace_access_key(
+            workspace_id=workspace_id,
+            key_id=key_id,
+        )
+    except StudioApiKeyError as exc:
+        message = str(exc)
+        if message.startswith("key ID must"):
+            raise HTTPException(status_code=400, detail=message) from exc
+        if message.startswith("no workspace access key"):
+            raise HTTPException(status_code=404, detail="Workspace access key not found.") from exc
+        raise HTTPException(
+            status_code=503,
+            detail="Studio could not revoke workspace access. Please retry.",
+        ) from exc
+    return {"key": _access_key_payload(record)}
 
 
 @app.get("/api/demo-report", response_model=None)
@@ -911,18 +1030,59 @@ def _role_allows_request(*, role: str, method: str, path: str) -> bool:
     """Keep viewer credentials read-only, including the demo's seeding GET route."""
     if path == BROWSER_SESSION_EXCHANGE_PATH:
         return True
+    if path == ACCESS_KEYS_API_PATH or path.startswith(f"{ACCESS_KEYS_API_PATH}/"):
+        return role == "admin"
     if role != "viewer":
         return True
     return method.upper() in {"GET", "HEAD"} and path not in VIEWER_BLOCKED_GET_PATHS
 
 
-def _role_denied_detail(role: str) -> str:
+def _role_denied_detail(role: str, *, path: str) -> str:
+    if path == ACCESS_KEYS_API_PATH or path.startswith(f"{ACCESS_KEYS_API_PATH}/"):
+        return "Workspace admin access is required to manage access keys."
     if role == "viewer":
         return (
             "Your current workspace has viewer access and is read-only. "
             "Editor or admin access is required to change workspace data."
         )
     return "This workspace key is not authorized for this operation."
+
+
+def _admin_access_context(request: Request) -> tuple[str, str | None]:
+    workspace_id = getattr(request.state, "workspace_id", None)
+    workspace_role = getattr(request.state, "workspace_role", None)
+    current_key_id = getattr(request.state, "key_id", None)
+    if workspace_role != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Workspace admin access is required to manage access keys.",
+        )
+    if not isinstance(workspace_id, str):
+        raise StudioPersistenceError("request workspace context is invalid")
+    if current_key_id is not None and not isinstance(current_key_id, str):
+        raise StudioPersistenceError("request access-key context is invalid")
+    return workspace_id, current_key_id
+
+
+def _require_managed_access() -> None:
+    if not AUTH_CONFIG.access_management_enabled:
+        raise HTTPException(
+            status_code=409,
+            detail="Self-service access management requires managed workspace keys.",
+        )
+
+
+def _access_key_payload(record: StudioApiKeyRecord) -> JsonObject:
+    return {
+        "key_id": record.key_id,
+        "workspace_id": record.workspace_id,
+        "role": record.role,
+        "label": record.label,
+        "created_at": record.created_at,
+        "expires_at": record.expires_at,
+        "revoked_at": record.revoked_at,
+        "status": record.status,
+    }
 
 
 def _production_readiness(*, storage_ok: bool) -> JsonObject:
@@ -944,7 +1104,8 @@ def _production_readiness(*, storage_ok: bool) -> JsonObject:
         if AUTH_CONFIG.credential_source == "managed":
             completed.extend(
                 [
-                    "hashed expiring workspace keys with operator revocation",
+                    "hashed expiring workspace keys with admin issuance and revocation",
+                    "admin self-service access-key management",
                     "viewer, editor, and admin request authorization",
                     "short-lived revocable HttpOnly browser sessions",
                 ]

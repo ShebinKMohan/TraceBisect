@@ -67,6 +67,9 @@ def test_request_audit_is_structured_bounded_and_secret_safe(
         ("/api/metrics", "GET", "metrics_scrape"),
         ("/api/browser-session", "POST", "browser_session_create"),
         ("/api/browser-session/logout", "POST", "browser_session_revoke"),
+        ("/api/access-keys", "GET", "access_key_list"),
+        ("/api/access-keys", "POST", "access_key_create"),
+        ("/api/access-keys/key-secret", "DELETE", "access_key_revoke"),
         ("/api/traces/upload", "POST", "trace_upload"),
         ("/api/compare", "POST", "trace_compare"),
         ("/api/regression-cases", "POST", "case_create"),
@@ -96,6 +99,7 @@ def test_request_audit_normalizes_actions(
     payload = json.loads(caplog.records[-1].message)
     assert payload["action"] == action
     assert "case-secret" not in caplog.records[-1].message
+    assert "key-secret" not in caplog.records[-1].message
 
 
 def test_disabled_audit_emits_nothing(caplog: pytest.LogCaptureFixture) -> None:

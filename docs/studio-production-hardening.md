@@ -37,6 +37,13 @@ temporary files out of the web root, and throttle repeated API calls.
 - Managed keys carry a `viewer`, `editor`, or `admin` role. Viewer requests are
   enforced as read-only before route execution, including blocking the
   side-effecting demo seed; legacy environment keys retain admin compatibility.
+- Admins can create, list, and revoke keys for their current workspace from
+  Studio Settings. Lists contain metadata only, newly issued plaintext is shown
+  once, another workspace's keys are never returned, and Studio prevents an
+  admin from revoking the key behind the current sign-in.
+- Active access is capped at 100 keys per workspace. Expired or revoked keys no
+  longer consume active capacity, and creation is serialized in SQLite so
+  concurrent requests cannot bypass the cap.
 - The legacy plaintext `TRACEBISECT_STUDIO_API_KEYS` mapping remains supported
   for migration/local use and is reported separately by the health endpoint.
 - Managed browser sign-in exchanges the workspace key once for a short-lived,
@@ -99,9 +106,9 @@ Studio a real multi-tenant SaaS:
 
 - Managed user identities, account recovery, and team/project RBAC.
 - Managed multi-user database storage beyond the single-node SQLite backend.
-- Account-level self-service access management and scoped ingestion tokens.
-  Operator-level hashed key issuance/rotation and managed browser-session
-  lifecycle are implemented.
+- Account-level scoped ingestion tokens. Admin self-service workspace-key
+  issuance/rotation and managed browser-session lifecycle are implemented, but
+  these keys are not a substitute for managed human identities.
 - Durable background jobs for large OTel imports and comparisons.
 - Distributed rate limiting backed by Redis or the hosting provider.
 - Durable centralized retention, search, alerting, and access control for the

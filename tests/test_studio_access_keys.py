@@ -9,12 +9,15 @@ from pathlib import Path
 
 import pytest
 
+import tracebisect.studio.access_keys as access_keys
 from tracebisect.cli import main
 from tracebisect.studio.access_keys import (
     StudioApiKeyError,
     create_studio_api_key,
     list_studio_api_keys,
+    list_workspace_studio_api_keys,
     revoke_studio_api_key,
+    revoke_workspace_studio_api_key,
     workspace_for_managed_api_key,
 )
 
@@ -112,6 +115,111 @@ def test_expired_and_revoked_keys_fail_closed_immediately(tmp_path: Path) -> Non
         is None
     )
     assert revoke_studio_api_key(database, key_id=issued.record.key_id).status == "revoked"
+
+
+def test_workspace_key_management_cannot_list_or_revoke_another_workspace(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "studio.db"
+    team_a = create_studio_api_key(
+        database,
+        workspace_id="team-a",
+        role="admin",
+        label="Team A owner",
+        expires_in_days=90,
+        pepper=PEPPER,
+        now=NOW,
+    )
+    team_b = create_studio_api_key(
+        database,
+        workspace_id="team-b",
+        role="editor",
+        label="Team B editor",
+        expires_in_days=90,
+        pepper=PEPPER,
+        now=NOW,
+    )
+
+    team_a_records = list_workspace_studio_api_keys(
+        database,
+        workspace_id="team-a",
+        now=NOW,
+    )
+
+    assert [record.key_id for record in team_a_records] == [team_a.record.key_id]
+    assert team_b.record.key_id not in {record.key_id for record in team_a_records}
+    with pytest.raises(StudioApiKeyError, match="no workspace access key"):
+        revoke_workspace_studio_api_key(
+            database,
+            workspace_id="team-a",
+            key_id=team_b.record.key_id,
+            now=NOW,
+        )
+    assert (
+        workspace_for_managed_api_key(
+            database,
+            api_key=team_b.api_key,
+            pepper=PEPPER,
+            now=NOW,
+        )
+        == "team-b"
+    )
+    revoked = revoke_workspace_studio_api_key(
+        database,
+        workspace_id="team-a",
+        key_id=team_a.record.key_id,
+        now=NOW,
+    )
+    assert revoked.status == "revoked"
+
+
+def test_active_workspace_keys_are_bounded_and_capacity_returns_after_revocation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database = tmp_path / "studio.db"
+    monkeypatch.setattr(access_keys, "MAX_ACTIVE_STUDIO_API_KEYS_PER_WORKSPACE", 2)
+    first = create_studio_api_key(
+        database,
+        workspace_id="team-a",
+        role="admin",
+        label="Owner",
+        expires_in_days=90,
+        pepper=PEPPER,
+        now=NOW,
+    )
+    create_studio_api_key(
+        database,
+        workspace_id="team-a",
+        role="viewer",
+        label="Reviewer",
+        expires_in_days=90,
+        pepper=PEPPER,
+        now=NOW,
+    )
+
+    with pytest.raises(StudioApiKeyError, match="maximum number of active"):
+        create_studio_api_key(
+            database,
+            workspace_id="team-a",
+            role="editor",
+            label="Developer",
+            expires_in_days=90,
+            pepper=PEPPER,
+            now=NOW,
+        )
+
+    revoke_studio_api_key(database, key_id=first.record.key_id, now=NOW)
+    replacement = create_studio_api_key(
+        database,
+        workspace_id="team-a",
+        role="editor",
+        label="Developer",
+        expires_in_days=90,
+        pepper=PEPPER,
+        now=NOW,
+    )
+    assert replacement.record.status == "active"
 
 
 def test_corrupt_key_metadata_fails_closed_with_operator_safe_error(tmp_path: Path) -> None:

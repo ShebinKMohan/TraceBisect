@@ -1,4 +1,15 @@
-import type { RegressionCase, Report, RunSummary, StudioHealth, StudioSession, TraceSummary } from "@/lib/types";
+import type {
+  IssuedWorkspaceAccessKey,
+  RegressionCase,
+  Report,
+  RunSummary,
+  StudioHealth,
+  StudioSession,
+  TraceSummary,
+  WorkspaceAccessKey,
+  WorkspaceAccessKeyList,
+  WorkspaceRole,
+} from "@/lib/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_TRACEBISECT_API_URL ?? "http://127.0.0.1:8000";
 const MAX_TRACE_UPLOAD_BYTES = 5 * 1024 * 1024;
@@ -120,6 +131,35 @@ export async function logoutStudioWorkspace(managedBrowserSession: boolean): Pro
     const error = await responseError(response);
     throw new StudioApiError(error.message, response.status, error.requestId);
   }
+}
+
+export async function fetchWorkspaceAccessKeys(): Promise<WorkspaceAccessKeyList> {
+  return parseResponse<WorkspaceAccessKeyList>(
+    await authorizedFetch(`${API_BASE}/api/access-keys`),
+  );
+}
+
+export async function createWorkspaceAccessKey(payload: {
+  label: string;
+  role: WorkspaceRole;
+  expires_in_days: number;
+}): Promise<IssuedWorkspaceAccessKey> {
+  return parseResponse<IssuedWorkspaceAccessKey>(
+    await authorizedFetch(`${API_BASE}/api/access-keys`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
+  );
+}
+
+export async function revokeWorkspaceAccessKey(keyId: string): Promise<WorkspaceAccessKey> {
+  const payload = await parseResponse<{ key: WorkspaceAccessKey }>(
+    await authorizedFetch(`${API_BASE}/api/access-keys/${encodeURIComponent(keyId)}`, {
+      method: "DELETE",
+    }),
+  );
+  return payload.key;
 }
 
 export async function fetchTraces(): Promise<TraceSummary[]> {

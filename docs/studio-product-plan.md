@@ -135,15 +135,16 @@ bad inputs and now supports durable API-key-scoped workspaces. Managed browser
 sign-in now exchanges a workspace key for a short-lived, revocable HttpOnly
 session. Managed identity/account recovery, hosted monitoring/error-event
 retention wiring, and distributed rate limiting remain separate SaaS
-milestones. The API also provides operator-managed expiring keys, a protected
-Prometheus scrape endpoint, starter alert rules, and an incident runbook;
-hosting-platform collection and delivery are still required.
+milestones. The API also provides hashed expiring keys, a protected Prometheus
+scrape endpoint, starter alert rules, and an incident runbook. Admins can now
+manage role-based workspace keys inside Settings after the operator bootstraps
+the first admin; hosting-platform collection and delivery are still required.
 
 ## Out Of Scope For This Slice
 
 Do not add these in the first Studio MVP:
 
-- Managed authentication, account recovery, and self-service key lifecycle.
+- Managed human identities, account recovery, and email invitations.
 - Billing.
 - Team RBAC.
 - Multi-tenant production isolation.

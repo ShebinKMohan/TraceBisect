@@ -13,9 +13,15 @@ from typing import Literal, cast
 
 from tracebisect.studio.access_keys import (
     API_KEY_PEPPER_ENV,
+    IssuedStudioApiKey,
+    StudioApiKeyError,
+    StudioApiKeyRecord,
     WorkspaceRole,
     api_key_pepper,
+    create_studio_api_key,
+    list_workspace_studio_api_keys,
     principal_for_managed_api_key,
+    revoke_workspace_studio_api_key,
 )
 from tracebisect.studio.access_sessions import (
     DEFAULT_BROWSER_SESSION_TTL_SECONDS,
@@ -43,6 +49,7 @@ class StudioAuthPrincipal:
 
     workspace_id: str
     role: WorkspaceRole
+    key_id: str | None = None
     auth_kind: AuthKind = "api_key"
     session_id: str | None = None
     expires_at: str | None = None
@@ -156,6 +163,7 @@ class StudioAuthConfig:
             return StudioAuthPrincipal(
                 workspace_id=principal.workspace_id,
                 role=principal.role,
+                key_id=principal.key_id,
             )
         matched_workspace: str | None = None
         for expected, workspace_id in self._credentials:
@@ -214,6 +222,7 @@ class StudioAuthConfig:
         return StudioAuthPrincipal(
             workspace_id=principal.workspace_id,
             role=principal.role,
+            key_id=principal.key_id,
             auth_kind="browser_session",
             session_id=principal.session_id,
             expires_at=principal.expires_at,
@@ -234,6 +243,61 @@ class StudioAuthConfig:
             pepper=self._pepper,
         )
 
+    @property
+    def access_management_enabled(self) -> bool:
+        """Return whether admins can manage scoped keys through the product API."""
+        return self.credential_source == "managed"
+
+    def list_workspace_access_keys(self, workspace_id: str) -> list[StudioApiKeyRecord]:
+        """List non-secret key metadata for exactly one authenticated workspace."""
+        database_path, _pepper = self._managed_key_material()
+        return list_workspace_studio_api_keys(
+            database_path,
+            workspace_id=workspace_id,
+        )
+
+    def create_workspace_access_key(
+        self,
+        *,
+        workspace_id: str,
+        role: WorkspaceRole,
+        label: str,
+        expires_in_days: int,
+    ) -> IssuedStudioApiKey:
+        """Create one workspace key whose plaintext value is returned exactly once."""
+        database_path, pepper = self._managed_key_material()
+        return create_studio_api_key(
+            database_path,
+            workspace_id=workspace_id,
+            role=role,
+            label=label,
+            expires_in_days=expires_in_days,
+            pepper=pepper,
+        )
+
+    def revoke_workspace_access_key(
+        self,
+        *,
+        workspace_id: str,
+        key_id: str,
+    ) -> StudioApiKeyRecord:
+        """Revoke one key without allowing access across workspace boundaries."""
+        database_path, _pepper = self._managed_key_material()
+        return revoke_workspace_studio_api_key(
+            database_path,
+            workspace_id=workspace_id,
+            key_id=key_id,
+        )
+
+    def _managed_key_material(self) -> tuple[Path, str]:
+        if (
+            not self.access_management_enabled
+            or self._database_path is None
+            or self._pepper is None
+        ):
+            raise StudioApiKeyError("managed workspace access is not enabled")
+        return self._database_path, self._pepper
+
     def runtime_status(self) -> dict[str, str | bool | int]:
         """Describe the auth boundary without exposing credentials or workspace names."""
         return {
@@ -241,6 +305,7 @@ class StudioAuthConfig:
             "required": self.required,
             "credential_source": self.credential_source,
             "browser_sessions": self.browser_sessions_enabled,
+            "self_service_access_management": self.access_management_enabled,
             "browser_session_ttl_seconds": (
                 self._browser_session_ttl_seconds if self.browser_sessions_enabled else 0
             ),

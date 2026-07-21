@@ -3,12 +3,12 @@
 import { Activity, Check, Clipboard, FileJson2, PlayCircle, ShieldCheck, TerminalSquare, UploadCloud } from "lucide-react";
 import { useState } from "react";
 import type { StudioHealth, WorkspaceRole } from "@/lib/types";
+import { AccessManagementPanel } from "@/components/access-management-panel";
 
 const demoCommand = "tracebisect demo";
 const uploadCommand = "curl -X POST http://127.0.0.1:8000/api/traces/upload -F 'file=@run.tbtrace'";
 const recordCommand = "tracebisect record --output run.tbtrace -- python your_agent.py";
 const durableCommand = "TRACEBISECT_STUDIO_STORAGE=sqlite TRACEBISECT_STUDIO_SQLITE_PATH=.tracebisect/studio.db uvicorn tracebisect.studio.api:app --port 8000";
-const listKeysCommand = "tracebisect studio keys list --database .tracebisect/studio.db";
 const generateMetricsTokenCommand = "tracebisect studio metrics generate-token";
 const validateAlertRulesCommand = "promtool check rules deploy/prometheus/tracebisect-alerts.yml";
 
@@ -48,8 +48,6 @@ export function SettingsPanel({ health, workspaceRole }: { health: StudioHealth 
   const credentialSource = health?.auth.credential_source ?? "none";
   const browserSessions = health?.auth.browser_sessions ?? false;
   const metricsAccess = health?.metrics.access ?? null;
-  const workspaceId = health?.runtime.workspace_id ?? "team-a";
-  const createKeyCommand = `tracebisect studio keys create --database .tracebisect/studio.db --workspace ${workspaceId} --name 'Browser access' --role editor`;
   return (
     <section className="setup-guide" data-testid="setup-section">
       <div className="setup-mode-banner">
@@ -159,14 +157,7 @@ export function SettingsPanel({ health, workspaceRole }: { health: StudioHealth 
       </div>
 
       {credentialSource === "managed" && workspaceRole === "admin" ? (
-        <div className="setup-boundary setup-operations">
-          <h2>Manage workspace access safely</h2>
-          <p>
-            List key IDs and expiry dates without revealing secrets. For rotation, create a replacement, update the user or integration, and only then revoke the old key ID.
-          </p>
-          <CopyCommand command={listKeysCommand} label="list workspace keys command" />
-          <CopyCommand command={createKeyCommand} label="create workspace key command" />
-        </div>
+        <AccessManagementPanel />
       ) : null}
 
       {credentialSource === "managed" && workspaceRole !== "admin" ? (
@@ -175,7 +166,7 @@ export function SettingsPanel({ health, workspaceRole }: { health: StudioHealth 
           <p>
             {workspaceRole === "viewer"
               ? "You can inspect workspace evidence and copy generated tests. Ask a workspace admin for an editor key when you need to upload, compare, save, or rerun data."
-              : "You can upload, compare, save, and rerun workspace data. Key issuance and revocation stay with an operator who controls the Studio database and server secret."}
+              : "You can upload, compare, save, and rerun workspace data. Ask a workspace admin to create, rotate, or revoke access from Settings."}
           </p>
         </div>
       ) : null}
@@ -198,7 +189,7 @@ export function SettingsPanel({ health, workspaceRole }: { health: StudioHealth 
         <p>
           {authRequired
             ? credentialSource === "managed"
-              ? "User accounts, account recovery, team membership administration, hosted ingestion, and billing are future production milestones—not active features in this build."
+              ? "Password or identity-provider accounts, email recovery, invitations, hosted ingestion, and billing are future production milestones—not active features in this build."
               : "Managed user accounts, hashed key rotation, hosted ingestion, team administration, and billing are future production milestones—not active features in this build."
             : "Authentication, request-scoped workspace access, hosted ingestion, team access, billing, and API keys are future production milestones—not active features in this build."}
         </p>

@@ -51,6 +51,7 @@ def test_auth_defaults_to_open_local_mode() -> None:
         "required": False,
         "credential_source": "none",
         "browser_sessions": False,
+        "self_service_access_management": False,
         "browser_session_ttl_seconds": 0,
     }
     assert config.workspace_for_authorization(None) is None
@@ -110,6 +111,7 @@ def test_api_key_auth_maps_credentials_to_one_workspace(tmp_path: Path) -> None:
         "required": True,
         "credential_source": "environment",
         "browser_sessions": False,
+        "self_service_access_management": False,
         "browser_session_ttl_seconds": 0,
     }
     assert config.workspace_for_authorization(f"Bearer {WORKSPACE_A_KEY}") == "workspace-a"
@@ -147,6 +149,7 @@ def test_managed_api_key_auth_observes_expiry_and_immediate_revocation(
         "required": True,
         "credential_source": "managed",
         "browser_sessions": True,
+        "self_service_access_management": True,
         "browser_session_ttl_seconds": 28800,
     }
     assert config.workspace_for_authorization(f"Bearer {issued.api_key}") == "workspace-a"
@@ -290,6 +293,7 @@ def test_secured_api_rejects_spoofing_and_isolates_workspace_data(
         "required": True,
         "credential_source": "environment",
         "browser_sessions": False,
+        "self_service_access_management": False,
         "browser_session_ttl_seconds": 0,
         "browser_session_cookie_secure": False,
     }
@@ -382,7 +386,7 @@ def test_managed_key_secures_live_api_and_revokes_without_restart(
 
     assert health_response.json()["auth"]["credential_source"] == "managed"
     assert (
-        "hashed expiring workspace keys with operator revocation"
+        "hashed expiring workspace keys with admin issuance and revocation"
         in health_response.json()["readiness"]["completed"]
     )
     assert accepted_response.status_code == 200

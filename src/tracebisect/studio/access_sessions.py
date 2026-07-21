@@ -40,6 +40,7 @@ class StudioBrowserSessionError(RuntimeError):
 class StudioBrowserSessionPrincipal:
     """Authorization facts resolved from one active browser session."""
 
+    key_id: str
     workspace_id: str
     role: WorkspaceRole
     session_id: str
@@ -138,6 +139,7 @@ def issue_studio_browser_session(
         raise StudioBrowserSessionError("could not save the browser session") from exc
 
     principal = StudioBrowserSessionPrincipal(
+        key_id=key_principal.key_id,
         workspace_id=key_principal.workspace_id,
         role=key_principal.role,
         session_id=session_id,
@@ -213,6 +215,7 @@ def principal_for_studio_browser_session(
             expires_at=str(key_expires_at),
         )
         return StudioBrowserSessionPrincipal(
+            key_id=key_principal.key_id,
             workspace_id=key_principal.workspace_id,
             role=key_principal.role,
             session_id=session_id,

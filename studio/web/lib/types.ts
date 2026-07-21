@@ -17,6 +17,7 @@ export type StudioHealth = {
     required: boolean;
     credential_source: "none" | "environment" | "managed";
     browser_sessions: boolean;
+    self_service_access_management: boolean;
     browser_session_ttl_seconds: number;
     browser_session_cookie_secure: boolean;
   };
@@ -61,6 +62,7 @@ export type StudioHealth = {
     rate_limit_window_seconds: number;
     rate_limit_requests: number;
     rate_limit_upload_requests: number;
+    max_active_workspace_keys: number;
   };
 };
 
@@ -71,6 +73,28 @@ export type StudioSession = {
   access_mode: "open_local" | "api_key" | "browser_session";
   expires_at: string | null;
   runtime: StudioHealth["runtime"];
+};
+
+export type WorkspaceAccessKey = {
+  key_id: string;
+  workspace_id: string;
+  role: WorkspaceRole;
+  label: string;
+  created_at: string;
+  expires_at: string;
+  revoked_at: string | null;
+  status: "active" | "expired" | "revoked";
+};
+
+export type WorkspaceAccessKeyList = {
+  keys: WorkspaceAccessKey[];
+  current_key_id: string | null;
+};
+
+export type IssuedWorkspaceAccessKey = {
+  api_key: string;
+  record: WorkspaceAccessKey;
+  current_key_id: string | null;
 };
 
 export type TraceSummary = {

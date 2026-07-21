@@ -283,6 +283,10 @@ def test_studio_api_sets_security_headers(caplog: pytest.LogCaptureFixture) -> N
     assert response.headers["cache-control"] == "no-store"
     assert response.headers["x-request-id"] == "request-1234"
     assert response.json()["limits"]["max_upload_bytes"] == studio_api.MAX_UPLOAD_BYTES
+    assert (
+        response.json()["limits"]["max_active_workspace_keys"]
+        == studio_api.MAX_ACTIVE_STUDIO_API_KEYS_PER_WORKSPACE
+    )
     assert response.json()["audit"] == {
         "enabled": True,
         "format": "json",

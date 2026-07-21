@@ -26,6 +26,7 @@ MIN_PEPPER_LENGTH = 32
 MAX_PEPPER_LENGTH = 512
 MAX_KEY_LIFETIME_DAYS = 3650
 MAX_KEY_LABEL_LENGTH = 80
+MAX_ACTIVE_STUDIO_API_KEYS_PER_WORKSPACE = 100
 _KEY_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{12}$")
 _MANAGED_KEY_PATTERN = re.compile(r"^tbsk_([A-Za-z0-9_-]{12})_([A-Za-z0-9_-]{43})$")
 
@@ -117,6 +118,22 @@ def create_studio_api_key(
         with sqlite3.connect(database, timeout=5) as connection:
             connection.execute("PRAGMA busy_timeout = 5000")
             ensure_studio_schema(connection)
+            connection.execute("BEGIN IMMEDIATE")
+            active_count = connection.execute(
+                """
+                SELECT COUNT(*) FROM studio_api_keys
+                WHERE workspace_id = ? AND revoked_at IS NULL AND expires_at > ?
+                """,
+                (validated_workspace, _timestamp(created)),
+            ).fetchone()
+            if (
+                active_count is None
+                or not isinstance(active_count[0], int)
+                or active_count[0] >= MAX_ACTIVE_STUDIO_API_KEYS_PER_WORKSPACE
+            ):
+                raise StudioApiKeyError(
+                    "workspace already has the maximum number of active access keys"
+                )
             connection.execute(
                 """
                 INSERT INTO studio_api_keys (
@@ -157,19 +174,53 @@ def list_studio_api_keys(
     now: datetime | None = None,
 ) -> list[StudioApiKeyRecord]:
     """List key metadata without ever reading or returning a plaintext key."""
+    return _list_studio_api_keys(database_path, workspace_id=None, now=now)
+
+
+def list_workspace_studio_api_keys(
+    database_path: str | Path,
+    *,
+    workspace_id: str,
+    now: datetime | None = None,
+) -> list[StudioApiKeyRecord]:
+    """List only the non-secret key metadata owned by one workspace."""
+    return _list_studio_api_keys(
+        database_path,
+        workspace_id=validate_workspace_id(workspace_id),
+        now=now,
+    )
+
+
+def _list_studio_api_keys(
+    database_path: str | Path,
+    *,
+    workspace_id: str | None,
+    now: datetime | None,
+) -> list[StudioApiKeyRecord]:
     database = _existing_database(database_path)
     current = _utc_now(now)
     try:
         with sqlite3.connect(database, timeout=5) as connection:
             connection.execute("PRAGMA busy_timeout = 5000")
             ensure_studio_schema(connection)
-            rows = connection.execute(
-                """
-                SELECT key_id, workspace_id, role, label, created_at, expires_at, revoked_at
-                FROM studio_api_keys
-                ORDER BY created_at DESC, key_id
-                """
-            ).fetchall()
+            if workspace_id is None:
+                rows = connection.execute(
+                    """
+                    SELECT key_id, workspace_id, role, label, created_at, expires_at, revoked_at
+                    FROM studio_api_keys
+                    ORDER BY created_at DESC, key_id
+                    """
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    """
+                    SELECT key_id, workspace_id, role, label, created_at, expires_at, revoked_at
+                    FROM studio_api_keys
+                    WHERE workspace_id = ?
+                    ORDER BY created_at DESC, key_id
+                    """,
+                    (workspace_id,),
+                ).fetchall()
         records = [_record_from_row(row, now=current) for row in rows]
     except (OSError, sqlite3.DatabaseError, StudioPersistenceError, TypeError, ValueError) as exc:
         raise StudioApiKeyError("could not list Studio API keys") from exc
@@ -211,6 +262,50 @@ def revoke_studio_api_key(
         raise
     except (OSError, sqlite3.DatabaseError, StudioPersistenceError, TypeError, ValueError) as exc:
         raise StudioApiKeyError("could not revoke the Studio API key") from exc
+    return record
+
+
+def revoke_workspace_studio_api_key(
+    database_path: str | Path,
+    *,
+    workspace_id: str,
+    key_id: str,
+    now: datetime | None = None,
+) -> StudioApiKeyRecord:
+    """Revoke a key only when it belongs to the authenticated workspace."""
+    database = _existing_database(database_path)
+    validated_workspace = validate_workspace_id(workspace_id)
+    if not _KEY_ID_PATTERN.fullmatch(key_id):
+        raise StudioApiKeyError("key ID must be the 12-character ID shown in Studio")
+    revoked = _utc_now(now)
+    try:
+        with sqlite3.connect(database, timeout=5) as connection:
+            connection.execute("PRAGMA busy_timeout = 5000")
+            ensure_studio_schema(connection)
+            row = connection.execute(
+                """
+                SELECT key_id, workspace_id, role, label, created_at, expires_at, revoked_at
+                FROM studio_api_keys
+                WHERE key_id = ? AND workspace_id = ?
+                """,
+                (key_id, validated_workspace),
+            ).fetchone()
+            if row is None:
+                raise StudioApiKeyError("no workspace access key exists with that key ID")
+            if row[6] is None:
+                connection.execute(
+                    """
+                    UPDATE studio_api_keys SET revoked_at = ?
+                    WHERE key_id = ? AND workspace_id = ?
+                    """,
+                    (_timestamp(revoked), key_id, validated_workspace),
+                )
+                row = (*row[:6], _timestamp(revoked))
+            record = _record_from_row(row, now=revoked)
+    except StudioApiKeyError:
+        raise
+    except (OSError, sqlite3.DatabaseError, StudioPersistenceError, TypeError, ValueError) as exc:
+        raise StudioApiKeyError("could not revoke the workspace access key") from exc
     return record
 
 

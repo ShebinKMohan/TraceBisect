@@ -91,9 +91,9 @@ uvicorn tracebisect.studio.api:app --port 8000
 ```
 
 Studio stores a peppered HMAC digest—not the plaintext key—and rejects expired
-or revoked keys immediately. Use `tracebisect studio keys list` to review safe
-metadata. For zero-downtime rotation, create a replacement, update the client,
-then run `tracebisect studio keys revoke --key-id ...` for the old key.
+or revoked keys immediately. After the first admin key opens Studio, admins can
+create, review, rotate, and revoke workspace access directly in **Settings →
+Workspace access**. The CLI remains the bootstrap and recovery path.
 
 When the browser opens a managed workspace, it sends that key only to the
 session-exchange endpoint. The API replaces it with an opaque, HttpOnly,
@@ -105,9 +105,13 @@ See [`docs/operations/studio-browser-sessions.md`](docs/operations/studio-browse
 for the production HTTPS, origin, expiry, and sign-out contract.
 
 Choose the smallest role that fits: `viewer` can inspect existing evidence,
-`editor` can also upload, compare, save, and rerun guardrails, and `admin` is the
-operator/owner role. Studio enforces the role on every API request and shows a
-clear read-only banner for viewer sessions.
+`editor` can also upload, compare, save, and rerun guardrails, and `admin` can
+manage workspace access. Studio enforces the role on every API request and shows
+a clear read-only banner for viewer sessions. New keys are shown once; Studio
+protects the key behind the current sign-in until the admin signs in with a
+replacement. See
+[`docs/operations/studio-access-management.md`](docs/operations/studio-access-management.md)
+for the beginner workflow and recovery boundary.
 
 The bearer key or its derived browser session—not a client-provided workspace
 header—selects the authorized workspace. The older
