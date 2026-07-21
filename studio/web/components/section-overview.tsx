@@ -5,42 +5,40 @@ type SectionOverviewProps = {
   report: Report | null;
 };
 
-const sectionCopy: Record<StudioSection, { eyebrow: string; title: string; description: string }> = {
+const sectionCopy: Record<StudioSection, { title: string; description: string }> = {
+  home: {
+    title: "Welcome to TraceBisect",
+    description: "Follow one clear path from two AI runs to a regression test you can keep.",
+  },
   runs: {
-    eyebrow: "Workspace / Refund Ops",
-    title: "Comparison history",
+    title: "Compare two runs",
     description:
-      "Pick a known-good trace, compare a new run, inspect the first behavior change, and save a guardrail test.",
+      "Find the first meaningful behavior change between a known-good run and a new run.",
   },
   sources: {
-    eyebrow: "Traces",
-    title: "Trace inventory",
+    title: "Choose your traces",
     description:
-      "Browse captured runs, filter by source and model, then upload or compare traces when a regression appears.",
+      "A trace is the step-by-step record of one AI run. Choose the expected run first, then the new run to check.",
   },
   sessions: {
-    eyebrow: "Sessions",
-    title: "Conversation sessions",
+    title: "Browse sessions",
     description:
-      "Group related traces by session, thread, conversation, or scenario so multi-turn behavior is easier to inspect.",
+      "See related runs together when they came from the same conversation, thread, or scenario.",
   },
   divergences: {
-    eyebrow: "Issues",
-    title: "Regression issues",
+    title: "Review repeated issues",
     description:
-      "Cluster repeated behavior changes, inspect the affected trace path, and decide which issues become guardrails.",
+      "Find behavior changes that keep returning and decide which ones need a permanent guardrail.",
   },
   cases: {
-    eyebrow: "Guardrails",
-    title: "Guardrail datasets",
+    title: "Protect fixed behavior",
     description:
-      "Save important regressions as rerunnable guardrail datasets and copy generated pytest checks into your repository.",
+      "A guardrail is a saved regression check. Copy its generated pytest test into your repository to catch the bug in CI.",
   },
   setup: {
-    eyebrow: "Settings / Refund Ops",
-    title: "Workspace settings",
+    title: "Setup guide",
     description:
-      "Manage workspace identity, project access, API keys, and ingest configuration for TraceBisect Studio.",
+      "Start with the demo, upload exported traces, or record a run from your own Python scenario.",
   },
 };
 

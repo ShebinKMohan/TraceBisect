@@ -31,7 +31,7 @@ export type TraceSummary = {
   session_id: string | null;
 };
 
-export type StudioSection = "runs" | "sources" | "sessions" | "divergences" | "cases" | "setup";
+export type StudioSection = "home" | "runs" | "sources" | "sessions" | "divergences" | "cases" | "setup";
 
 export type TraceEvent = {
   id: string;

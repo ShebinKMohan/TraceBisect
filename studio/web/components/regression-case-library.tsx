@@ -252,7 +252,7 @@ export function RegressionCaseLibrary({
                   <div>
                     <strong>{friendlyTraceName(item.name.replace(/ regression$/u, ""))}</strong>
                     <small>
-                      {item.divergence_count} checks · {dataset.revisions.length} saved run
+                      {item.divergence_count} checks · {dataset.revisions.length} saved version
                       {dataset.revisions.length === 1 ? "" : "s"} ·{" "}
                       {item.candidate.model ?? "model unknown"}
                     </small>
@@ -287,13 +287,13 @@ export function RegressionCaseLibrary({
                     <h3>{friendlyTraceName(selectedCase.name.replace(/ regression$/u, ""))}</h3>
                     <span>
                       {selectedCase.description ||
-                        "A saved regression dataset that can be rerun before deploys."}
+                        "A saved regression with a generated pytest check for your CI pipeline."}
                     </span>
                   </div>
                   <div className="guardrail-actions">
                     <button disabled={busy} onClick={() => onRunCase(selectedCase)} type="button">
                       <Play size={13} aria-hidden />
-                      Rerun
+                      Recheck saved trace
                     </button>
                     <button disabled={!selectedCase.pytest.source} onClick={() => void handleCopy(selectedCase)} type="button">
                       <FileCode2 size={13} aria-hidden />
@@ -304,7 +304,7 @@ export function RegressionCaseLibrary({
 
                 <dl className="guardrail-meta-grid">
                   <div>
-                    <dt>Last run</dt>
+                    <dt>Last checked</dt>
                     <dd>{selectedCase.last_result.checked_at ? formatShortDate(selectedCase.last_result.checked_at) : "--"}</dd>
                   </div>
                   <div>
@@ -320,7 +320,7 @@ export function RegressionCaseLibrary({
                     <dd>{selectedCase.case_id}</dd>
                   </div>
                   <div>
-                    <dt>Saved runs</dt>
+                    <dt>Saved versions</dt>
                     <dd>{selectedDataset?.revisions.length ?? 1}</dd>
                   </div>
                   <div>
@@ -342,7 +342,7 @@ export function RegressionCaseLibrary({
                 </dl>
 
                 <div className="guardrail-run-command">
-                  <span>Rerun command</span>
+                  <span>Generated test scenario</span>
                   <code>{formattedCommand(selectedCase)}</code>
                 </div>
 
@@ -365,7 +365,7 @@ export function RegressionCaseLibrary({
                     <header>
                       <span>
                         <TriangleAlert size={14} aria-hidden />
-                        Recent failure
+                        Latest saved result
                       </span>
                       <em>{friendlyDivergenceType(selectedCase.first_divergence.type)}</em>
                     </header>

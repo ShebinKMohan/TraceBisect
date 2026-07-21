@@ -1,41 +1,37 @@
 "use client";
 
 import {
-  Activity,
   BookOpen,
-  BriefcaseBusiness,
   Braces,
-  Bug,
-  ChevronDown,
+  CircleAlert,
   Database,
   GitCompare,
-  LogOut,
-  Mail,
+  Home,
   MessagesSquare,
   Moon,
   PanelLeftClose,
   PanelLeftOpen,
-  Plus,
-  Search,
-  Settings,
   ShieldCheck,
+  Sparkles,
   SunMedium,
 } from "lucide-react";
-import { useState } from "react";
 import type { LucideIcon } from "lucide-react";
 import type { StudioSection } from "@/lib/types";
 
 const navItems = [
-  { id: "runs", label: "Comparisons", icon: GitCompare },
-  { id: "sources", label: "Traces", icon: Database },
+  { id: "home", label: "Home", icon: Home },
+  { id: "runs", label: "Compare runs", icon: GitCompare },
+  { id: "sources", label: "Trace library", icon: Database },
   { id: "sessions", label: "Sessions", icon: MessagesSquare },
-  { id: "divergences", label: "Issues", icon: Activity },
+  { id: "divergences", label: "Issues", icon: CircleAlert },
   { id: "cases", label: "Guardrails", icon: ShieldCheck },
+  { id: "setup", label: "Setup guide", icon: BookOpen },
 ] satisfies { id: StudioSection; label: string; icon: LucideIcon }[];
 
 type SidebarProps = {
   activeSection: StudioSection;
   collapsed: boolean;
+  onPrimaryAction: () => void;
   onSectionChange: (section: StudioSection) => void;
   onThemeToggle: () => void;
   onToggleCollapsed: () => void;
@@ -45,12 +41,12 @@ type SidebarProps = {
 export function Sidebar({
   activeSection,
   collapsed,
+  onPrimaryAction,
   onSectionChange,
   onThemeToggle,
   onToggleCollapsed,
   theme,
 }: SidebarProps) {
-  const [profileOpen, setProfileOpen] = useState(false);
   const ThemeIcon = theme === "light" ? Moon : SunMedium;
 
   return (
@@ -63,7 +59,7 @@ export function Sidebar({
             </span>
             <div>
               <strong>TraceBisect</strong>
-              <small>v1.2.0</small>
+              <small>Studio · local</small>
             </div>
           </div>
           <button
@@ -78,21 +74,22 @@ export function Sidebar({
           </button>
         </div>
 
-        <button className="new-trace-button" title="Upload a new trace" type="button">
-          <Plus size={16} aria-hidden />
-          <span>New Trace</span>
+        <button className="new-trace-button" onClick={onPrimaryAction} title="Compare two traces" type="button">
+          <Sparkles size={16} aria-hidden />
+          <span>Compare traces</span>
         </button>
 
         <nav className="nav-stack">
           {navItems.map((item) => {
             const Icon = item.icon;
+            const testId = item.id === "setup" ? "sidebar-settings-link" : `sidebar-section-${item.id}`;
             return (
               <button
                 aria-current={activeSection === item.id ? "page" : undefined}
                 className={activeSection === item.id ? "nav-item nav-item-active" : "nav-item"}
-                data-testid={`sidebar-section-${item.id}`}
-                key={`${item.id}-${item.label}`}
-                onClick={() => onSectionChange(item.id as StudioSection)}
+                data-testid={testId}
+                key={item.id}
+                onClick={() => onSectionChange(item.id)}
                 title={item.label}
                 type="button"
               >
@@ -104,88 +101,24 @@ export function Sidebar({
         </nav>
       </div>
 
-      <div className="sidebar-footer" aria-label="Workspace account">
-        <button className="sidebar-footer-link" title="Workspace" type="button">
-          <BriefcaseBusiness size={15} aria-hidden />
-          <span>Workspace</span>
-        </button>
+      <div className="sidebar-footer" aria-label="Local workspace controls">
+        <div className="local-workspace-note">
+          <span className="local-status-dot" aria-hidden />
+          <div>
+            <strong>Local workspace</strong>
+            <small>Data resets with the API</small>
+          </div>
+        </div>
         <button
-          aria-current={activeSection === "setup" ? "page" : undefined}
-          className={
-            activeSection === "setup"
-              ? "sidebar-settings-link sidebar-settings-link-active"
-              : "sidebar-settings-link"
-          }
-          data-testid="sidebar-settings-link"
-          onClick={() => onSectionChange("setup")}
-          title="Settings"
+          aria-label={`Switch to ${theme === "light" ? "dark" : "light"} mode`}
+          className="theme-footer-button"
+          data-testid="profile-theme-toggle"
+          onClick={onThemeToggle}
           type="button"
         >
-          <Settings size={15} aria-hidden />
-          <span>Settings</span>
+          <ThemeIcon size={16} aria-hidden />
+          <span>{theme === "light" ? "Dark mode" : "Light mode"}</span>
         </button>
-        <div className="sidebar-profile-wrapper">
-          {profileOpen ? (
-            <div className="profile-popover" data-testid="profile-popover" role="menu">
-              <div className="profile-popover-header">
-                <span aria-hidden>TB</span>
-                <div>
-                  <strong>Refund Ops</strong>
-                  <small>org_tracebisect_demo</small>
-                </div>
-              </div>
-              <label className="profile-popover-search">
-                <Search size={14} aria-hidden />
-                <input placeholder="Search workspaces..." type="search" />
-              </label>
-              <button className="profile-menu-item profile-menu-item-active" role="menuitem" type="button">
-                <span aria-hidden>✓</span>
-                <span>Refund Ops</span>
-              </button>
-              <button className="profile-menu-item" role="menuitem" type="button">
-                <Mail size={15} aria-hidden />
-                <span>Invitations</span>
-              </button>
-              <button
-                className="profile-menu-item"
-                data-testid="profile-theme-toggle"
-                onClick={onThemeToggle}
-                role="menuitem"
-                type="button"
-              >
-                <ThemeIcon size={15} aria-hidden />
-                <span>{theme === "light" ? "Dark mode" : "Light mode"}</span>
-              </button>
-              <button className="profile-menu-item" role="menuitem" type="button">
-                <BookOpen size={15} aria-hidden />
-                <span>Documentation</span>
-              </button>
-              <button className="profile-menu-item" role="menuitem" type="button">
-                <Bug size={15} aria-hidden />
-                <span>Report a bug</span>
-              </button>
-              <button className="profile-menu-item profile-menu-item-danger" role="menuitem" type="button">
-                <LogOut size={15} aria-hidden />
-                <span>Log out</span>
-              </button>
-            </div>
-          ) : null}
-          <button
-            aria-expanded={profileOpen}
-            className="sidebar-profile-card"
-            data-testid="sidebar-profile-button"
-            onClick={() => setProfileOpen((current) => !current)}
-            title="Workspace profile"
-            type="button"
-          >
-            <span aria-hidden>TB</span>
-            <div>
-              <strong>Refund Ops</strong>
-              <small>org_tracebisect_demo</small>
-            </div>
-            <ChevronDown size={13} aria-hidden />
-          </button>
-          </div>
       </div>
     </aside>
   );

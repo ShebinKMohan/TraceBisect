@@ -1,146 +1,108 @@
 "use client";
 
-import { Copy, KeyRound, PlugZap, Trash2, UsersRound } from "lucide-react";
+import { Check, Clipboard, FileJson2, PlayCircle, TerminalSquare, UploadCloud } from "lucide-react";
+import { useState } from "react";
 
-const apiKeys = [
-  {
-    key: "tb_live_4d9...b821",
-    description: "Studio ingest service",
-    workspace: "Refund Ops",
-    created: "May 16, 2026",
-    lastUsed: "Today",
-  },
-  {
-    key: "tb_dev_91a...0fc4",
-    description: "Local recorder",
-    workspace: "Refund Ops",
-    created: "May 14, 2026",
-    lastUsed: "Yesterday",
-  },
-];
+const demoCommand = "tracebisect demo";
+const uploadCommand = "curl -X POST http://127.0.0.1:8000/api/traces/upload -F 'file=@run.tbtrace'";
+const recordCommand = "tracebisect record --output run.tbtrace -- python your_agent.py";
 
-const members = [
-  { name: "Shebin Mohan", email: "owner@tracebisect.local", role: "Owner", access: "All projects" },
-  { name: "QA Reviewer", email: "qa@tracebisect.local", role: "Reviewer", access: "Refund Ops" },
-  { name: "CI Bot", email: "ci@tracebisect.local", role: "Service account", access: "Guardrails only" },
-];
-
-const settingsTabs = ["Organization", "API Keys", "Usage & Billing", "Team Members", "Ingest Endpoints"];
+function CopyCommand({ command, label }: { command: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(command);
+    } catch {
+      const textarea = document.createElement("textarea");
+      textarea.value = command;
+      textarea.setAttribute("readonly", "true");
+      textarea.style.position = "fixed";
+      textarea.style.left = "-9999px";
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      textarea.remove();
+    }
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1600);
+  }
+  return (
+    <div className="setup-command">
+      <code>{command}</code>
+      <button aria-label={`Copy ${label}`} onClick={() => void copy()} type="button">
+        {copied ? <Check size={15} aria-hidden /> : <Clipboard size={15} aria-hidden />}
+        <span>{copied ? "Copied" : "Copy"}</span>
+      </button>
+    </div>
+  );
+}
 
 export function SettingsPanel() {
   return (
-    <section className="settings-layout" data-testid="setup-section">
-      <nav className="settings-tab-strip" aria-label="Workspace settings sections">
-        {settingsTabs.map((item) => (
-          <button className={item === "API Keys" ? "settings-tab-active" : ""} key={item} type="button">
-            {item}
-          </button>
-        ))}
-      </nav>
-      <div className="settings-content-stack">
-        <article className="panel settings-panel">
-          <div className="settings-panel-heading">
-            <div>
-              <h2>API keys</h2>
-              <span>Keys used to authenticate trace ingestion and API access.</span>
-            </div>
-            <button className="settings-primary-action" type="button">
-              <KeyRound size={15} aria-hidden />
-              Create New Key
-            </button>
-          </div>
+    <section className="setup-guide" data-testid="setup-section">
+      <div className="setup-mode-banner">
+        <span className="local-status-dot" aria-hidden />
+        <div>
+          <strong>Running as a local workspace</strong>
+          <p>No account or API key is required. Uploaded data is held in memory and resets with the API process.</p>
+        </div>
+      </div>
 
-          <div className="settings-api-table" data-testid="settings-api-keys">
-            <div className="settings-table-head">
-              <span>Name</span>
-              <span>Secret key</span>
-              <span>Created</span>
-              <span>Last used</span>
-              <span>Actions</span>
-            </div>
-            {apiKeys.map((item) => (
-              <div className="settings-table-row" key={item.key}>
-                <span>{item.description}</span>
-                <code>{item.key}</code>
-                <span>{item.created}</span>
-                <span>{item.lastUsed}</span>
-                <span className="settings-row-actions">
-                  <button aria-label={`Copy ${item.description} key`} type="button">
-                    <Copy size={14} aria-hidden />
-                  </button>
-                  <button aria-label={`Delete ${item.description} key`} type="button">
-                    <Trash2 size={14} aria-hidden />
-                  </button>
-                </span>
-              </div>
-            ))}
+      <div className="setup-heading">
+        <h2>Choose the easiest way to start</h2>
+        <p>Use the demo first. Connect your own application only when the comparison workflow feels familiar.</p>
+      </div>
+
+      <div className="setup-paths">
+        <article>
+          <span className="setup-path-number">1</span>
+          <PlayCircle size={21} aria-hidden />
+          <div>
+            <h3>Try the built-in demo</h3>
+            <p>Creates two refund-agent runs and shows a changed tool argument. No files or configuration needed.</p>
           </div>
+          <CopyCommand command={demoCommand} label="demo command" />
         </article>
 
-        <article className="panel settings-panel">
-          <div className="settings-panel-heading compact">
-            <div>
-              <h2>Ingest endpoints</h2>
-              <span>Configure your LLM clients or agents to send traces to these endpoints.</span>
-            </div>
-            <PlugZap size={18} aria-hidden />
+        <article>
+          <span className="setup-path-number">2</span>
+          <UploadCloud size={21} aria-hidden />
+          <div>
+            <h3>Upload exported traces</h3>
+            <p>Use the Trace library for the simplest path, or send a <code>.tbtrace</code> or OTel/OpenInference JSON file to the local API.</p>
           </div>
-          <div className="settings-endpoint-list settings-endpoint-code-list">
-            <div>
-              <span>TraceBisect Native API</span>
-              <code>POST /v1/traces</code>
-              <pre>{`curl -X POST https://api.tracebisect.com/v1/traces \\
-  -H "Authorization: Bearer YOUR_API_KEY" \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "trace_id": "req-123",
-    "name": "chat_completion",
-    "start_time": "2026-05-17T10:30:00Z"
-  }'`}</pre>
-            </div>
-            <div>
-              <span>OpenTelemetry (OTLP) JSON</span>
-              <code>POST /v1/otel/traces</code>
-              <pre>{`export OTEL_EXPORTER_OTLP_ENDPOINT="https://otlp.tracebisect.com"
-export OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer YOUR_API_KEY"
-python my_llm_app.py`}</pre>
-            </div>
-          </div>
+          <CopyCommand command={uploadCommand} label="upload command" />
         </article>
 
-        <article className="panel settings-panel">
-          <div className="settings-panel-heading">
-            <div>
-              <p>Members</p>
-              <h2>Workspace access</h2>
-              <span>Invite teammates, service accounts, and reviewers per workspace or project.</span>
-            </div>
-            <button className="settings-secondary-action" type="button">
-              <UsersRound size={15} aria-hidden />
-              Invite member
-            </button>
+        <article>
+          <span className="setup-path-number">3</span>
+          <TerminalSquare size={21} aria-hidden />
+          <div>
+            <h3>Record a Python scenario</h3>
+            <p>TraceBisect gives your command an output path. Your scenario writes one canonical trace to that path.</p>
           </div>
-
-          <div className="settings-members-list" data-testid="settings-members">
-            {members.map((member) => (
-              <div className="settings-member-row" key={member.email}>
-                <span className="settings-member-avatar" aria-hidden>
-                  {member.name
-                    .split(" ")
-                    .map((part) => part[0])
-                    .join("")
-                    .slice(0, 2)}
-                </span>
-                <div>
-                  <strong>{member.name}</strong>
-                  <small>{member.email}</small>
-                </div>
-                <span>{member.role}</span>
-                <span>{member.access}</span>
-              </div>
-            ))}
-          </div>
+          <CopyCommand command={recordCommand} label="record command" />
         </article>
+      </div>
+
+      <div className="setup-facts">
+        <article>
+          <FileJson2 size={19} aria-hidden />
+          <div><strong>Accepted files</strong><span><code>.tbtrace</code> and OTel/OpenInference <code>.json</code></span></div>
+        </article>
+        <article>
+          <UploadCloud size={19} aria-hidden />
+          <div><strong>Upload limit</strong><span>5 MB per file in the default local configuration</span></div>
+        </article>
+        <article>
+          <TerminalSquare size={19} aria-hidden />
+          <div><strong>Local API</strong><span><code>http://127.0.0.1:8000</code></span></div>
+        </article>
+      </div>
+
+      <div className="setup-boundary">
+        <h2>What is not enabled yet</h2>
+        <p>Authentication, persistent projects, hosted ingestion, team access, billing, and API keys are future production milestones—not active features in this local build.</p>
       </div>
     </section>
   );

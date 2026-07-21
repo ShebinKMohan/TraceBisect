@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, GitCompare } from "lucide-react";
+import { AlertTriangle, GitCompare, ShieldCheck } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
   compareTraces,
@@ -16,8 +16,10 @@ import {
 import type { RegressionCase, Report, RunSummary, StudioSection, TraceEvent, TraceSummary } from "@/lib/types";
 import { CompareDrawer } from "@/components/compare-drawer";
 import { EventDetailsPanel } from "@/components/event-details-panel";
+import { HomePanel } from "@/components/home-panel";
 import { IntegrationPanel } from "@/components/integration-panel";
 import { IssuesPanel } from "@/components/issues-panel";
+import { MobileNav } from "@/components/mobile-nav";
 import { RegressionCaseLibrary } from "@/components/regression-case-library";
 import { RunList } from "@/components/run-list";
 import { SectionOverview, sectionContent } from "@/components/section-overview";
@@ -28,6 +30,7 @@ import { Topbar } from "@/components/topbar";
 import { TraceList } from "@/components/trace-list";
 import { TraceWorkbench } from "@/components/trace-workbench";
 import { UploadComparePanel } from "@/components/upload-compare-panel";
+import { WorkflowSteps } from "@/components/workflow-steps";
 import { friendlyTraceName } from "@/lib/format";
 
 export function StudioDashboard() {
@@ -42,7 +45,7 @@ export function StudioDashboard() {
   const [activeSide, setActiveSide] = useState<"baseline" | "candidate">("candidate");
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
-  const [activeSection, setActiveSection] = useState<StudioSection>("runs");
+  const [activeSection, setActiveSection] = useState<StudioSection>("home");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "passing" | "failing">("all");
   const [severityFilter, setSeverityFilter] = useState<
@@ -51,6 +54,7 @@ export function StudioDashboard() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
     const stored = window.localStorage.getItem("tracebisect-theme");
@@ -94,6 +98,12 @@ export function StudioDashboard() {
     window.localStorage.setItem("tracebisect-theme", nextTheme);
   }
 
+  function handleSectionChange(section: StudioSection) {
+    setSearchQuery("");
+    setNotice(null);
+    setActiveSection(section);
+  }
+
   async function loadDemo() {
     setLoading(true);
     setError(null);
@@ -109,6 +119,8 @@ export function StudioDashboard() {
       setTraces(traceList);
       setCases(caseList);
       setRuns(runList);
+      setBaselineId(demoReport.baseline.id);
+      setCandidateId(demoReport.candidate.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load the demo report.");
     } finally {
@@ -158,6 +170,7 @@ export function StudioDashboard() {
       const nextReport = await compareTraces(baselineId, candidateId);
       setReport(nextReport);
       setSelectedReportId(nextReport.report_id);
+      setActiveSection("runs");
       await refreshRuns();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Comparison failed.");
@@ -179,6 +192,7 @@ export function StudioDashboard() {
         candidate_trace_id: report.candidate.id,
       });
       setCases((items) => [savedCase, ...items.filter((item) => item.case_id !== savedCase.case_id)]);
+      setNotice("Guardrail saved. Its generated pytest test is ready to copy.");
       await refreshRuns();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save regression case.");
@@ -228,29 +242,48 @@ export function StudioDashboard() {
         <Sidebar
           activeSection={activeSection}
           collapsed={sidebarCollapsed}
-          onSectionChange={setActiveSection}
+          onPrimaryAction={() => handleSectionChange("sources")}
+          onSectionChange={handleSectionChange}
           onThemeToggle={toggleTheme}
           onToggleCollapsed={() => setSidebarCollapsed((current) => !current)}
           theme={theme}
         />
         <div className="dashboard-main">
-          <Topbar searchValue={searchQuery} onSearchChange={setSearchQuery} />
+          <Topbar
+            activeSection={activeSection}
+            onHelp={() => handleSectionChange("home")}
+            searchValue={searchQuery}
+            onSearchChange={setSearchQuery}
+          />
 
           <section className="page-header">
             <div>
-              <p className="eyebrow">{content.eyebrow}</p>
               <h1 data-testid="studio-title">{content.title}</h1>
               <p>{content.description}</p>
             </div>
-            <div className="header-action" data-testid="comparison-summary">
-              <GitCompare size={15} aria-hidden />
-              <span>
-                {report
-                  ? `${friendlyTraceName(report.baseline.display_name)} → ${friendlyTraceName(report.candidate.display_name)}`
-                  : "Loading report"}
-              </span>
-            </div>
+            {activeSection !== "home" && activeSection !== "setup" ? (
+              <div className="page-header-actions">
+                <div className="header-action" data-testid="comparison-summary">
+                  <GitCompare size={15} aria-hidden />
+                  <span>
+                    {report
+                      ? `${friendlyTraceName(report.baseline.display_name)} → ${friendlyTraceName(report.candidate.display_name)}`
+                      : "Loading comparison"}
+                  </span>
+                </div>
+                {activeSection === "runs" ? (
+                  <button className="header-save-action" disabled={!report || busy} onClick={() => void handleSaveCase()} type="button">
+                    <ShieldCheck size={15} aria-hidden />
+                    Save as guardrail
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
           </section>
+
+          {activeSection === "runs" || activeSection === "sources" || activeSection === "cases" ? (
+            <WorkflowSteps activeSection={activeSection} onSectionChange={handleSectionChange} />
+          ) : null}
 
           {error ? (
             <section className="error-band" role="alert">
@@ -259,10 +292,22 @@ export function StudioDashboard() {
             </section>
           ) : null}
 
+          {notice ? (
+            <section className="success-band" role="status">
+              <ShieldCheck size={18} aria-hidden />
+              <span>{notice}</span>
+              <button onClick={() => handleSectionChange("cases")} type="button">View guardrails</button>
+            </section>
+          ) : null}
+
           <SectionOverview
             report={report}
             section={activeSection}
           />
+
+          {activeSection === "home" ? (
+            <HomePanel cases={cases} onSectionChange={handleSectionChange} report={report} traces={traces} />
+          ) : null}
 
           {activeSection === "runs" ? (
             <div className="comparison-workbench" data-testid="comparison-workbench">
@@ -306,7 +351,7 @@ export function StudioDashboard() {
             </div>
           ) : null}
 
-          {activeSection !== "runs" && activeSection !== "divergences" ? (
+          {activeSection !== "home" && activeSection !== "runs" && activeSection !== "divergences" ? (
             <div
               className={[
                 "observability-grid",
@@ -330,7 +375,6 @@ export function StudioDashboard() {
               ) : null}
               {activeSection === "sources" ? (
                 <>
-                  <TraceList traces={traces} searchQuery={searchQuery} />
                   <div className="trace-source-actions">
                     <UploadComparePanel
                       traces={traces}
@@ -344,6 +388,7 @@ export function StudioDashboard() {
                     />
                     <IntegrationPanel integrations={report?.integrations ?? []} />
                   </div>
+                  <TraceList traces={traces} searchQuery={searchQuery} />
                 </>
               ) : null}
               {activeSection === "sessions" ? (
@@ -360,6 +405,7 @@ export function StudioDashboard() {
           ) : null}
         </div>
       </div>
+      <MobileNav activeSection={activeSection} onSectionChange={handleSectionChange} />
     </main>
   );
 }

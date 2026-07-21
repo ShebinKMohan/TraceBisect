@@ -101,7 +101,7 @@ async function assertSidebarViewportLocked(page, label) {
   const lock = await page.evaluate(() => {
     const main = document.querySelector(".dashboard-main");
     const sidebar = document.querySelector(".sidebar");
-    const profile = document.querySelector('[data-testid="sidebar-profile-button"]');
+    const profile = document.querySelector(".local-workspace-note");
     const settings = document.querySelector('[data-testid="sidebar-settings-link"]');
     if (main) main.scrollTop = main.scrollHeight;
     const sidebarRect = sidebar?.getBoundingClientRect();
@@ -303,17 +303,21 @@ async function main() {
   await page.goto(baseUrl, { waitUntil: "load" });
   await page.getByTestId("studio-title").waitFor({ state: "visible" });
   await assertFullScreenAppShell(page, "desktop light");
-  await expectText(page, '[data-testid="studio-title"]', "Comparison history", "product title");
-  const placeholder = await page.locator(".search-control input").getAttribute("placeholder");
-  assert(
-    placeholder === "Search comparisons, traces, sessions, issues",
-    `Search placeholder was not product-scoped. Actual: ${placeholder}`,
-  );
-  await expectText(page, ".sidebar", "Comparisons", "desktop sidebar labels");
-  await expectText(page, ".sidebar", "Traces", "desktop sidebar labels");
+  await expectText(page, '[data-testid="studio-title"]', "Welcome to TraceBisect", "product title");
+  await expectText(page, '[data-testid="home-page"]', "One workflow, three steps", "beginner workflow");
+  await expectText(page, '[data-testid="home-page"]', "Plain-English glossary", "beginner glossary");
+  await expectText(page, ".sidebar", "Home", "desktop sidebar labels");
+  await expectText(page, ".sidebar", "Compare runs", "desktop sidebar labels");
+  await expectText(page, ".sidebar", "Trace library", "desktop sidebar labels");
   await expectText(page, ".sidebar", "Sessions", "desktop sidebar labels");
   await expectText(page, ".sidebar", "Issues", "desktop sidebar labels");
   await expectText(page, ".sidebar", "Guardrails", "desktop sidebar labels");
+  await expectText(page, ".sidebar", "Setup guide", "desktop sidebar labels");
+  await page.getByTestId("sidebar-section-runs").click();
+  await expectText(page, '[data-testid="studio-title"]', "Compare two runs", "comparison title");
+  await expectText(page, '[data-testid="workflow-steps"]', "Choose traces", "comparison workflow");
+  const placeholder = await page.locator(".search-control input").getAttribute("placeholder");
+  assert(placeholder === "Search comparisons", `Search placeholder was not page-specific. Actual: ${placeholder}`);
   await expectText(page, '[data-testid="runs-table"]', "Refund search", "runs table");
   await expectText(page, '[data-testid="runs-table"]', "Tool arguments changed", "run divergence signal");
   await expectNotText(page, '[data-testid="runs-table"]', ".tbtrace", "runs table primary labels");
@@ -324,7 +328,7 @@ async function main() {
   await page.getByTestId("clear-run-filters").click();
   await expectText(page, '[data-testid="runs-table"]', "Refund search", "cleared run filters");
   await page.getByTestId("sidebar-section-sources").click();
-  await expectText(page, '[data-testid="studio-title"]', "Trace inventory", "traces title");
+  await expectText(page, '[data-testid="studio-title"]', "Choose your traces", "traces title");
   await expectText(page, '[data-testid="trace-table"]', "Captured traces", "trace table");
   await expectText(page, '[data-testid="trace-table"]', "gpt-4o-mini", "trace table model");
   await expectText(page, '[data-testid="trace-table"]', "refund_search:v3", "trace table prompt");
@@ -342,7 +346,7 @@ async function main() {
   await expectText(page, '[data-testid="integration-otel"]', "OpenTelemetry", "OTel integration card");
   await assertNoHorizontalOverflow(page, "sources section");
   await page.getByTestId("sidebar-section-sessions").click();
-  await expectText(page, '[data-testid="studio-title"]', "Conversation sessions", "sessions title");
+  await expectText(page, '[data-testid="studio-title"]', "Browse sessions", "sessions title");
   await expectText(page, '[data-testid="sessions-table"]', "Refund search", "sessions table");
   await expectText(page, '[data-testid="sessions-table"]', "Models / sources", "sessions model/source column");
   await expectText(page, '[data-testid="sessions-table"]', "Trace ID", "sessions expanded trace rows");
@@ -361,7 +365,7 @@ async function main() {
   await expectText(page, '[data-testid="sessions-table"]', "Trace ID", "sessions row re-expanded");
   await assertNoHorizontalOverflow(page, "sessions section");
   await page.getByTestId("sidebar-section-divergences").click();
-  await expectText(page, '[data-testid="studio-title"]', "Regression issues", "issues title");
+  await expectText(page, '[data-testid="studio-title"]', "Review repeated issues", "issues title");
   await expectText(page, '[data-testid="issues-table"]', "Tool arguments changed", "issues table");
   await expectText(page, '[data-testid="issues-table"]', "Open issues", "issues summary");
   await expectText(page, '[data-testid="issues-table"]', "Failing comparisons", "issues failing comparisons");
@@ -376,14 +380,14 @@ async function main() {
   await expectText(page, '[data-testid="review-workbench"]', "Tool arguments changed", "issues frame");
   await assertNoHorizontalOverflow(page, "divergences section");
   await page.getByTestId("sidebar-section-cases").click();
-  await expectText(page, '[data-testid="studio-title"]', "Guardrail datasets", "cases title");
+  await expectText(page, '[data-testid="studio-title"]', "Protect fixed behavior", "cases title");
   await expectText(page, '[data-testid="regression-case-library"]', "Saved guardrails", "cases section");
   const guardrailItems = await page.locator(".guardrail-list-item").count();
   if (guardrailItems > 0) {
     await expectText(page, '[data-testid="guardrail-detail-panel"]', "Selected guardrail", "guardrail selected detail");
-    await expectText(page, '[data-testid="guardrail-detail-panel"]', "Saved runs", "guardrail saved run count");
+    await expectText(page, '[data-testid="guardrail-detail-panel"]', "Saved versions", "guardrail saved version count");
     await expectText(page, '[data-testid="guardrail-detail-panel"]', "Pytest integration", "guardrail pytest integration");
-    await expectText(page, '[data-testid="guardrail-detail-panel"]', "Recent failure", "guardrail failure detail");
+    await expectText(page, '[data-testid="guardrail-detail-panel"]', "Latest saved result", "guardrail failure detail");
     await page.getByTestId("guardrail-sort").selectOption("severity");
     await expectText(page, '[data-testid="regression-case-library"]', "Highest risk", "guardrail sort control");
   } else {
@@ -391,27 +395,24 @@ async function main() {
   }
   await assertNoHorizontalOverflow(page, "cases section");
   await page.getByTestId("sidebar-settings-link").click();
-  await expectText(page, '[data-testid="studio-title"]', "Workspace settings", "setup title");
-  await expectText(page, '[data-testid="setup-section"]', "API keys", "setup section");
-  await expectText(page, '[data-testid="setup-section"]', "Ingest endpoints", "setup ingest endpoints");
-  await expectText(page, '[data-testid="settings-members"]', "Shebin Mohan", "setup members");
+  await expectText(page, '[data-testid="studio-title"]', "Setup guide", "setup title");
+  await expectText(page, '[data-testid="setup-section"]', "Running as a local workspace", "truthful setup mode");
+  await expectText(page, '[data-testid="setup-section"]', "Choose the easiest way to start", "setup paths");
+  await expectText(page, '[data-testid="setup-section"]', "What is not enabled yet", "setup boundary");
+  await expectNotText(page, '[data-testid="setup-section"]', "tb_live_", "fake API keys");
   await assertNoHorizontalOverflow(page, "setup section");
   await assertSidebarViewportLocked(page, "settings section");
 
   const topbarThemeToggleCount = await page.getByTestId("theme-toggle").count();
   assert(topbarThemeToggleCount === 0, `Theme toggle leaked into topbar: ${topbarThemeToggleCount}`);
-  const profileButton = page.getByTestId("sidebar-profile-button");
-  assert((await profileButton.count()) === 1, "Expected one sidebar profile button");
-  await profileButton.click();
-  await expectText(page, '[data-testid="profile-popover"]', "Refund Ops", "profile popover workspace");
-  await expectText(page, '[data-testid="profile-popover"]', "Dark mode", "profile popover theme action");
-  await page.getByTestId("profile-theme-toggle").click();
+  const themeButton = page.getByTestId("profile-theme-toggle");
+  assert((await themeButton.count()) === 1, "Expected one sidebar theme button");
+  await themeButton.click();
   let theme = await page.locator("html").getAttribute("data-theme");
-  assert(theme === "dark", `Profile theme toggle did not set dark mode. Actual: ${theme}`);
-  await page.getByTestId("profile-theme-toggle").click();
+  assert(theme === "dark", `Theme toggle did not set dark mode. Actual: ${theme}`);
+  await themeButton.click();
   theme = await page.locator("html").getAttribute("data-theme");
-  assert(theme === "light", `Profile theme toggle did not restore light mode. Actual: ${theme}`);
-  await page.getByTestId("sidebar-profile-button").click();
+  assert(theme === "light", `Theme toggle did not restore light mode. Actual: ${theme}`);
 
   await page.getByTestId("sidebar-collapse-button").click();
   const collapsedShell = await page.evaluate(() => {
@@ -444,10 +445,10 @@ async function main() {
   );
 
   await page.getByTestId("sidebar-section-runs").click();
-  await expectText(page, '[data-testid="studio-title"]', "Comparison history", "runs title after section navigation");
+  await expectText(page, '[data-testid="studio-title"]', "Compare two runs", "runs title after section navigation");
   await expectText(page, '[data-testid="trace-tree"]', "Tool call", "trace tree event type");
   await expectText(page, '[data-testid="trace-tree"]', "search_database", "trace tree event name");
-  await expectText(page, '[data-testid="details-panel"]', "Baseline value", "details panel");
+  await expectText(page, '[data-testid="details-panel"]', "Expected · known-good run", "details panel");
   const duplicateEventListTabs = await page
     .getByTestId("trace-detail-tabs")
     .getByRole("tab", { name: "Event list" })
@@ -455,26 +456,26 @@ async function main() {
   assert(duplicateEventListTabs === 0, `Inspector should not duplicate the execution trace as Event list: ${duplicateEventListTabs}`);
   await expectTraceDetailTab(
     page,
-    "Summary",
+    "Run details",
     '[data-testid="trace-detail-metadata"]',
     "Run context",
   );
   await expectTraceDetailTab(
     page,
-    "Change Inspector",
+    "First change",
     '[data-testid="trace-detail-change"]',
-    "Baseline value",
+    "Expected · known-good run",
   );
   await assertTreeConnectors(page, "event hierarchy");
   await expectTraceDetailTab(
     page,
-    "Timing",
+    "Timeline",
     '[data-testid="trace-detail-timeline"]',
     "search_database",
   );
   await expectTraceDetailTab(
     page,
-    "Raw payload",
+    "Raw data",
     '[data-testid="trace-detail-payload"]',
     "query",
   );
@@ -488,11 +489,9 @@ async function main() {
   await assertNoHorizontalOverflow(page, "desktop light");
   await page.screenshot({ path: path.join(screenshotDir, "desktop-light.png"), fullPage: true });
 
-  await page.getByTestId("sidebar-profile-button").click();
   await page.getByTestId("profile-theme-toggle").click();
   theme = await page.locator("html").getAttribute("data-theme");
   assert(theme === "dark", `Theme toggle did not set dark mode. Actual: ${theme}`);
-  await page.getByTestId("sidebar-profile-button").click();
   await assertFullScreenAppShell(page, "desktop dark");
   await assertContrast(page, '[data-testid="studio-title"]', "dark title");
   await assertContrast(page, '[data-testid="trace-detail-change"] .change-card strong', "dark divergence heading");
@@ -541,7 +540,7 @@ async function main() {
     "Tool arguments changed",
     "regression case divergence",
   );
-  await page.getByTestId("regression-case-library").getByRole("button", { name: "Rerun" }).first().click();
+  await page.getByTestId("regression-case-library").getByRole("button", { name: "Recheck saved trace" }).first().click();
   await expectText(page, '[data-testid="regression-case-library"]', "Needs review", "regression case run status");
 
   await page.evaluate(() => {
@@ -552,16 +551,20 @@ async function main() {
   await page.reload({ waitUntil: "load" });
   await page.getByTestId("studio-title").waitFor({ state: "visible" });
   await assertFullScreenAppShell(page, "mobile light");
-  await expectText(page, '[data-testid="studio-title"]', "Comparison history", "mobile product title");
+  await expectText(page, '[data-testid="studio-title"]', "Welcome to TraceBisect", "mobile product title");
+  await expectText(page, ".mobile-nav", "Compare", "mobile navigation");
+  await page.getByRole("button", { exact: true, name: "Compare" }).click();
+  await expectText(page, '[data-testid="studio-title"]', "Compare two runs", "mobile comparison title");
+  await expectText(page, '[data-testid="details-panel"]', "First behavior change", "mobile detail-first comparison");
   await assertNoHorizontalOverflow(page, "mobile light");
-  await page.screenshot({ path: path.join(screenshotDir, "mobile-light.png"), fullPage: true });
+  await page.screenshot({ path: path.join(screenshotDir, "mobile-light.png"), fullPage: false });
 
   await page.evaluate(() => {
     window.localStorage.setItem("tracebisect-theme", "dark");
     document.documentElement.dataset.theme = "dark";
   });
   await assertNoHorizontalOverflow(page, "mobile dark");
-  await page.screenshot({ path: path.join(screenshotDir, "mobile-dark.png"), fullPage: true });
+  await page.screenshot({ path: path.join(screenshotDir, "mobile-dark.png"), fullPage: false });
 
   assert(consoleErrors.length === 0, `Browser console errors:\n${consoleErrors.join("\n")}`);
   await browser.close();

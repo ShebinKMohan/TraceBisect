@@ -31,11 +31,22 @@ type EventDetailsPanelProps = {
 };
 
 const tabs: { id: InspectorTab; label: string }[] = [
-  { id: "change", label: "Change Inspector" },
-  { id: "metadata", label: "Summary" },
-  { id: "timeline", label: "Timing" },
-  { id: "payload", label: "Raw payload" },
+  { id: "change", label: "First change" },
+  { id: "metadata", label: "Run details" },
+  { id: "timeline", label: "Timeline" },
+  { id: "payload", label: "Raw data" },
 ];
+
+function plainLanguageChange(divergence: Divergence | null, event: TraceEvent | null): string {
+  if (!divergence) return "The two runs follow the same meaningful behavior.";
+  const subject = event?.semantic_name ? `The ${event.semantic_name} step` : "The new run";
+  if (divergence.type === "changed_tool_args") return `${subject} received different inputs.`;
+  if (divergence.type === "missing_event") return "A step from the known-good run did not happen in the new run.";
+  if (divergence.type === "extra_event") return "The new run added a step that was not present in the known-good run.";
+  if (divergence.type === "branch_changed") return "The new run followed a different decision path.";
+  if (divergence.type === "cost_regression") return "The new run cost more than the allowed threshold.";
+  return friendlyDivergenceDescription(divergence.type, divergence.description);
+}
 
 function stringifyValue(value: JsonValue | undefined): string | null {
   if (value === undefined || value === null) return null;
@@ -150,8 +161,8 @@ export function EventDetailsPanel({
     <aside className="panel event-details-panel" aria-label="Selected event details" data-testid="details-panel">
       <div className="workbench-heading">
         <div>
-          <p>Inspector</p>
-          <h2>{activeTab === "change" ? "Selected change" : event ? event.semantic_name : "Select an event"}</h2>
+          <p>Comparison explanation</p>
+          <h2>{activeTab === "change" ? "First behavior change" : event ? event.semantic_name : "Select an event"}</h2>
         </div>
         <span>{side === "baseline" ? "Baseline" : "Candidate"}</span>
       </div>
@@ -280,9 +291,9 @@ export function EventDetailsPanel({
         >
           <div className={["change-card", isFirstDrift ? "change-card-drift" : ""].filter(Boolean).join(" ")}>
             <div>
-              <span>{isFirstDrift ? "Selected regression" : "Selected event"}</span>
-              <strong>{isFirstDrift ? friendlyDivergenceType(divergence?.type) : friendlyEventType(event?.type)}</strong>
-              <p>{isFirstDrift ? changeSummary : "This event is part of the trace path, but it is not the first changed step."}</p>
+              <span>{isFirstDrift ? "What this means" : "Selected event"}</span>
+              <strong>{isFirstDrift ? plainLanguageChange(divergence, event) : friendlyEventType(event?.type)}</strong>
+              <p>{isFirstDrift ? changeSummary : "This event is part of the run, but it is not the first changed step."}</p>
             </div>
             <em>{isFirstDrift ? friendlySeverity(divergence?.severity) : eventStatus(event)}</em>
           </div>
@@ -290,11 +301,11 @@ export function EventDetailsPanel({
           {isFirstDrift ? (
             <div className="change-value-grid">
               <div>
-                <span>Baseline value</span>
+                <span>Expected · known-good run</span>
                 <pre>{baselineValue ?? "--"}</pre>
               </div>
               <div>
-                <span>Candidate value</span>
+                <span>Actual · new run</span>
                 <pre>{candidateValue ?? "--"}</pre>
               </div>
             </div>
@@ -302,7 +313,7 @@ export function EventDetailsPanel({
 
           <div className="detail-section detail-section-compact">
             <div className="detail-section-title">
-              <span>Event context</span>
+              <span>Technical details</span>
               <GitBranch size={15} aria-hidden />
             </div>
             <dl className="metadata-list metadata-list-grid">
