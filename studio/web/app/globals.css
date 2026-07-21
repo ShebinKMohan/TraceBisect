@@ -5463,6 +5463,29 @@ html[data-theme="dark"] .sidebar {
   background: var(--shell);
 }
 
+.team-management {
+  border-color: var(--accent-line);
+}
+
+.team-member-row > select {
+  min-height: 34px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-soft);
+  color: var(--text);
+  font-size: 11.5px;
+}
+
+.team-pending-heading {
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.team-invitation-row {
+  min-height: 62px;
+}
+
 .access-management-heading {
   display: grid;
   grid-template-columns: 36px minmax(0, 1fr) auto;
@@ -6392,6 +6415,121 @@ html[data-theme="dark"] .sidebar {
   background: var(--danger-soft);
   color: var(--danger);
   font-size: 11px;
+}
+
+.unlock-field-help,
+.unlock-status {
+  color: var(--text-subtle);
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+
+.unlock-link-row {
+  display: flex;
+  gap: 10px 16px;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.unlock-link-row button {
+  padding: 2px;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 11.5px;
+  font-weight: 620;
+}
+
+.unlock-link-row button:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.unlock-workspace-choices {
+  display: grid;
+  gap: 8px;
+}
+
+.unlock-workspace-choices > strong {
+  color: var(--text);
+  font-size: 12px;
+}
+
+.unlock-workspace-choices > p {
+  margin-bottom: 4px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.unlock-workspace-choices button {
+  display: flex;
+  min-height: 48px;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--surface-soft);
+  color: var(--text);
+  text-align: left;
+}
+
+.unlock-workspace-choices button:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.unlock-workspace-choices small {
+  color: var(--text-subtle);
+  font-size: 10px;
+}
+
+.unlock-recovery-codes {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--accent-line);
+  border-radius: 10px;
+  background: var(--accent-soft);
+}
+
+.unlock-recovery-codes code {
+  padding: 11px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--code-bg);
+  color: var(--code-text);
+  font-size: 11px;
+  line-height: 1.65;
+  white-space: pre;
+}
+
+.unlock-recovery-codes button,
+.unlock-continue-button {
+  display: inline-flex;
+  gap: 7px;
+  min-height: 40px;
+  padding: 0 13px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent);
+  color: #ffffff;
+  font-weight: 680;
+}
+
+.unlock-recovery-codes p {
+  color: var(--text-muted);
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+
+.unlock-continue-button {
+  width: 100%;
 }
 
 .unlock-privacy-note {

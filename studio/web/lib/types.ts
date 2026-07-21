@@ -18,6 +18,7 @@ export type StudioHealth = {
     credential_source: "none" | "environment" | "managed";
     browser_sessions: boolean;
     self_service_access_management: boolean;
+    human_accounts: boolean;
     browser_session_ttl_seconds: number;
     browser_session_cookie_secure: boolean;
   };
@@ -63,6 +64,11 @@ export type StudioHealth = {
     rate_limit_requests: number;
     rate_limit_upload_requests: number;
     max_active_workspace_keys: number;
+    max_workspace_members: number;
+    max_pending_workspace_invitations: number;
+    max_stored_workspace_invitations: number;
+    identity_rate_limit_requests: number;
+    identity_recovery_rate_limit_requests: number;
   };
 };
 
@@ -70,9 +76,60 @@ export type StudioSession = {
   authenticated: boolean;
   workspace_id: string;
   role: WorkspaceRole;
-  access_mode: "open_local" | "api_key" | "browser_session";
+  access_mode: "open_local" | "api_key" | "browser_session" | "identity_session";
   expires_at: string | null;
+  user: {
+    user_id: string;
+    email: string;
+    display_name: string;
+  } | null;
   runtime: StudioHealth["runtime"];
+};
+
+export type WorkspaceMembership = {
+  user_id: string;
+  workspace_id: string;
+  email: string;
+  display_name: string;
+  role: WorkspaceRole;
+  created_at: string;
+  updated_at: string;
+};
+
+export type WorkspaceInvitation = {
+  invitation_id: string;
+  workspace_id: string;
+  email: string;
+  role: WorkspaceRole;
+  created_at: string;
+  expires_at: string;
+  accepted_at: string | null;
+  revoked_at: string | null;
+  status: "pending" | "accepted" | "expired" | "revoked";
+};
+
+export type IdentityWorkspaceChoice = {
+  workspace_id: string;
+  role: WorkspaceRole;
+};
+
+export type IdentityLoginResult =
+  | { kind: "session"; session: StudioSession }
+  | { kind: "workspace_choice"; workspaces: IdentityWorkspaceChoice[] };
+
+export type InvitationAcceptance = {
+  accepted: true;
+  workspace_id: string;
+  email: string;
+  recovery_codes: string[];
+  sign_in_required: true;
+};
+
+export type IdentityRecoveryResult = {
+  accepted: boolean;
+  message: string;
+  recovery_codes: string[];
+  sign_in_required: true;
 };
 
 export type WorkspaceAccessKey = {

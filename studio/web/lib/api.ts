@@ -1,4 +1,7 @@
 import type {
+  IdentityLoginResult,
+  IdentityRecoveryResult,
+  InvitationAcceptance,
   IssuedWorkspaceAccessKey,
   RegressionCase,
   Report,
@@ -8,6 +11,8 @@ import type {
   TraceSummary,
   WorkspaceAccessKey,
   WorkspaceAccessKeyList,
+  WorkspaceInvitation,
+  WorkspaceMembership,
   WorkspaceRole,
 } from "@/lib/types";
 
@@ -117,6 +122,67 @@ export async function unlockStudioWorkspace(
   return session;
 }
 
+export async function loginStudioAccount(payload: {
+  email: string;
+  password: string;
+  workspace_id?: string;
+}): Promise<IdentityLoginResult> {
+  forgetStudioApiKey();
+  const response = await authorizedFetch(`${API_BASE}/api/identity/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (response.status === 409) {
+    const choice = (await response.json()) as {
+      workspaces?: { workspace_id: string; role: WorkspaceRole }[];
+    };
+    if (choice.workspaces?.length) {
+      return { kind: "workspace_choice", workspaces: choice.workspaces };
+    }
+  }
+  return { kind: "session", session: await parseResponse<StudioSession>(response) };
+}
+
+export async function previewWorkspaceInvitation(invitationToken: string): Promise<WorkspaceInvitation> {
+  const payload = await parseResponse<{ invitation: WorkspaceInvitation }>(
+    await authorizedFetch(`${API_BASE}/api/identity/invitation-preview`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ invitation_token: invitationToken }),
+    }),
+  );
+  return payload.invitation;
+}
+
+export async function acceptWorkspaceInvitation(payload: {
+  invitation_token: string;
+  display_name: string;
+  password: string;
+}): Promise<InvitationAcceptance> {
+  return parseResponse<InvitationAcceptance>(
+    await authorizedFetch(`${API_BASE}/api/identity/invitations/accept`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
+  );
+}
+
+export async function recoverStudioAccount(payload: {
+  email: string;
+  recovery_code: string;
+  new_password: string;
+}): Promise<IdentityRecoveryResult> {
+  return parseResponse<IdentityRecoveryResult>(
+    await authorizedFetch(`${API_BASE}/api/identity/recover`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
+  );
+}
+
 export async function logoutStudioWorkspace(managedBrowserSession: boolean): Promise<void> {
   if (!managedBrowserSession) {
     forgetStudioApiKey();
@@ -160,6 +226,71 @@ export async function revokeWorkspaceAccessKey(keyId: string): Promise<Workspace
     }),
   );
   return payload.key;
+}
+
+export async function fetchWorkspaceMembers(): Promise<{
+  members: WorkspaceMembership[];
+  current_user_id: string | null;
+}> {
+  return parseResponse(
+    await authorizedFetch(`${API_BASE}/api/team/members`),
+  );
+}
+
+export async function updateWorkspaceMember(
+  userId: string,
+  role: WorkspaceRole,
+): Promise<WorkspaceMembership> {
+  const payload = await parseResponse<{ member: WorkspaceMembership }>(
+    await authorizedFetch(`${API_BASE}/api/team/members/${encodeURIComponent(userId)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role }),
+    }),
+  );
+  return payload.member;
+}
+
+export async function removeWorkspaceMember(userId: string): Promise<WorkspaceMembership> {
+  const payload = await parseResponse<{ member: WorkspaceMembership }>(
+    await authorizedFetch(`${API_BASE}/api/team/members/${encodeURIComponent(userId)}`, {
+      method: "DELETE",
+    }),
+  );
+  return payload.member;
+}
+
+export async function fetchWorkspaceInvitations(): Promise<WorkspaceInvitation[]> {
+  const payload = await parseResponse<{ invitations: WorkspaceInvitation[] }>(
+    await authorizedFetch(`${API_BASE}/api/team/invitations`),
+  );
+  return payload.invitations;
+}
+
+export async function createWorkspaceInvitation(payload: {
+  email: string;
+  role: WorkspaceRole;
+  expires_in_days: number;
+}): Promise<{ invitation_token: string; invitation: WorkspaceInvitation }> {
+  return parseResponse(
+    await authorizedFetch(`${API_BASE}/api/team/invitations`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
+  );
+}
+
+export async function revokeWorkspaceInvitation(
+  invitationId: string,
+): Promise<WorkspaceInvitation> {
+  const payload = await parseResponse<{ invitation: WorkspaceInvitation }>(
+    await authorizedFetch(
+      `${API_BASE}/api/team/invitations/${encodeURIComponent(invitationId)}`,
+      { method: "DELETE" },
+    ),
+  );
+  return payload.invitation;
 }
 
 export async function fetchTraces(): Promise<TraceSummary[]> {

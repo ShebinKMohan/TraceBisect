@@ -326,6 +326,7 @@ def test_key_cli_guides_create_list_and_revoke(
     assert key_id_match is not None
     plaintext_key = token_match.group(0)
     key_id = key_id_match.group(1)
+    assert key_id[0].isalnum()
     assert create_output.count(plaintext_key) == 1
     assert "cannot show it again" in create_output
 

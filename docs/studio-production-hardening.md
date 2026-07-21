@@ -56,6 +56,31 @@ temporary files out of the web root, and throttle repeated API calls.
   session without restarting the API.
 - Browser sessions default to eight hours, cannot outlive the source key, and
   are stripped from backups so recovery never resurrects authenticated sessions.
+- Optional invitation-only human accounts use a dedicated
+  `TRACEBISECT_STUDIO_IDENTITY_SECRET`; the key pepper is not reused for
+  invitation, recovery-code, or human-session digests.
+- Passwords accept 15–128 Unicode characters without composition rules and are
+  hashed with Argon2id (`m=19456`, `t=2`, `p=1`) using a unique library-managed
+  salt. Passwords are never encrypted or stored in plaintext.
+- Workspace admins can create expiring invitation links, list only non-secret
+  invitation metadata, and revoke pending invitations. The token is sent in a
+  request body/hash fragment rather than an API path or query and is shown once.
+- New accounts receive eight random, single-use saved recovery codes. A valid
+  recovery replaces every code, changes the password, revokes every human
+  session, and requires a fresh sign-in. Invalid email/code pairs return the
+  same public result.
+- Human sessions are opaque, HttpOnly, SameSite cookies stored as keyed digests.
+  Resolution joins the live user and membership rows, so password resets,
+  demotions, and removals take effect without a process restart.
+- A verified multi-workspace password can return a workspace chooser; invalid
+  credentials never disclose memberships. Login/recovery also use a per-client,
+  per-account limiter in addition to the general request limiter.
+- Admin team controls list members, change Viewer/Editor/Admin roles, remove
+  workspace membership, protect the current account from removal, and retain at
+  least one human admin. Memberships and invitations are workspace-scoped.
+- Backups preserve users, password hashes, membership, invitations, and recovery
+  hashes while stripping both key-derived and human sessions. Operators are
+  warned that restoring an older snapshot rolls credential state backward.
 - Legacy environment-key mode continues to use tab-scoped `sessionStorage` and
   is explicitly reported as lacking managed browser sessions.
 - API keys must contain 32-256 URL-safe characters and are compared using a
@@ -104,11 +129,12 @@ temporary files out of the web root, and throttle repeated API calls.
 These are not solved by the local MVP and must be implemented before calling
 Studio a real multi-tenant SaaS:
 
-- Managed user identities, account recovery, and team/project RBAC.
 - Managed multi-user database storage beyond the single-node SQLite backend.
+- Automated invitation delivery, email ownership re-verification, and optional
+  multi-factor or identity-provider sign-in.
 - Account-level scoped ingestion tokens. Admin self-service workspace-key
-  issuance/rotation and managed browser-session lifecycle are implemented, but
-  these keys are not a substitute for managed human identities.
+  issuance/rotation and human/browser-session lifecycle are implemented, but
+  integrations still need dedicated least-privilege ingestion credentials.
 - Durable background jobs for large OTel imports and comparisons.
 - Distributed rate limiting backed by Redis or the hosting provider.
 - Durable centralized retention, search, alerting, and access control for the
@@ -125,9 +151,9 @@ Studio a real multi-tenant SaaS:
 
 The current build has restart-safe single-node persistence plus fail-closed
 workspace API-key authorization, not a finished hosted SaaS. The next
-production step is managed identity/account recovery and deployment-level
-monitoring/error-event retention wiring; do not add Langfuse-scale ClickHouse or
-queues until the comparison workflow needs them.
+production step is a managed multi-user database plus deployment-level email,
+monitoring, backup, and error-event retention wiring; do not add Langfuse-scale
+ClickHouse or queues until the comparison workflow needs them.
 
 ## References
 
@@ -139,6 +165,12 @@ queues until the comparison workflow needs them.
   https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html
 - OWASP CSRF Prevention Cheat Sheet:
   https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html
+- OWASP Password Storage Cheat Sheet:
+  https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html
+- OWASP Forgot Password Cheat Sheet:
+  https://cheatsheetseries.owasp.org/cheatsheets/Forgot_Password_Cheat_Sheet.html
+- NIST SP 800-63B authentication guidance:
+  https://pages.nist.gov/800-63-4/sp800-63b.html
 - Prometheus exposition formats:
   https://prometheus.io/docs/instrumenting/exposition_formats/
 - Prometheus instrumentation and label-cardinality guidance:

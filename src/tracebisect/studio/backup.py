@@ -21,6 +21,11 @@ _REQUIRED_TABLES = frozenset(
         "studio_metadata",
         "studio_api_keys",
         "studio_browser_sessions",
+        "studio_users",
+        "studio_workspace_memberships",
+        "studio_invitations",
+        "studio_recovery_codes",
+        "studio_identity_sessions",
     }
 )
 _HASH_CHUNK_BYTES = 1024 * 1024
@@ -40,6 +45,8 @@ class StudioBackupInspection:
     report_count: int
     case_count: int
     api_key_count: int
+    user_count: int
+    membership_count: int
     size_bytes: int
     sha256: str
     content_sha256: str
@@ -58,7 +65,7 @@ def create_studio_backup(
     temporary = _temporary_path(output)
     try:
         _copy_database(source, temporary)
-        _clear_browser_sessions(temporary)
+        _clear_login_sessions(temporary)
         inspection = inspect_studio_backup(temporary)
         _publish_new_file(temporary, output)
     except (OSError, sqlite3.DatabaseError) as exc:
@@ -103,6 +110,8 @@ def inspect_studio_backup(backup_path: str | Path) -> StudioBackupInspection:
                         UNION SELECT workspace_id FROM studio_cases
                         UNION SELECT workspace_id FROM studio_metadata
                         UNION SELECT workspace_id FROM studio_api_keys
+                        UNION SELECT workspace_id FROM studio_workspace_memberships
+                        UNION SELECT workspace_id FROM studio_invitations
                     )
                     """
                 ).fetchone()[0]
@@ -111,9 +120,15 @@ def inspect_studio_backup(backup_path: str | Path) -> StudioBackupInspection:
             report_count = _table_count(connection, "studio_reports")
             case_count = _table_count(connection, "studio_cases")
             api_key_count = _table_count(connection, "studio_api_keys")
+            user_count = _table_count(connection, "studio_users")
+            membership_count = _table_count(connection, "studio_workspace_memberships")
             if _table_count(connection, "studio_browser_sessions") != 0:
                 raise StudioBackupError(
                     "the backup contains browser sessions and is unsafe to restore"
+                )
+            if _table_count(connection, "studio_identity_sessions") != 0:
+                raise StudioBackupError(
+                    "the backup contains identity sessions and is unsafe to restore"
                 )
             content_sha256 = _content_sha256(connection)
     except StudioBackupError:
@@ -128,6 +143,8 @@ def inspect_studio_backup(backup_path: str | Path) -> StudioBackupInspection:
         report_count=report_count,
         case_count=case_count,
         api_key_count=api_key_count,
+        user_count=user_count,
+        membership_count=membership_count,
         size_bytes=backup.stat().st_size,
         sha256=_sha256(backup),
         content_sha256=content_sha256,
@@ -172,10 +189,11 @@ def _copy_database(source: Path, destination: Path) -> None:
         os.fsync(handle.fileno())
 
 
-def _clear_browser_sessions(database_path: Path) -> None:
+def _clear_login_sessions(database_path: Path) -> None:
     """Keep recoverable product data while refusing to resurrect login sessions."""
     with sqlite3.connect(database_path, timeout=5) as connection:
         connection.execute("DELETE FROM studio_browser_sessions")
+        connection.execute("DELETE FROM studio_identity_sessions")
     with database_path.open("rb") as handle:
         os.fsync(handle.fileno())
 
@@ -285,6 +303,44 @@ def _content_sha256(connection: sqlite3.Connection) -> str:
             FROM studio_browser_sessions ORDER BY session_id
             """,
         ),
+        (
+            "users",
+            """
+            SELECT user_id, email, display_name, password_hash, session_epoch,
+                   created_at, password_changed_at, disabled_at
+            FROM studio_users ORDER BY user_id
+            """,
+        ),
+        (
+            "memberships",
+            """
+            SELECT workspace_id, user_id, role, created_at, updated_at
+            FROM studio_workspace_memberships ORDER BY workspace_id, user_id
+            """,
+        ),
+        (
+            "invitations",
+            """
+            SELECT invitation_id, workspace_id, email, role, token_hash,
+                   created_at, expires_at, accepted_at, revoked_at
+            FROM studio_invitations ORDER BY invitation_id
+            """,
+        ),
+        (
+            "recovery_codes",
+            """
+            SELECT code_id, user_id, code_hash, created_at, used_at
+            FROM studio_recovery_codes ORDER BY code_id
+            """,
+        ),
+        (
+            "identity_sessions",
+            """
+            SELECT session_id, user_id, workspace_id, session_hash, session_epoch,
+                   created_at, expires_at, revoked_at
+            FROM studio_identity_sessions ORDER BY session_id
+            """,
+        ),
     )
     for label, query in queries:
         digest.update(label.encode("ascii"))
@@ -297,7 +353,7 @@ def _content_sha256(connection: sqlite3.Connection) -> str:
 
 def _logical_signature(
     inspection: StudioBackupInspection,
-) -> tuple[int, int, int, int, int, int, str]:
+) -> tuple[int, int, int, int, int, int, int, int, str]:
     return (
         inspection.schema_version,
         inspection.workspace_count,
@@ -305,5 +361,7 @@ def _logical_signature(
         inspection.report_count,
         inspection.case_count,
         inspection.api_key_count,
+        inspection.user_count,
+        inspection.membership_count,
         inspection.content_sha256,
     )

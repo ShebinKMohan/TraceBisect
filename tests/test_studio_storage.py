@@ -212,6 +212,36 @@ def test_sqlite_store_migrates_v3_to_browser_session_schema(tmp_path: Path) -> N
     migrated.close()
 
 
+def test_sqlite_store_migrates_v4_to_human_identity_schema(tmp_path: Path) -> None:
+    database_path = tmp_path / "studio.sqlite3"
+    original = SQLiteStudioStore(database_path, workspace_id="workspace-a")
+    original.close()
+    identity_tables = (
+        "studio_identity_sessions",
+        "studio_recovery_codes",
+        "studio_invitations",
+        "studio_workspace_memberships",
+        "studio_users",
+    )
+    with sqlite3.connect(database_path) as connection:
+        for table in identity_tables:
+            connection.execute(f"DROP TABLE {table}")
+        connection.execute("UPDATE studio_schema SET version = 4")
+
+    migrated = SQLiteStudioStore(database_path, workspace_id="workspace-a")
+
+    with sqlite3.connect(database_path) as connection:
+        assert connection.execute("SELECT version FROM studio_schema").fetchone() == (
+            SCHEMA_VERSION,
+        )
+        restored_tables = {
+            row[0]
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+        }
+    assert set(identity_tables).issubset(restored_tables)
+    migrated.close()
+
+
 def test_sqlite_store_isolates_workspaces_in_one_database(tmp_path: Path) -> None:
     database_path = tmp_path / "studio.sqlite3"
     workspace_a = SQLiteStudioStore(database_path, workspace_id="workspace-a")

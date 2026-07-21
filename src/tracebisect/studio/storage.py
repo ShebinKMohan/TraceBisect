@@ -26,7 +26,7 @@ from tracebisect.studio.service import (
     StudioStore,
 )
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 _WORKSPACE_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 _STORAGE_SETTING_NAMES = (
     "TRACEBISECT_STUDIO_STORAGE",
@@ -365,7 +365,7 @@ def ensure_studio_schema(connection: sqlite3.Connection) -> None:
                 "INSERT INTO studio_schema (version) VALUES (?)",
                 (SCHEMA_VERSION,),
             )
-        elif not isinstance(row[0], int) or row[0] not in {1, 2, 3, SCHEMA_VERSION}:
+        elif not isinstance(row[0], int) or row[0] not in {1, 2, 3, 4, SCHEMA_VERSION}:
             raise StudioPersistenceError(f"unsupported Studio database schema version {row[0]!r}")
         else:
             database_version = row[0]
@@ -463,6 +463,108 @@ def ensure_studio_schema(connection: sqlite3.Connection) -> None:
             """
             CREATE INDEX IF NOT EXISTS studio_browser_sessions_expiry_idx
             ON studio_browser_sessions (expires_at)
+            """,
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS studio_users (
+                user_id TEXT PRIMARY KEY,
+                email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                display_name TEXT NOT NULL,
+                password_hash TEXT NOT NULL,
+                session_epoch INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL,
+                password_changed_at TEXT NOT NULL,
+                disabled_at TEXT
+            )
+            """,
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS studio_workspace_memberships (
+                workspace_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                role TEXT NOT NULL CHECK (role IN ('viewer', 'editor', 'admin')),
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (workspace_id, user_id),
+                FOREIGN KEY (user_id) REFERENCES studio_users (user_id) ON DELETE CASCADE
+            )
+            """,
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS studio_memberships_user_idx
+            ON studio_workspace_memberships (user_id)
+            """,
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS studio_invitations (
+                invitation_id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                email TEXT NOT NULL COLLATE NOCASE,
+                role TEXT NOT NULL CHECK (role IN ('viewer', 'editor', 'admin')),
+                token_hash TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                accepted_at TEXT,
+                revoked_at TEXT
+            )
+            """,
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS studio_invitations_workspace_idx
+            ON studio_invitations (workspace_id, created_at)
+            """,
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS studio_recovery_codes (
+                code_id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                code_hash TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                used_at TEXT,
+                FOREIGN KEY (user_id) REFERENCES studio_users (user_id) ON DELETE CASCADE
+            )
+            """,
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS studio_recovery_codes_user_idx
+            ON studio_recovery_codes (user_id)
+            """,
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS studio_identity_sessions (
+                session_id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                workspace_id TEXT NOT NULL,
+                session_hash TEXT NOT NULL,
+                session_epoch INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                revoked_at TEXT,
+                FOREIGN KEY (user_id) REFERENCES studio_users (user_id) ON DELETE CASCADE,
+                FOREIGN KEY (workspace_id, user_id)
+                    REFERENCES studio_workspace_memberships (workspace_id, user_id)
+                    ON DELETE CASCADE
+            )
+            """,
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS studio_identity_sessions_user_idx
+            ON studio_identity_sessions (user_id)
+            """,
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS studio_identity_sessions_expiry_idx
+            ON studio_identity_sessions (expires_at)
             """,
         )
         if database_version < SCHEMA_VERSION:

@@ -273,6 +273,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="Generate the dedicated bearer token used by a metrics scraper.",
     )
 
+    studio_identity = studio_commands.add_parser(
+        "identity",
+        help="Configure invitation-only human accounts and recovery.",
+    )
+    studio_identity_commands = studio_identity.add_subparsers(
+        dest="studio_identity_command",
+        metavar="<identity-command>",
+    )
+    studio_identity.set_defaults(studio_identity_parser=studio_identity)
+    studio_identity_commands.add_parser(
+        "generate-secret",
+        help="Generate the server secret used to protect identity credentials.",
+    )
+
     return parser
 
 
@@ -522,6 +536,8 @@ def _print_studio_backup_summary(
     print(f"  Comparisons: {inspection.report_count}")
     print(f"  Guardrails: {inspection.case_count}")
     print(f"  Access keys: {inspection.api_key_count}")
+    print(f"  People: {inspection.user_count}")
+    print(f"  Memberships: {inspection.membership_count}")
     print(f"  Size: {inspection.size_bytes} bytes")
     print(f"  SHA-256: {inspection.sha256}")
 
@@ -611,6 +627,17 @@ def run_studio_metrics_generate_token() -> int:
     return 0
 
 
+def run_studio_identity_generate_secret() -> int:
+    from tracebisect.studio.identity import IDENTITY_SECRET_ENV, generate_identity_secret
+
+    print("Human-account server secret generated")
+    print("Store this value in your deployment secret manager. Do not commit it.")
+    print(f"  {IDENTITY_SECRET_ENV}={generate_identity_secret()}")
+    print()
+    print("Restart Studio, then use an admin key in Settings to invite the first person.")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -691,12 +718,20 @@ def main(argv: Sequence[str] | None = None) -> int:
                     return 0
                 if args.studio_metrics_command == "generate-token":
                     return run_studio_metrics_generate_token()
+            if args.studio_command == "identity":
+                if args.studio_identity_command is None:
+                    args.studio_identity_parser.print_help()
+                    return 0
+                if args.studio_identity_command == "generate-secret":
+                    return run_studio_identity_generate_secret()
         except (StudioApiKeyError, StudioBackupError, StudioConfigurationError) as exc:
             failed_command = args.studio_command
             if args.studio_command == "keys" and args.studio_keys_command is not None:
                 failed_command = f"keys {args.studio_keys_command}"
             if args.studio_command == "metrics" and args.studio_metrics_command is not None:
                 failed_command = f"metrics {args.studio_metrics_command}"
+            if args.studio_command == "identity" and args.studio_identity_command is not None:
+                failed_command = f"identity {args.studio_identity_command}"
             print(f"tracebisect studio {failed_command} failed: {exc}", file=sys.stderr)
             return 2
 

@@ -73,6 +73,9 @@ when needed and shows the new key exactly once:
 tracebisect studio keys generate-pepper
 export TRACEBISECT_STUDIO_API_KEY_PEPPER='paste-the-generated-value-here'
 
+tracebisect studio identity generate-secret
+export TRACEBISECT_STUDIO_IDENTITY_SECRET='paste-the-generated-value-here'
+
 tracebisect studio keys create \
   --database .tracebisect/studio.db \
   --workspace team-a \
@@ -112,6 +115,17 @@ protects the key behind the current sign-in until the admin signs in with a
 replacement. See
 [`docs/operations/studio-access-management.md`](docs/operations/studio-access-management.md)
 for the beginner workflow and recovery boundary.
+
+With the dedicated identity secret configured, admins can invite people from
+**Settings → People and invitations**. A new person creates a 15–128 character
+password, saves eight one-time recovery codes, and then signs in with email and
+password. Passwords use Argon2id; invitation tokens, recovery codes, and human
+sessions are stored only as keyed digests. Multi-workspace accounts choose a
+workspace only after password verification, and role/removal changes affect
+active sessions immediately. Invitation delivery is manual in this release:
+Studio shows a private link once and does not send email. See
+[`docs/operations/studio-accounts.md`](docs/operations/studio-accounts.md) for
+the complete setup, enrollment, recovery, restore, and current hosted boundary.
 
 The bearer key or its derived browser session—not a client-provided workspace
 header—selects the authorized workspace. The older
@@ -198,12 +212,16 @@ TRACEBISECT_STUDIO_SQLITE_PATH=.tracebisect/restored-studio.db \
 uvicorn tracebisect.studio.api:app --port 8000
 ```
 
-Backups intentionally remove browser sessions before they are published. A
-restored workspace therefore keeps data and managed-key metadata but requires
-every browser to sign in again.
+Backups intentionally remove key-derived and human identity sessions before
+they are published. A restored workspace keeps data, managed-key metadata,
+Argon2id users, memberships, invitation hashes, and recovery-code hashes, but
+requires every browser to sign in again. Restoring an older backup also restores
+older credential state, so production recovery must include a security review
+and credential rotation decision.
 
-Each command reports the verified workspace, trace, comparison, guardrail, and
-managed-access-key counts plus a SHA-256 checksum. Production operators must
+Each command reports the verified workspace, trace, comparison, guardrail,
+managed-access-key, person, and membership counts plus a SHA-256 checksum.
+Production operators must
 still schedule encrypted, off-site backups and practice recovery in their
 deployment environment.
 
@@ -228,6 +246,8 @@ deployment environment.
   hash managed keys.
 - `tracebisect studio keys create/list/revoke` — manages expiring workspace keys
   without persisting or redisplaying their plaintext values.
+- `tracebisect studio identity generate-secret` — creates the dedicated server
+  secret for invitation-only human accounts, recovery, and sessions.
 
 Example static comparison:
 
@@ -291,9 +311,10 @@ V1 will ship:
 - Studio web dashboard for upload, compare, visual report, and pytest copy flow
 
 V1 Studio is still intentionally narrow: it has opt-in role-scoped workspace
-API-key protection, but no managed user accounts, billing, browser-based team
-membership administration, vendor-native direct importers, or git-history
-bisection.
+keys plus invitation-only human accounts, saved-code recovery, and browser team
+membership administration. It does not yet include automated email delivery,
+multi-factor/identity-provider sign-in, billing, vendor-native direct importers,
+or git-history bisection.
 
 See [spec/production-spec.md](spec/production-spec.md) for the locked product
 specification.

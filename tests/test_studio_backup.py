@@ -22,6 +22,12 @@ from tracebisect.studio.backup import (
     inspect_studio_backup,
     restore_studio_backup,
 )
+from tracebisect.studio.identity import (
+    accept_studio_invitation,
+    create_studio_invitation,
+    login_studio_identity,
+    principal_for_studio_identity_session,
+)
 from tracebisect.studio.service import seed_demo_report
 from tracebisect.studio.storage import SCHEMA_VERSION, SQLiteStudioStore
 
@@ -61,6 +67,29 @@ def test_live_backup_verifies_and_restores_all_workspace_data(tmp_path: Path) ->
         pepper=pepper,
         ttl_seconds=3600,
     )
+    identity_secret = "backup-identity-secret-with-at-least-32-characters"
+    invitation = create_studio_invitation(
+        source_path,
+        workspace_id="workspace-a",
+        email="owner@example.com",
+        role="admin",
+        expires_in_days=7,
+        identity_secret_value=identity_secret,
+    )
+    accepted = accept_studio_invitation(
+        source_path,
+        invitation_token=invitation.invitation_token,
+        display_name="Backup Owner",
+        password="correct horse battery staple",
+        identity_secret_value=identity_secret,
+    )
+    identity_login = login_studio_identity(
+        source_path,
+        email=accepted.user.email,
+        password="correct horse battery staple",
+        identity_secret_value=identity_secret,
+    )
+    assert identity_login.session is not None
     with pytest.raises(StudioBackupError, match="contains browser sessions"):
         inspect_studio_backup(source_path)
 
@@ -73,11 +102,16 @@ def test_live_backup_verifies_and_restores_all_workspace_data(tmp_path: Path) ->
     assert inspection.report_count == 2
     assert inspection.case_count == 1
     assert inspection.api_key_count == 1
+    assert inspection.user_count == 1
+    assert inspection.membership_count == 1
     assert len(inspection.sha256) == 64
     assert len(inspection.content_sha256) == 64
     assert inspect_studio_backup(backup_path) == inspection
     with sqlite3.connect(backup_path) as connection:
         assert connection.execute("SELECT COUNT(*) FROM studio_browser_sessions").fetchone() == (0,)
+        assert connection.execute("SELECT COUNT(*) FROM studio_identity_sessions").fetchone() == (
+            0,
+        )
 
     # Prove that the backup is a point-in-time snapshot, not a reference to the live file.
     source.clear()
@@ -89,6 +123,8 @@ def test_live_backup_verifies_and_restores_all_workspace_data(tmp_path: Path) ->
     assert restored_inspection.report_count == 2
     assert restored_inspection.case_count == 1
     assert restored_inspection.api_key_count == 1
+    assert restored_inspection.user_count == 1
+    assert restored_inspection.membership_count == 1
     assert restored_inspection.content_sha256 == inspection.content_sha256
 
     restored = SQLiteStudioStore(restored_path, workspace_id="workspace-a")
@@ -110,6 +146,23 @@ def test_live_backup_verifies_and_restores_all_workspace_data(tmp_path: Path) ->
             pepper=pepper,
         )
         is None
+    )
+    assert (
+        principal_for_studio_identity_session(
+            restored_path,
+            session_token=identity_login.session.session_token,
+            identity_secret_value=identity_secret,
+        )
+        is None
+    )
+    assert (
+        login_studio_identity(
+            restored_path,
+            email=accepted.user.email,
+            password="correct horse battery staple",
+            identity_secret_value=identity_secret,
+        ).session
+        is not None
     )
 
 

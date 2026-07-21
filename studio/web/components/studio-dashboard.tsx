@@ -15,12 +15,13 @@ import {
   forgetStudioApiKey,
   hasStoredStudioApiKey,
   isUnauthorizedStudioError,
+  loginStudioAccount,
   logoutStudioWorkspace,
   runRegressionCase,
   unlockStudioWorkspace,
   uploadTrace,
 } from "@/lib/api";
-import type { RegressionCase, Report, RunSummary, StudioHealth, StudioSection, TraceEvent, TraceSummary, WorkspaceRole } from "@/lib/types";
+import type { IdentityLoginResult, RegressionCase, Report, RunSummary, StudioHealth, StudioSection, TraceEvent, TraceSummary, WorkspaceRole } from "@/lib/types";
 import { CompareDrawer } from "@/components/compare-drawer";
 import { EventDetailsPanel } from "@/components/event-details-panel";
 import { HomePanel } from "@/components/home-panel";
@@ -214,6 +215,32 @@ export function StudioDashboard() {
       } else {
         setUnlockError(err instanceof Error ? err.message : "Could not open the workspace.");
       }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleAccountLogin(
+    email: string,
+    password: string,
+    workspaceId?: string,
+  ): Promise<IdentityLoginResult> {
+    setBusy(true);
+    setUnlockError(null);
+    try {
+      const result = await loginStudioAccount({
+        email,
+        password,
+        workspace_id: workspaceId,
+      });
+      if (result.kind === "session") {
+        const session = result.session;
+        setHealth((current) => current ? { ...current, runtime: session.runtime } : current);
+        setWorkspaceRole(session.role);
+        await loadWorkspaceData(session.role);
+        setLocked(false);
+      }
+      return result;
     } finally {
       setBusy(false);
     }
@@ -413,7 +440,9 @@ export function StudioDashboard() {
       <WorkspaceUnlock
         busy={busy}
         error={unlockError}
+        humanAccounts={health?.auth.human_accounts ?? false}
         managedSession={health?.auth.browser_sessions ?? false}
+        onAccountLogin={handleAccountLogin}
         onUnlock={(apiKey) => void handleUnlock(apiKey)}
         sessionTtlSeconds={health?.auth.browser_session_ttl_seconds ?? 0}
       />

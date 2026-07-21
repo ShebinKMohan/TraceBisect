@@ -4,6 +4,7 @@ import { Activity, Check, Clipboard, FileJson2, PlayCircle, ShieldCheck, Termina
 import { useState } from "react";
 import type { StudioHealth, WorkspaceRole } from "@/lib/types";
 import { AccessManagementPanel } from "@/components/access-management-panel";
+import { TeamManagementPanel } from "@/components/team-management-panel";
 
 const demoCommand = "tracebisect demo";
 const uploadCommand = "curl -X POST http://127.0.0.1:8000/api/traces/upload -F 'file=@run.tbtrace'";
@@ -47,6 +48,7 @@ export function SettingsPanel({ health, workspaceRole }: { health: StudioHealth 
   const authRequired = health?.auth.required ?? false;
   const credentialSource = health?.auth.credential_source ?? "none";
   const browserSessions = health?.auth.browser_sessions ?? false;
+  const humanAccounts = health?.auth.human_accounts ?? false;
   const metricsAccess = health?.metrics.access ?? null;
   return (
     <section className="setup-guide" data-testid="setup-section">
@@ -156,6 +158,8 @@ export function SettingsPanel({ health, workspaceRole }: { health: StudioHealth 
         {!durable ? <CopyCommand command={durableCommand} label="durable storage command" /> : null}
       </div>
 
+      {humanAccounts && workspaceRole === "admin" ? <TeamManagementPanel /> : null}
+
       {credentialSource === "managed" && workspaceRole === "admin" ? (
         <AccessManagementPanel />
       ) : null}
@@ -189,7 +193,9 @@ export function SettingsPanel({ health, workspaceRole }: { health: StudioHealth 
         <p>
           {authRequired
             ? credentialSource === "managed"
-              ? "Password or identity-provider accounts, email recovery, invitations, hosted ingestion, and billing are future production milestones—not active features in this build."
+              ? humanAccounts
+                ? "Automated invitation email delivery, email verification, optional multi-factor sign-in, hosted ingestion, and billing remain production milestones—not active features in this build."
+                : "Human accounts, recovery, invitations, hosted ingestion, and billing are future production milestones—not active features in this build."
               : "Managed user accounts, hashed key rotation, hosted ingestion, team administration, and billing are future production milestones—not active features in this build."
             : "Authentication, request-scoped workspace access, hosted ingestion, team access, billing, and API keys are future production milestones—not active features in this build."}
         </p>

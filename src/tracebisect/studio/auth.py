@@ -32,11 +32,33 @@ from tracebisect.studio.access_sessions import (
     principal_for_studio_browser_session,
     revoke_studio_browser_session,
 )
+from tracebisect.studio.identity import (
+    IDENTITY_SECRET_ENV,
+    AcceptedStudioInvitation,
+    IssuedStudioInvitation,
+    StudioIdentityLoginResult,
+    StudioInvitationRecord,
+    StudioMembershipRecord,
+    StudioRecoveryResult,
+    accept_studio_invitation,
+    create_studio_invitation,
+    identity_secret,
+    list_studio_invitations,
+    list_studio_memberships,
+    login_studio_identity,
+    preview_studio_invitation,
+    principal_for_studio_identity_session,
+    recover_studio_identity,
+    remove_studio_membership,
+    revoke_studio_identity_session,
+    revoke_studio_invitation,
+    update_studio_membership_role,
+)
 from tracebisect.studio.storage import StudioConfigurationError, validate_workspace_id
 
 AuthMode = Literal["none", "api-key"]
 CredentialSource = Literal["none", "environment", "managed"]
-AuthKind = Literal["api_key", "browser_session"]
+AuthKind = Literal["api_key", "browser_session", "identity_session"]
 MIN_API_KEY_LENGTH = 32
 MAX_API_KEY_LENGTH = 256
 BROWSER_SESSION_TTL_ENV = "TRACEBISECT_STUDIO_BROWSER_SESSION_TTL_SECONDS"
@@ -53,6 +75,9 @@ class StudioAuthPrincipal:
     auth_kind: AuthKind = "api_key"
     session_id: str | None = None
     expires_at: str | None = None
+    user_id: str | None = None
+    email: str | None = None
+    display_name: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,6 +89,7 @@ class StudioAuthConfig:
     _credentials: tuple[tuple[str, str], ...] = field(default=(), repr=False)
     _database_path: Path | None = field(default=None, repr=False)
     _pepper: str | None = field(default=None, repr=False)
+    _identity_secret: str | None = field(default=None, repr=False)
     _browser_session_ttl_seconds: int = field(
         default=DEFAULT_BROWSER_SESSION_TTL_SECONDS,
         repr=False,
@@ -75,6 +101,7 @@ class StudioAuthConfig:
         raw_mode = values.get("TRACEBISECT_STUDIO_AUTH_MODE", "none").strip().lower()
         raw_credentials = values.get("TRACEBISECT_STUDIO_API_KEYS", "").strip()
         raw_pepper = values.get(API_KEY_PEPPER_ENV, "")
+        raw_identity_secret = values.get(IDENTITY_SECRET_ENV, "")
         raw_browser_session_ttl = values.get(BROWSER_SESSION_TTL_ENV, "").strip()
         if raw_mode == "none":
             if raw_credentials:
@@ -89,6 +116,10 @@ class StudioAuthConfig:
                 raise StudioConfigurationError(
                     f"{BROWSER_SESSION_TTL_ENV} is set but auth mode is 'none'"
                 )
+            if raw_identity_secret:
+                raise StudioConfigurationError(
+                    f"{IDENTITY_SECRET_ENV} is set but auth mode is 'none'"
+                )
             return cls(mode="none")
         if raw_mode != "api-key":
             raise StudioConfigurationError(
@@ -98,6 +129,8 @@ class StudioAuthConfig:
             raise StudioConfigurationError(
                 "configure either managed API keys or TRACEBISECT_STUDIO_API_KEYS, not both"
             )
+        if raw_identity_secret and not raw_pepper:
+            raise StudioConfigurationError(f"{IDENTITY_SECRET_ENV} requires managed API keys")
         if raw_pepper:
             pepper = api_key_pepper(values)
             browser_session_ttl_seconds = _browser_session_ttl(raw_browser_session_ttl)
@@ -111,6 +144,7 @@ class StudioAuthConfig:
                 credential_source="managed",
                 _database_path=Path(raw_database_path).expanduser().resolve(),
                 _pepper=pepper,
+                _identity_secret=identity_secret(values) if raw_identity_secret else None,
                 _browser_session_ttl_seconds=browser_session_ttl_seconds,
             )
         else:
@@ -205,12 +239,29 @@ class StudioAuthConfig:
         session_token: str | None,
     ) -> StudioAuthPrincipal | None:
         """Resolve an opaque browser cookie to its live workspace authorization."""
-        if (
-            not session_token
-            or not self.browser_sessions_enabled
-            or self._database_path is None
-            or self._pepper is None
-        ):
+        if not session_token or not self.browser_sessions_enabled or self._database_path is None:
+            return None
+        if session_token.startswith("tbis_"):
+            if self._identity_secret is None:
+                return None
+            identity_principal = principal_for_studio_identity_session(
+                self._database_path,
+                session_token=session_token,
+                identity_secret_value=self._identity_secret,
+            )
+            if identity_principal is None:
+                return None
+            return StudioAuthPrincipal(
+                workspace_id=identity_principal.workspace_id,
+                role=identity_principal.role,
+                auth_kind="identity_session",
+                session_id=identity_principal.session_id,
+                expires_at=identity_principal.expires_at,
+                user_id=identity_principal.user_id,
+                email=identity_principal.email,
+                display_name=identity_principal.display_name,
+            )
+        if self._pepper is None:
             return None
         principal = principal_for_studio_browser_session(
             self._database_path,
@@ -230,12 +281,17 @@ class StudioAuthConfig:
 
     def revoke_browser_session(self, session_token: str | None) -> bool:
         """Revoke one browser session when managed sessions are configured."""
-        if (
-            not session_token
-            or not self.browser_sessions_enabled
-            or self._database_path is None
-            or self._pepper is None
-        ):
+        if not session_token or not self.browser_sessions_enabled or self._database_path is None:
+            return False
+        if session_token.startswith("tbis_"):
+            if self._identity_secret is None:
+                return False
+            return revoke_studio_identity_session(
+                self._database_path,
+                session_token=session_token,
+                identity_secret_value=self._identity_secret,
+            )
+        if self._pepper is None:
             return False
         return revoke_studio_browser_session(
             self._database_path,
@@ -247,6 +303,135 @@ class StudioAuthConfig:
     def access_management_enabled(self) -> bool:
         """Return whether admins can manage scoped keys through the product API."""
         return self.credential_source == "managed"
+
+    @property
+    def identity_enabled(self) -> bool:
+        """Return whether managed human accounts are configured."""
+        return self.credential_source == "managed" and self._identity_secret is not None
+
+    def login_identity(
+        self,
+        *,
+        email: str,
+        password: str,
+        workspace_id: str | None,
+    ) -> StudioIdentityLoginResult:
+        database_path, secret = self._managed_identity_material()
+        return login_studio_identity(
+            database_path,
+            email=email,
+            password=password,
+            workspace_id=workspace_id,
+            identity_secret_value=secret,
+            ttl_seconds=self._browser_session_ttl_seconds,
+        )
+
+    def preview_invitation(self, invitation_token: str) -> StudioInvitationRecord:
+        database_path, secret = self._managed_identity_material()
+        return preview_studio_invitation(
+            database_path,
+            invitation_token=invitation_token,
+            identity_secret_value=secret,
+        )
+
+    def accept_invitation(
+        self,
+        *,
+        invitation_token: str,
+        display_name: str,
+        password: str,
+    ) -> AcceptedStudioInvitation:
+        database_path, secret = self._managed_identity_material()
+        return accept_studio_invitation(
+            database_path,
+            invitation_token=invitation_token,
+            display_name=display_name,
+            password=password,
+            identity_secret_value=secret,
+        )
+
+    def recover_identity(
+        self,
+        *,
+        email: str,
+        recovery_code: str,
+        new_password: str,
+    ) -> StudioRecoveryResult:
+        database_path, secret = self._managed_identity_material()
+        return recover_studio_identity(
+            database_path,
+            email=email,
+            recovery_code=recovery_code,
+            new_password=new_password,
+            identity_secret_value=secret,
+        )
+
+    def list_workspace_members(self, workspace_id: str) -> list[StudioMembershipRecord]:
+        database_path, _secret = self._managed_identity_material()
+        return list_studio_memberships(database_path, workspace_id=workspace_id)
+
+    def update_workspace_member(
+        self,
+        *,
+        workspace_id: str,
+        user_id: str,
+        role: WorkspaceRole,
+    ) -> StudioMembershipRecord:
+        database_path, _secret = self._managed_identity_material()
+        return update_studio_membership_role(
+            database_path,
+            workspace_id=workspace_id,
+            user_id=user_id,
+            role=role,
+        )
+
+    def remove_workspace_member(
+        self,
+        *,
+        workspace_id: str,
+        user_id: str,
+    ) -> StudioMembershipRecord:
+        database_path, _secret = self._managed_identity_material()
+        return remove_studio_membership(
+            database_path,
+            workspace_id=workspace_id,
+            user_id=user_id,
+        )
+
+    def list_workspace_invitations(self, workspace_id: str) -> list[StudioInvitationRecord]:
+        database_path, _secret = self._managed_identity_material()
+        return list_studio_invitations(database_path, workspace_id=workspace_id)
+
+    def create_workspace_invitation(
+        self,
+        *,
+        workspace_id: str,
+        email: str,
+        role: WorkspaceRole,
+        expires_in_days: int,
+    ) -> IssuedStudioInvitation:
+        database_path, secret = self._managed_identity_material()
+        return create_studio_invitation(
+            database_path,
+            workspace_id=workspace_id,
+            email=email,
+            role=role,
+            expires_in_days=expires_in_days,
+            identity_secret_value=secret,
+        )
+
+    def revoke_workspace_invitation(
+        self,
+        *,
+        workspace_id: str,
+        invitation_id: str,
+    ) -> StudioInvitationRecord:
+        database_path, _secret = self._managed_identity_material()
+        return revoke_studio_invitation(
+            database_path,
+            workspace_id=workspace_id,
+            invitation_id=invitation_id,
+        )
 
     def list_workspace_access_keys(self, workspace_id: str) -> list[StudioApiKeyRecord]:
         """List non-secret key metadata for exactly one authenticated workspace."""
@@ -298,6 +483,15 @@ class StudioAuthConfig:
             raise StudioApiKeyError("managed workspace access is not enabled")
         return self._database_path, self._pepper
 
+    def _managed_identity_material(self) -> tuple[Path, str]:
+        if (
+            not self.identity_enabled
+            or self._database_path is None
+            or self._identity_secret is None
+        ):
+            raise StudioApiKeyError("managed human identity is not enabled")
+        return self._database_path, self._identity_secret
+
     def runtime_status(self) -> dict[str, str | bool | int]:
         """Describe the auth boundary without exposing credentials or workspace names."""
         return {
@@ -306,6 +500,7 @@ class StudioAuthConfig:
             "credential_source": self.credential_source,
             "browser_sessions": self.browser_sessions_enabled,
             "self_service_access_management": self.access_management_enabled,
+            "human_accounts": self.identity_enabled,
             "browser_session_ttl_seconds": (
                 self._browser_session_ttl_seconds if self.browser_sessions_enabled else 0
             ),

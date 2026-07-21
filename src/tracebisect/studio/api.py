@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import os
 import tempfile
 import time
@@ -35,6 +36,22 @@ from tracebisect.studio.access_sessions import (
 from tracebisect.studio.audit import AuditAuthOutcome, StudioAudit
 from tracebisect.studio.auth import StudioAuthConfig
 from tracebisect.studio.error_reporting import StudioErrorReporter
+from tracebisect.studio.identity import (
+    MAX_ACTIVE_INVITATIONS_PER_WORKSPACE,
+    MAX_ACTIVE_MEMBERS_PER_WORKSPACE,
+    MAX_DISPLAY_NAME_LENGTH,
+    MAX_EMAIL_LENGTH,
+    MAX_INVITATION_LIFETIME_DAYS,
+    MAX_PASSWORD_LENGTH,
+    MAX_STORED_INVITATIONS_PER_WORKSPACE,
+    MIN_PASSWORD_LENGTH,
+    StudioIdentityConflict,
+    StudioIdentityError,
+    StudioIdentityInvalidCredentials,
+    StudioIdentityNotFound,
+    StudioInvitationRecord,
+    StudioMembershipRecord,
+)
 from tracebisect.studio.metrics import (
     PROMETHEUS_CONTENT_TYPE,
     StudioMetrics,
@@ -168,7 +185,23 @@ VALID_RUN_STATUSES = frozenset({"passing", "failing"})
 VALID_RUN_SEVERITIES = frozenset({"INFO", "LOW", "MEDIUM", "HIGH", "CRITICAL"})
 BROWSER_SESSION_EXCHANGE_PATH = "/api/browser-session"
 BROWSER_SESSION_LOGOUT_PATH = "/api/browser-session/logout"
-PUBLIC_API_PATHS = frozenset({"/api/health", "/api/ready", BROWSER_SESSION_LOGOUT_PATH})
+IDENTITY_LOGIN_PATH = "/api/identity/login"
+IDENTITY_INVITATION_PREVIEW_PATH = "/api/identity/invitation-preview"
+IDENTITY_INVITATION_ACCEPT_PATH = "/api/identity/invitations/accept"
+IDENTITY_RECOVERY_PATH = "/api/identity/recover"
+TEAM_MEMBERS_API_PATH = "/api/team/members"
+TEAM_INVITATIONS_API_PATH = "/api/team/invitations"
+PUBLIC_API_PATHS = frozenset(
+    {
+        "/api/health",
+        "/api/ready",
+        BROWSER_SESSION_LOGOUT_PATH,
+        IDENTITY_LOGIN_PATH,
+        IDENTITY_INVITATION_PREVIEW_PATH,
+        IDENTITY_INVITATION_ACCEPT_PATH,
+        IDENTITY_RECOVERY_PATH,
+    }
+)
 VIEWER_BLOCKED_GET_PATHS = frozenset({"/api/demo-report"})
 METRICS_API_PATH = "/api/metrics"
 ALLOWED_ORIGINS = _configured_allowed_origins()
@@ -177,6 +210,14 @@ BROWSER_SESSION_COOKIE_NAME = _browser_session_cookie_name(secure=BROWSER_SESSIO
 BROWSER_CSRF_HEADER = "X-TraceBisect-CSRF"
 BROWSER_CSRF_VALUE = "1"
 ACCESS_KEYS_API_PATH = "/api/access-keys"
+IDENTITY_RATE_LIMIT_REQUESTS = _positive_env_int(
+    "TRACEBISECT_STUDIO_IDENTITY_RATE_LIMIT_REQUESTS",
+    10,
+)
+IDENTITY_RECOVERY_RATE_LIMIT_REQUESTS = _positive_env_int(
+    "TRACEBISECT_STUDIO_IDENTITY_RECOVERY_RATE_LIMIT_REQUESTS",
+    5,
+)
 
 app = FastAPI(
     title="TraceBisect Studio API",
@@ -241,6 +282,37 @@ class AccessKeyCreateRequest(BaseModel):
         if not normalized:
             raise ValueError("Enter who or what will use this key.")
         return normalized
+
+
+class IdentityLoginRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=MAX_EMAIL_LENGTH)
+    password: str = Field(min_length=1, max_length=MAX_PASSWORD_LENGTH)
+    workspace_id: str | None = Field(default=None, min_length=1, max_length=64)
+
+
+class InvitationPreviewRequest(BaseModel):
+    invitation_token: str = Field(min_length=1, max_length=96)
+
+
+class InvitationAcceptRequest(InvitationPreviewRequest):
+    display_name: str = Field(min_length=1, max_length=MAX_DISPLAY_NAME_LENGTH)
+    password: str = Field(min_length=MIN_PASSWORD_LENGTH, max_length=MAX_PASSWORD_LENGTH)
+
+
+class IdentityRecoveryRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=MAX_EMAIL_LENGTH)
+    recovery_code: str = Field(min_length=1, max_length=64)
+    new_password: str = Field(min_length=MIN_PASSWORD_LENGTH, max_length=MAX_PASSWORD_LENGTH)
+
+
+class InvitationCreateRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=MAX_EMAIL_LENGTH)
+    role: WorkspaceRole
+    expires_in_days: int = Field(default=7, ge=1, le=MAX_INVITATION_LIFETIME_DAYS)
+
+
+class MembershipUpdateRequest(BaseModel):
+    role: WorkspaceRole
 
 
 class RateLimiter:
@@ -383,10 +455,13 @@ async def apply_api_guardrails(
             request.state.auth_kind = principal.auth_kind
             request.state.session_id = principal.session_id
             request.state.session_expires_at = principal.expires_at
+            request.state.user_id = principal.user_id
+            request.state.user_email = principal.email
+            request.state.user_display_name = principal.display_name
             auth_outcome = "authenticated"
             audit_workspace_id = principal.workspace_id
             if (
-                principal.auth_kind == "browser_session"
+                principal.auth_kind in {"browser_session", "identity_session"}
                 and request.method not in {"GET", "HEAD", "OPTIONS"}
                 and (
                     not _origin_is_allowed(request.headers.get("Origin"))
@@ -550,6 +625,11 @@ def health() -> JsonObject:
             "rate_limit_requests": RATE_LIMIT_REQUESTS,
             "rate_limit_upload_requests": RATE_LIMIT_UPLOAD_REQUESTS,
             "max_active_workspace_keys": MAX_ACTIVE_STUDIO_API_KEYS_PER_WORKSPACE,
+            "max_workspace_members": MAX_ACTIVE_MEMBERS_PER_WORKSPACE,
+            "max_pending_workspace_invitations": MAX_ACTIVE_INVITATIONS_PER_WORKSPACE,
+            "max_stored_workspace_invitations": MAX_STORED_INVITATIONS_PER_WORKSPACE,
+            "identity_rate_limit_requests": IDENTITY_RATE_LIMIT_REQUESTS,
+            "identity_recovery_rate_limit_requests": IDENTITY_RECOVERY_RATE_LIMIT_REQUESTS,
         },
     }
 
@@ -609,14 +689,10 @@ def create_browser_session(
     if issued is None:
         raise HTTPException(status_code=401, detail="A current workspace key is required.")
     max_age = _session_cookie_max_age(issued.principal.expires_at)
-    response.set_cookie(
-        key=BROWSER_SESSION_COOKIE_NAME,
-        value=issued.session_token,
+    _set_browser_session_cookie(
+        response,
+        session_token=issued.session_token,
         max_age=max_age,
-        httponly=True,
-        secure=BROWSER_SESSION_COOKIE_SECURE,
-        samesite="strict",
-        path="/",
     )
     payload = _session_payload(request, store)
     payload["access_mode"] = "browser_session"
@@ -648,6 +724,289 @@ def logout_browser_session(request: Request) -> Response:
     return response
 
 
+@app.post(IDENTITY_LOGIN_PATH, response_model=None)
+async def login_identity(
+    payload: IdentityLoginRequest, request: Request, response: Response
+) -> Response | JsonObject:
+    """Sign a person into one workspace without exposing membership to invalid credentials."""
+    _require_identity()
+    _require_identity_origin(request, action="sign-in")
+    await _require_identity_rate_limit(
+        request,
+        subject=payload.email,
+        limit=IDENTITY_RATE_LIMIT_REQUESTS,
+    )
+    try:
+        result = AUTH_CONFIG.login_identity(
+            email=payload.email,
+            password=payload.password,
+            workspace_id=payload.workspace_id,
+        )
+    except StudioIdentityInvalidCredentials as exc:
+        raise HTTPException(
+            status_code=401,
+            detail="The email, password, or workspace was not accepted.",
+        ) from exc
+    except (StudioIdentityError, StudioApiKeyError) as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Studio could not sign you in. Please retry.",
+        ) from exc
+    if result.session is None:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "detail": "Choose the workspace you want to open.",
+                "workspaces": [
+                    {"workspace_id": membership.workspace_id, "role": membership.role}
+                    for membership in result.workspaces
+                ],
+            },
+        )
+    principal = result.session.principal
+    _set_browser_session_cookie(
+        response,
+        session_token=result.session.session_token,
+        max_age=_session_cookie_max_age(principal.expires_at),
+    )
+    request.state.workspace_id = principal.workspace_id
+    request.state.workspace_role = principal.role
+    request.state.key_id = None
+    request.state.auth_kind = "identity_session"
+    request.state.session_id = principal.session_id
+    request.state.session_expires_at = principal.expires_at
+    request.state.user_id = principal.user_id
+    request.state.user_email = principal.email
+    request.state.user_display_name = principal.display_name
+    return _session_payload(request, STORE_REGISTRY.get(principal.workspace_id))
+
+
+@app.post(IDENTITY_INVITATION_PREVIEW_PATH, response_model=None)
+async def preview_identity_invitation(
+    payload: InvitationPreviewRequest,
+    request: Request,
+) -> JsonObject:
+    """Show invitation metadata while keeping the secret token out of URLs and logs."""
+    _require_identity()
+    await _require_identity_rate_limit(
+        request,
+        subject=payload.invitation_token,
+        limit=IDENTITY_RATE_LIMIT_REQUESTS,
+    )
+    try:
+        record = AUTH_CONFIG.preview_invitation(payload.invitation_token)
+    except StudioIdentityInvalidCredentials as exc:
+        raise HTTPException(
+            status_code=404, detail="This invitation is invalid or no longer active."
+        ) from exc
+    except (StudioIdentityError, StudioApiKeyError) as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Studio could not load this invitation. Please retry.",
+        ) from exc
+    return {"invitation": _invitation_payload(record)}
+
+
+@app.post(IDENTITY_INVITATION_ACCEPT_PATH, response_model=None, status_code=201)
+async def accept_identity_invitation(
+    payload: InvitationAcceptRequest,
+    request: Request,
+) -> JsonObject:
+    """Create or extend an account; never create a session implicitly."""
+    _require_identity()
+    _require_identity_origin(request, action="invitation")
+    await _require_identity_rate_limit(
+        request,
+        subject=payload.invitation_token,
+        limit=IDENTITY_RATE_LIMIT_REQUESTS,
+    )
+    try:
+        accepted = AUTH_CONFIG.accept_invitation(
+            invitation_token=payload.invitation_token,
+            display_name=payload.display_name,
+            password=payload.password,
+        )
+    except StudioIdentityInvalidCredentials as exc:
+        raise HTTPException(
+            status_code=404, detail="This invitation is invalid or no longer active."
+        ) from exc
+    except StudioIdentityConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (StudioIdentityError, StudioApiKeyError) as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Studio could not accept this invitation. Please retry.",
+        ) from exc
+    return {
+        "accepted": True,
+        "workspace_id": accepted.membership.workspace_id,
+        "email": accepted.user.email,
+        "recovery_codes": list(accepted.recovery_codes),
+        "sign_in_required": True,
+    }
+
+
+@app.post(IDENTITY_RECOVERY_PATH, response_model=None)
+async def recover_identity_account(
+    payload: IdentityRecoveryRequest,
+    request: Request,
+) -> JsonObject:
+    """Use one saved recovery code, revoke all sessions, and require a fresh sign-in."""
+    _require_identity()
+    _require_identity_origin(request, action="recovery")
+    await _require_identity_rate_limit(
+        request,
+        subject=payload.email,
+        limit=IDENTITY_RECOVERY_RATE_LIMIT_REQUESTS,
+    )
+    try:
+        result = AUTH_CONFIG.recover_identity(
+            email=payload.email,
+            recovery_code=payload.recovery_code,
+            new_password=payload.new_password,
+        )
+    except (StudioIdentityError, StudioApiKeyError) as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Studio could not process account recovery. Please retry.",
+        ) from exc
+    return {
+        "accepted": result.accepted,
+        "message": (
+            "Password changed. Save the replacement recovery codes, then sign in again."
+            if result.accepted
+            else "If the email and recovery code were valid, the password was changed."
+        ),
+        "recovery_codes": list(result.recovery_codes),
+        "sign_in_required": True,
+    }
+
+
+@app.get(TEAM_MEMBERS_API_PATH, response_model=None)
+def list_workspace_members(request: Request) -> JsonObject:
+    workspace_id, _current_key_id = _admin_access_context(request)
+    _require_identity()
+    try:
+        members = AUTH_CONFIG.list_workspace_members(workspace_id)
+    except (StudioIdentityError, StudioApiKeyError) as exc:
+        raise HTTPException(
+            status_code=503, detail="Studio could not load workspace members."
+        ) from exc
+    return {
+        "members": cast(JsonValue, [_membership_payload(member) for member in members]),
+        "current_user_id": _request_user_id(request),
+    }
+
+
+@app.patch(f"{TEAM_MEMBERS_API_PATH}/{{user_id}}", response_model=None)
+def update_workspace_member(
+    user_id: str,
+    payload: MembershipUpdateRequest,
+    request: Request,
+) -> JsonObject:
+    workspace_id, _current_key_id = _admin_access_context(request)
+    _require_identity()
+    try:
+        member = AUTH_CONFIG.update_workspace_member(
+            workspace_id=workspace_id,
+            user_id=user_id,
+            role=payload.role,
+        )
+    except StudioIdentityNotFound as exc:
+        raise HTTPException(status_code=404, detail="Workspace member not found.") from exc
+    except StudioIdentityConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (StudioIdentityError, StudioApiKeyError) as exc:
+        raise HTTPException(status_code=503, detail="Studio could not update this member.") from exc
+    return {"member": _membership_payload(member)}
+
+
+@app.delete(f"{TEAM_MEMBERS_API_PATH}/{{user_id}}", response_model=None)
+def remove_workspace_member(user_id: str, request: Request) -> JsonObject:
+    workspace_id, _current_key_id = _admin_access_context(request)
+    _require_identity()
+    if user_id == _request_user_id(request):
+        raise HTTPException(
+            status_code=409,
+            detail="You cannot remove your current account from this workspace.",
+        )
+    try:
+        member = AUTH_CONFIG.remove_workspace_member(
+            workspace_id=workspace_id,
+            user_id=user_id,
+        )
+    except StudioIdentityNotFound as exc:
+        raise HTTPException(status_code=404, detail="Workspace member not found.") from exc
+    except StudioIdentityConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (StudioIdentityError, StudioApiKeyError) as exc:
+        raise HTTPException(status_code=503, detail="Studio could not remove this member.") from exc
+    return {"member": _membership_payload(member)}
+
+
+@app.get(TEAM_INVITATIONS_API_PATH, response_model=None)
+def list_workspace_invitations(request: Request) -> JsonObject:
+    workspace_id, _current_key_id = _admin_access_context(request)
+    _require_identity()
+    try:
+        invitations = AUTH_CONFIG.list_workspace_invitations(workspace_id)
+    except (StudioIdentityError, StudioApiKeyError) as exc:
+        raise HTTPException(status_code=503, detail="Studio could not load invitations.") from exc
+    return {"invitations": cast(JsonValue, [_invitation_payload(item) for item in invitations])}
+
+
+@app.post(TEAM_INVITATIONS_API_PATH, response_model=None, status_code=201)
+def create_workspace_invitation(
+    payload: InvitationCreateRequest,
+    request: Request,
+) -> JsonObject:
+    workspace_id, _current_key_id = _admin_access_context(request)
+    _require_identity()
+    try:
+        issued = AUTH_CONFIG.create_workspace_invitation(
+            workspace_id=workspace_id,
+            email=payload.email,
+            role=payload.role,
+            expires_in_days=payload.expires_in_days,
+        )
+    except StudioIdentityConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except StudioIdentityError as exc:
+        if str(exc).startswith("enter a valid email"):
+            raise HTTPException(status_code=400, detail="Enter a valid email address.") from exc
+        raise HTTPException(
+            status_code=503, detail="Studio could not create the invitation."
+        ) from exc
+    except StudioApiKeyError as exc:
+        raise HTTPException(
+            status_code=503, detail="Studio could not create the invitation."
+        ) from exc
+    return {
+        "invitation_token": issued.invitation_token,
+        "invitation": _invitation_payload(issued.record),
+    }
+
+
+@app.delete(f"{TEAM_INVITATIONS_API_PATH}/{{invitation_id}}", response_model=None)
+def revoke_workspace_invitation(invitation_id: str, request: Request) -> JsonObject:
+    workspace_id, _current_key_id = _admin_access_context(request)
+    _require_identity()
+    try:
+        invitation = AUTH_CONFIG.revoke_workspace_invitation(
+            workspace_id=workspace_id,
+            invitation_id=invitation_id,
+        )
+    except StudioIdentityNotFound as exc:
+        raise HTTPException(status_code=404, detail="Workspace invitation not found.") from exc
+    except StudioIdentityConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (StudioIdentityError, StudioApiKeyError) as exc:
+        raise HTTPException(
+            status_code=503, detail="Studio could not revoke this invitation."
+        ) from exc
+    return {"invitation": _invitation_payload(invitation)}
+
+
 def _session_payload(request: Request, store: StudioStore) -> JsonObject:
     workspace_id = getattr(request.state, "workspace_id", store.workspace_id)
     if not isinstance(workspace_id, str):
@@ -660,17 +1019,37 @@ def _session_payload(request: Request, store: StudioStore) -> JsonObject:
         "auth_kind",
         "api_key" if AUTH_CONFIG.required else "open_local",
     )
-    if access_mode not in {"open_local", "api_key", "browser_session"}:
+    if access_mode not in {"open_local", "api_key", "browser_session", "identity_session"}:
         raise StudioPersistenceError("request authentication context is invalid")
     session_expires_at = getattr(request.state, "session_expires_at", None)
     if session_expires_at is not None and not isinstance(session_expires_at, str):
         raise StudioPersistenceError("request session expiry is invalid")
+    user_id = getattr(request.state, "user_id", None)
+    user_email = getattr(request.state, "user_email", None)
+    user_display_name = getattr(request.state, "user_display_name", None)
+    if any(
+        value is not None and not isinstance(value, str)
+        for value in (user_id, user_email, user_display_name)
+    ):
+        raise StudioPersistenceError("request user context is invalid")
+    user: JsonObject | None = None
+    if (
+        isinstance(user_id, str)
+        and isinstance(user_email, str)
+        and isinstance(user_display_name, str)
+    ):
+        user = {
+            "user_id": user_id,
+            "email": user_email,
+            "display_name": user_display_name,
+        }
     return {
         "authenticated": AUTH_CONFIG.required,
         "workspace_id": workspace_id,
         "role": workspace_role,
         "access_mode": access_mode,
         "expires_at": session_expires_at,
+        "user": user,
         "runtime": store.runtime_status(),
     }
 
@@ -1032,6 +1411,10 @@ def _role_allows_request(*, role: str, method: str, path: str) -> bool:
         return True
     if path == ACCESS_KEYS_API_PATH or path.startswith(f"{ACCESS_KEYS_API_PATH}/"):
         return role == "admin"
+    if path == TEAM_MEMBERS_API_PATH or path.startswith(f"{TEAM_MEMBERS_API_PATH}/"):
+        return role == "admin"
+    if path == TEAM_INVITATIONS_API_PATH or path.startswith(f"{TEAM_INVITATIONS_API_PATH}/"):
+        return role == "admin"
     if role != "viewer":
         return True
     return method.upper() in {"GET", "HEAD"} and path not in VIEWER_BLOCKED_GET_PATHS
@@ -1040,6 +1423,8 @@ def _role_allows_request(*, role: str, method: str, path: str) -> bool:
 def _role_denied_detail(role: str, *, path: str) -> str:
     if path == ACCESS_KEYS_API_PATH or path.startswith(f"{ACCESS_KEYS_API_PATH}/"):
         return "Workspace admin access is required to manage access keys."
+    if path.startswith("/api/team/"):
+        return "Workspace admin access is required to manage people and invitations."
     if role == "viewer":
         return (
             "Your current workspace has viewer access and is read-only. "
@@ -1070,6 +1455,79 @@ def _require_managed_access() -> None:
             status_code=409,
             detail="Self-service access management requires managed workspace keys.",
         )
+
+
+def _require_identity() -> None:
+    if not AUTH_CONFIG.identity_enabled:
+        raise HTTPException(
+            status_code=409,
+            detail="Managed human accounts are not configured for this Studio deployment.",
+        )
+
+
+def _require_identity_origin(request: Request, *, action: str) -> None:
+    if (
+        not _origin_is_allowed(request.headers.get("Origin"))
+        or request.headers.get(BROWSER_CSRF_HEADER) != BROWSER_CSRF_VALUE
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail=f"This {action} request did not come from an allowed Studio origin.",
+        )
+
+
+async def _require_identity_rate_limit(
+    request: Request,
+    *,
+    subject: str,
+    limit: int,
+) -> None:
+    host = request.client.host if request.client is not None else "unknown"
+    subject_hash = hashlib.sha256(subject.strip().casefold().encode("utf-8")).hexdigest()[:24]
+    allowed, retry_after = await RATE_LIMITER.allow(
+        f"identity:{host}:{request.url.path}:{subject_hash}",
+        limit=limit,
+        window_seconds=RATE_LIMIT_WINDOW_SECONDS,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many account attempts. Please wait before retrying.",
+            headers={"Retry-After": str(retry_after)},
+        )
+
+
+def _request_user_id(request: Request) -> str | None:
+    user_id = getattr(request.state, "user_id", None)
+    if user_id is not None and not isinstance(user_id, str):
+        raise StudioPersistenceError("request user context is invalid")
+    return user_id
+
+
+def _membership_payload(record: StudioMembershipRecord) -> JsonObject:
+    return {
+        "user_id": record.user_id,
+        "workspace_id": record.workspace_id,
+        "email": record.email,
+        "display_name": record.display_name,
+        "role": record.role,
+        "created_at": record.created_at,
+        "updated_at": record.updated_at,
+    }
+
+
+def _invitation_payload(record: StudioInvitationRecord) -> JsonObject:
+    return {
+        "invitation_id": record.invitation_id,
+        "workspace_id": record.workspace_id,
+        "email": record.email,
+        "role": record.role,
+        "created_at": record.created_at,
+        "expires_at": record.expires_at,
+        "accepted_at": record.accepted_at,
+        "revoked_at": record.revoked_at,
+        "status": record.status,
+    }
 
 
 def _access_key_payload(record: StudioApiKeyRecord) -> JsonObject:
@@ -1114,6 +1572,18 @@ def _production_readiness(*, storage_ok: bool) -> JsonObject:
                 completed.append("Secure browser session cookies")
             else:
                 blockers.insert(0, "TLS-backed Secure browser session cookies")
+            if AUTH_CONFIG.identity_enabled:
+                completed.extend(
+                    [
+                        "Argon2id human accounts with invitation-only enrollment",
+                        "single-use saved recovery codes with full session revocation",
+                        "workspace-scoped team membership administration",
+                    ]
+                )
+                blockers.remove(
+                    "managed user accounts, recovery, and team membership administration"
+                )
+                blockers.insert(0, "transactional invitation delivery and email verification")
         else:
             blockers.insert(0, "hashed API-key issuance, expiry, and revocation")
     else:
@@ -1241,6 +1711,23 @@ def _session_cookie_max_age(expires_at: str) -> int:
 def _delete_browser_session_cookie(response: Response) -> None:
     response.delete_cookie(
         key=BROWSER_SESSION_COOKIE_NAME,
+        httponly=True,
+        secure=BROWSER_SESSION_COOKIE_SECURE,
+        samesite="strict",
+        path="/",
+    )
+
+
+def _set_browser_session_cookie(
+    response: Response,
+    *,
+    session_token: str,
+    max_age: int,
+) -> None:
+    response.set_cookie(
+        key=BROWSER_SESSION_COOKIE_NAME,
+        value=session_token,
+        max_age=max_age,
         httponly=True,
         secure=BROWSER_SESSION_COOKIE_SECURE,
         samesite="strict",

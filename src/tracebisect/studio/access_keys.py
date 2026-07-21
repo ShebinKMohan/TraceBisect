@@ -33,6 +33,7 @@ _MANAGED_KEY_PATTERN = re.compile(r"^tbsk_([A-Za-z0-9_-]{12})_([A-Za-z0-9_-]{43}
 StudioApiKeyStatus = Literal["active", "expired", "revoked"]
 WorkspaceRole = Literal["viewer", "editor", "admin"]
 WORKSPACE_ROLES = frozenset({"viewer", "editor", "admin"})
+_CLI_SAFE_ID_FIRST_CHARACTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 
 
 class StudioApiKeyError(RuntimeError):
@@ -106,7 +107,8 @@ def create_studio_api_key(
     _validate_pepper(pepper)
     created = _utc_now(now)
     expires = created + timedelta(days=expires_in_days)
-    key_id = secrets.token_urlsafe(9)
+    raw_key_id = secrets.token_urlsafe(9)
+    key_id = f"{secrets.choice(_CLI_SAFE_ID_FIRST_CHARACTERS)}{raw_key_id[1:]}"
     secret = secrets.token_urlsafe(32)
     if not _KEY_ID_PATTERN.fullmatch(key_id) or len(secret) != 43:
         raise StudioApiKeyError("could not generate a valid Studio API key")

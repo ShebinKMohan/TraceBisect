@@ -1,14 +1,16 @@
 # Studio workspace access
 
-This guide is for a workspace admin who needs to give a person or integration
-the smallest access it needs. Routine access management happens inside Studio;
+This guide is for a workspace admin who needs to give an integration or
+emergency operator the smallest access it needs. People should normally use an
+invited account; see [Studio accounts and team access](studio-accounts.md).
+Routine key management happens inside Studio;
 the command line is only needed to bootstrap the first admin or recover a
 workspace that has no usable admin key.
 
 ## Create access in Studio
 
 1. Open **Settings** and find **Workspace access**.
-2. Enter a recognizable name such as `Priya` or `CI uploads`.
+2. Enter a recognizable name such as `CI uploads` or `Emergency operator`.
 3. Choose the smallest permission:
    - **Viewer** can inspect traces, comparisons, and generated tests.
    - **Editor** can also upload, compare, save, and rerun guardrails.
@@ -52,8 +54,8 @@ tracebisect studio keys create \
 
 If every admin key is lost, expired, or revoked, a server operator with access
 to the database and configured pepper must create a replacement with the same
-command. Studio cannot email a recovery link because managed human accounts and
-email delivery are not implemented yet.
+command. Human accounts use saved one-time recovery codes; automatic recovery
+email is not implemented yet.
 
 ## Security boundary
 
@@ -66,5 +68,7 @@ email delivery are not implemented yet.
   a key ID.
 - The SQLite database stores a peppered HMAC digest, not the plaintext key.
 
-This feature manages workspace keys. It does not yet provide passwords,
-identity-provider sign-in, email invitations, account recovery, or billing.
+This feature manages workspace keys. Human accounts, invitation links, saved
+recovery codes, and team membership are documented separately. Automated email,
+identity-provider sign-in, multi-factor authentication, and billing are not yet
+provided.

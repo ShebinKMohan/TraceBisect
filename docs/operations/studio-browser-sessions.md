@@ -1,20 +1,23 @@
 # TraceBisect Studio Browser Sessions
 
-This guide explains how a person signs in to a protected Studio workspace and
-what an operator must configure before hosting it.
+This guide explains Studio's protected browser cookie. People normally use an
+invited email/password account; access keys remain available for integrations,
+bootstrap, and emergency operator access. Account enrollment and recovery are
+covered in [Studio accounts and team access](studio-accounts.md).
 
 ## What a new user does
 
 1. Open TraceBisect Studio.
-2. Paste the workspace key supplied by the workspace owner.
-3. Select **Open workspace**.
-4. Use Studio normally. The browser does not ask for the key on every request.
+2. Enter the email and password created from the workspace invitation.
+3. Choose a workspace if the account belongs to more than one.
+4. Use Studio normally. The browser does not receive a reusable account token.
 5. Select **Lock workspace** on a shared computer or when work is finished.
 
-The key is exchanged once for a short-lived browser session. Studio stores the
-session in an HttpOnly cookie, which means page JavaScript cannot read or copy
-it. The database contains only a peppered HMAC digest of the opaque session
-token—not the plaintext token or workspace key.
+Studio stores the session in an HttpOnly cookie, which means page JavaScript
+cannot read or copy it. The database contains only a keyed digest of the opaque
+session token—not the plaintext token or password. A person can also choose
+**Use an access key**; that key is exchanged once for the same kind of protected
+cookie and is not saved in the page.
 
 ## What ends a session
 
@@ -25,6 +28,8 @@ A browser session stops working when any of these happens:
 - The session reaches its configured expiry time.
 - An operator revokes the workspace key that created it.
 - The source workspace key expires.
+- An account password is recovered, a live membership is removed, or the
+  account session version changes.
 - A restored backup replaces the active database. Backups intentionally contain
   no browser sessions, so recovery requires everyone to sign in again.
 
@@ -49,9 +54,9 @@ export TRACEBISECT_STUDIO_BROWSER_SESSION_TTL_SECONDS=28800
 Use the shortest lifetime that fits the real workday. Reducing the value affects
 new sessions; it does not rewrite an already-issued session.
 
-Studio retains at most 20 active browser sessions per source key. Issuing a 21st
-session removes the oldest one, which bounds database growth if a client signs
-in repeatedly.
+Studio retains at most 20 active browser sessions per source key and 20 active
+human sessions per account. Issuing a 21st session removes the oldest one,
+which bounds database growth if a client signs in repeatedly.
 
 ## Production origin and HTTPS requirements
 

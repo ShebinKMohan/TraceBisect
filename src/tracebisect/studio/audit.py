@@ -96,6 +96,22 @@ def request_action(method: str, path: str) -> str:
         return "browser_session_revoke"
     if path == "/api/browser-session":
         return "browser_session_create"
+    if path == "/api/identity/login":
+        return "identity_login"
+    if path == "/api/identity/invitation-preview":
+        return "identity_invitation_preview"
+    if path == "/api/identity/invitations/accept":
+        return "identity_invitation_accept"
+    if path == "/api/identity/recover":
+        return "identity_recovery"
+    if path == "/api/team/members":
+        return "member_list"
+    if path.startswith("/api/team/members/"):
+        return "member_remove" if normalized_method == "DELETE" else "member_update"
+    if path == "/api/team/invitations":
+        return "invitation_create" if normalized_method == "POST" else "invitation_list"
+    if path.startswith("/api/team/invitations/"):
+        return "invitation_revoke"
     if path == "/api/access-keys":
         return "access_key_create" if normalized_method == "POST" else "access_key_list"
     if path.startswith("/api/access-keys/"):
