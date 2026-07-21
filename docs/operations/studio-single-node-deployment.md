@@ -144,17 +144,22 @@ rule evaluation; it does not send notifications or copy history off the host.
 ## Verify the live boundary
 
 ```bash
-curl --fail --show-error https://studio.example.com/api/ready
-curl --fail --show-error https://studio.example.com/api/health
+tracebisect studio deployment-check --url https://studio.example.com
 ```
 
-Replace the hostname. `/api/ready` must report both storage and the configured
-upload scanner ready. `/api/health` must show the scanner enabled and ready,
-along with secure browser cookies, managed identity, durable SQLite, and the
-actual email/webhook state. It will continue to report
+Replace the hostname. The command reads only `/api/ready` and `/api/health`; it
+does not need a workspace key or access product data. **Hosted core: READY**
+requires both endpoints plus durable storage, required access control, secure
+browser sessions, fail-closed upload scanning, safe audit/error records, and a
+dedicated metrics token. **Full SaaS** will continue to report
 `production_saas_ready: false`; this topology still needs scheduled encrypted
 off-site backups, centralized request-log retention, external alert delivery,
 off-host metrics retention, and recovery drills.
+
+The command ends with one `Next:` action when a safeguard fails. See
+[studio-deployment-check.md](studio-deployment-check.md) for every result and
+safe local usage. The raw endpoints remain available for load balancers and
+monitoring systems.
 
 If scanner readiness fails, inspect the private ClamAV service and signature
 update state before accepting uploads. Do not disable scanning to make readiness

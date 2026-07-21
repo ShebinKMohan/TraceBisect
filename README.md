@@ -348,6 +348,20 @@ backend networking and an optional supervised email worker, follow
 [`docs/operations/studio-single-node-deployment.md`](docs/operations/studio-single-node-deployment.md).
 It is deliberately not described as horizontally scalable SaaS infrastructure.
 
+After any deployment change, replace several manual checks with one
+beginner-readable report:
+
+```bash
+tracebisect studio deployment-check --url https://studio.example.com
+```
+
+It reads only the public readiness and health endpoints, labels each safeguard
+as pass, warning, or fail, and ends with one concrete next action. It separately
+reports whether the hosted core can serve traffic and whether the API still
+lists full-SaaS work. See
+[`docs/operations/studio-deployment-check.md`](docs/operations/studio-deployment-check.md)
+for the result contract and safe local usage.
+
 ## Commands
 
 - `tracebisect --version` — prints the package version.
@@ -367,6 +381,8 @@ It is deliberately not described as horizontally scalable SaaS infrastructure.
   current data.
 - `tracebisect studio recovery-drill` — proves an isolated backup, restore, and
   readiness path and writes a JSON evidence report.
+- `tracebisect studio deployment-check` — explains whether a live Studio has
+  the minimum safeguards for hosted traffic and lists remaining SaaS work.
 - `tracebisect studio migrate-postgres` — atomically copies a consistent SQLite
   snapshot into an empty PostgreSQL store and reconciles every migrated table.
 - `tracebisect studio keys generate-pepper` — creates the server secret used to

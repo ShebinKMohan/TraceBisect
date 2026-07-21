@@ -9,8 +9,8 @@ downstream tooling can be written against stable shapes:
 - ``diff`` renders a terminal comparison of two canonical traces.
 - ``export-pytest`` writes a live-capture regression test file.
 - ``record`` runs a scenario command with the V1 capture environment contract.
-- ``studio`` provides safe storage recovery, managed access, monitoring, and
-  supervised invitation-delivery commands for a durable Studio deployment.
+- ``studio`` provides plain-language deployment checks, safe storage recovery,
+  managed access, monitoring, and supervised invitation-delivery commands.
 """
 
 from __future__ import annotations
@@ -151,6 +151,22 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="<studio-command>",
     )
     studio.set_defaults(studio_parser=studio)
+
+    studio_deployment_check = studio_commands.add_parser(
+        "deployment-check",
+        help="Explain whether a live Studio is safe for hosted traffic.",
+    )
+    studio_deployment_check.add_argument(
+        "--url",
+        required=True,
+        help="Public Studio address, for example https://studio.example.com.",
+    )
+    studio_deployment_check.add_argument(
+        "--timeout-seconds",
+        type=float,
+        default=5.0,
+        help="Maximum wait for each health endpoint (default: 5, range: 0.1-30).",
+    )
 
     studio_backup = studio_commands.add_parser(
         "backup",
@@ -702,6 +718,40 @@ def test_tracebisect_regression():
 '''
 
 
+def run_studio_deployment_check(base_url: str, timeout_seconds: float) -> int:
+    from tracebisect.studio.deployment_check import check_studio_deployment
+
+    report = check_studio_deployment(base_url, timeout_seconds=timeout_seconds)
+    print("Studio deployment check")
+    print(f"  Address: {report.base_url}")
+    print(
+        "  Hosted core: "
+        + ("READY" if report.hosted_core_ready else "NOT READY")
+    )
+    print("  Full SaaS: " + ("READY" if report.full_saas_ready else "NOT READY"))
+    print()
+    print("Safety checks")
+    for check in report.checks:
+        print(f"  [{check.status.upper()}] {check.label}")
+        print(f"         {check.detail}")
+    print()
+    print("Remaining SaaS work reported by Studio")
+    if report.remaining_saas_work:
+        for index, item in enumerate(report.remaining_saas_work, start=1):
+            print(f"  {index}. {item}")
+    else:
+        print("  None reported.")
+    print()
+    failed = next((check for check in report.checks if check.status == "fail"), None)
+    if failed is not None:
+        print(f"Next: {failed.detail}")
+    elif report.remaining_saas_work:
+        print(f"Next: {report.remaining_saas_work[0]}")
+    else:
+        print("Next: record this successful check with the deployment release.")
+    return 0 if report.hosted_core_ready else 2
+
+
 def run_studio_backup(database: str, output: str) -> int:
     from tracebisect.studio.backup import create_studio_backup
 
@@ -1212,6 +1262,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         from tracebisect.studio.access_keys import StudioApiKeyError
         from tracebisect.studio.backup import StudioBackupError
+        from tracebisect.studio.deployment_check import StudioDeploymentCheckError
         from tracebisect.studio.email_delivery import StudioEmailDeliveryError
         from tracebisect.studio.error_reporting import StudioErrorEventError
         from tracebisect.studio.ingestion_tokens import StudioIngestionTokenError
@@ -1219,6 +1270,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         from tracebisect.studio.storage import StudioConfigurationError
 
         try:
+            if args.studio_command == "deployment-check":
+                return run_studio_deployment_check(args.url, args.timeout_seconds)
             if args.studio_command == "backup":
                 return run_studio_backup(args.database, args.output)
             if args.studio_command == "verify":
@@ -1308,6 +1361,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             StudioApiKeyError,
             StudioBackupError,
             StudioConfigurationError,
+            StudioDeploymentCheckError,
             StudioEmailDeliveryError,
             StudioErrorEventError,
             StudioIngestionTokenError,

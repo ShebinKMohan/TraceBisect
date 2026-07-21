@@ -149,6 +149,11 @@ hashed expiring keys, a protected Prometheus
 scrape endpoint, starter alert rules, and an incident runbook. Admins can now
 manage role-based workspace keys inside Settings after the operator bootstraps
 the first admin; hosting-platform collection and delivery are still required.
+Operators can also run one `studio deployment-check` command after a release to
+translate the public readiness/health contracts into plain pass, warning, fail,
+and next-action output without giving the command product credentials. This is
+a verified deployment gate, not a claim that the remaining provider work is
+complete.
 
 ## Out Of Scope For This Slice
 

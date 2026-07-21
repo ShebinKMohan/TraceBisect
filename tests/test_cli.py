@@ -177,6 +177,7 @@ def test_studio_command_without_action_shows_recovery_help(
 
     output = capsys.readouterr().out
     assert "usage: tracebisect studio" in output
+    assert "deployment-check" in output
     assert "backup" in output
     assert "verify" in output
     assert "restore" in output

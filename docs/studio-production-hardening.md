@@ -180,6 +180,11 @@ temporary files out of the web root, and throttle repeated API calls.
   private behind Caddy-managed TLS, runs them as read-only non-root containers,
   persists SQLite on one volume, and can supervise the invitation-email worker.
   It deliberately supports only one API replica.
+- `tracebisect studio deployment-check` turns the public readiness and health
+  contracts into one beginner-readable hosted-core gate. It rejects public
+  HTTP, credentials in URLs, cross-origin redirects, oversized or malformed
+  health responses, reports each safeguard as pass/warning/fail, and keeps
+  hosted-core readiness separate from the remaining full-SaaS milestones.
 - Compare requests reject identical baseline/candidate IDs.
 - Custom `scenario_cmd` payloads are length-limited.
 - API responses include security headers:
