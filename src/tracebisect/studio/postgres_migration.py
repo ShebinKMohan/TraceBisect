@@ -129,6 +129,22 @@ MIGRATION_TABLES = (
         ),
     ),
     _MigrationTable(
+        "studio_error_events",
+        (
+            "event_id",
+            "request_id",
+            "workspace_id",
+            "action",
+            "method",
+            "status_code",
+            "error_type",
+            "failure_location",
+            "fingerprint",
+            "occurred_at",
+            "event_version",
+        ),
+    ),
+    _MigrationTable(
         "studio_users",
         (
             "user_id",
@@ -484,6 +500,7 @@ def _workspace_count(connection: StudioDatabaseConnection) -> int:
             UNION SELECT workspace_id FROM studio_metadata
             UNION SELECT workspace_id FROM studio_api_keys
             UNION SELECT workspace_id FROM studio_ingestion_tokens
+            UNION SELECT workspace_id FROM studio_error_events WHERE workspace_id IS NOT NULL
             UNION SELECT workspace_id FROM studio_workspace_memberships
             UNION SELECT workspace_id FROM studio_invitations
         ) AS workspaces

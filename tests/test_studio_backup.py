@@ -23,6 +23,10 @@ from tracebisect.studio.backup import (
     restore_studio_backup,
 )
 from tracebisect.studio.email_delivery import StudioEmailDelivery
+from tracebisect.studio.error_reporting import (
+    StudioErrorReporter,
+    list_studio_error_events,
+)
 from tracebisect.studio.identity import (
     accept_studio_invitation,
     create_studio_invitation,
@@ -72,6 +76,13 @@ def test_live_backup_verifies_and_restores_all_workspace_data(tmp_path: Path) ->
         label="Restored production agent",
         expires_in_days=90,
         pepper=pepper,
+    )
+    StudioErrorReporter(managed_database=source_path).emit_unhandled(
+        request_id="request-backup-1234",
+        method="POST",
+        path="/api/compare",
+        workspace_id="workspace-a",
+        error=RuntimeError("customer trace content must not reach a backup"),
     )
     issued_session = issue_studio_browser_session(
         source_path,
@@ -201,6 +212,8 @@ def test_live_backup_verifies_and_restores_all_workspace_data(tmp_path: Path) ->
     )
     assert restored_ingestion_principal is not None
     assert restored_ingestion_principal.workspace_id == "workspace-a"
+    assert list_studio_error_events(source_path, request_id="request-backup-1234")
+    assert list_studio_error_events(restored_path) == []
     assert (
         principal_for_studio_browser_session(
             restored_path,

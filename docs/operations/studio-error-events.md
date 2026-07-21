@@ -1,8 +1,10 @@
 # Studio error events
 
 Use this guide when Studio shows an unexpected-error message with a request ID.
-It describes the built-in single-process reporting boundary; your hosting
-platform must still collect, retain, search, and protect the events.
+Studio always emits a secret-safe JSON event. Durable SQLite and PostgreSQL
+deployments also retain a bounded copy so an operator can search by request ID
+after a process restart. PostgreSQL shares that retained history across API
+instances. A hosting platform must still collect logs and deliver alerts.
 
 ## What the user sees
 
@@ -47,7 +49,16 @@ without storing the exception text.
 
 1. Ask the user for the request ID shown by Studio. Never ask them to send an
    API key or the uploaded trace.
-2. Find the `studio.server_error` event with that request ID.
+2. Search the durable Studio database:
+
+   ```bash
+   tracebisect studio error-events list \
+     --database .tracebisect/studio.db \
+     --request-id REQUEST_ID
+   ```
+
+   For PostgreSQL, keep `TRACEBISECT_STUDIO_DATABASE_URL` in the operator
+   environment and omit `--database`.
 3. Find the request-audit event with the same request ID. Confirm its action,
    status, timestamp, and workspace without copying sensitive data elsewhere.
 4. Use the fingerprint to check whether the same failure is recurring.
@@ -55,11 +66,34 @@ without storing the exception text.
    [`studio-alert-runbook.md`](studio-alert-runbook.md). Preserve evidence before
    changing or restoring data.
 
+If the request-ID search returns no result, check the collected JSON logs. The
+database may have been unavailable during the original failure, the event may
+have aged out, or the deployment may be using restart-ephemeral memory storage.
+
+## Retention boundary
+
+- Retention is enabled automatically when Studio uses SQLite or PostgreSQL.
+- At most 1,000 events per workspace and 10,000 events overall are kept for 30
+  days. Public or pre-authentication failures share one separate null-workspace
+  bucket.
+- Expired and excess rows are removed inside the same serialized write used to
+  retain a new event, so concurrent API instances cannot bypass the cap.
+- Search accepts a request ID or the 20-character recurring-error fingerprint
+  and returns at most 500 rows.
+- The command line is an operator surface requiring database access; retained
+  failures are not exposed through the workspace API or browser UI.
+- Normal SQLite backups deliberately strip error history alongside sessions and
+  delivery queues. A reconciled SQLite-to-PostgreSQL cutover preserves it so an
+  active incident is not silently disconnected from its request IDs.
+- JSON logging remains active even when the retention write fails. A secondary
+  database problem never replaces the original user-facing `500` response.
+
 ## Configuration and readiness
 
 Error events are enabled by default. Set
 `TRACEBISECT_STUDIO_ERROR_LOG_ENABLED=false` only when the deployment has an
 equivalent secret-safe reporter. `/api/health` publishes the active boundary,
-and `/api/ready` keeps hosted event retention and delivery listed as production
-work rather than claiming that local JSON output is a complete monitoring
-system.
+including whether retention is `disabled`, `log_only`, `local_sqlite`, or
+`shared_postgres`. `/api/ready` still lists hosting-platform metrics collection
+and alert delivery as production work; database retention alone is not a
+complete monitoring system.

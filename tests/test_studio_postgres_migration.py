@@ -73,6 +73,25 @@ def _populate_source(database: Path) -> None:
         )
         connection.execute(
             """
+            INSERT INTO studio_error_events (
+                event_id, request_id, workspace_id, action, method, status_code,
+                error_type, failure_location, fingerprint, occurred_at, event_version
+            ) VALUES (?, ?, ?, ?, ?, 500, ?, ?, ?, ?, 1)
+            """,
+            (
+                "e" * 32,
+                "request-migration-1",
+                "workspace-a",
+                "trace_compare",
+                "POST",
+                "RuntimeError",
+                "service.py:compare:100",
+                "a" * 20,
+                created,
+            ),
+        )
+        connection.execute(
+            """
             INSERT INTO studio_users (
                 user_id, email, display_name, password_hash, session_epoch,
                 created_at, password_changed_at, disabled_at

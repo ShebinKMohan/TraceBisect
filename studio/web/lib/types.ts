@@ -34,6 +34,11 @@ export type StudioHealth = {
     event: "studio.server_error";
     request_id_join: true;
     includes_exception_messages: false;
+    durable_retention: boolean;
+    retention_kind: "disabled" | "log_only" | "local_sqlite" | "shared_postgres";
+    retention_days: number;
+    max_stored_events: number;
+    max_stored_events_per_workspace: number;
   };
   email: {
     enabled: boolean;
@@ -74,6 +79,8 @@ export type StudioHealth = {
     rate_limit_upload_requests: number;
     max_active_workspace_keys: number;
     max_active_ingestion_tokens: number;
+    max_stored_error_events: number;
+    max_stored_error_events_per_workspace: number;
     max_workspace_members: number;
     max_pending_workspace_invitations: number;
     max_stored_workspace_invitations: number;

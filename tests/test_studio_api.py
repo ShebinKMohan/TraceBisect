@@ -291,6 +291,8 @@ def test_studio_api_sets_security_headers(caplog: pytest.LogCaptureFixture) -> N
         response.json()["limits"]["max_active_ingestion_tokens"]
         == studio_api.MAX_ACTIVE_INGESTION_TOKENS_PER_WORKSPACE
     )
+    assert response.json()["limits"]["max_stored_error_events"] == 0
+    assert response.json()["limits"]["max_stored_error_events_per_workspace"] == 0
     assert response.json()["audit"] == {
         "enabled": True,
         "format": "json",

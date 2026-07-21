@@ -21,6 +21,7 @@ _REQUIRED_TABLES = frozenset(
         "studio_metadata",
         "studio_api_keys",
         "studio_ingestion_tokens",
+        "studio_error_events",
         "studio_browser_sessions",
         "studio_users",
         "studio_workspace_memberships",
@@ -144,6 +145,10 @@ def inspect_studio_backup(backup_path: str | Path) -> StudioBackupInspection:
                 raise StudioBackupError(
                     "the backup contains email webhook records and is unsafe to restore"
                 )
+            if _table_count(connection, "studio_error_events") != 0:
+                raise StudioBackupError(
+                    "the backup contains retained server errors and is unsafe to restore"
+                )
             content_sha256 = _content_sha256(connection)
     except StudioBackupError:
         raise
@@ -211,6 +216,7 @@ def _clear_ephemeral_state(database_path: Path) -> None:
         connection.execute("DELETE FROM studio_identity_sessions")
         connection.execute("DELETE FROM studio_email_outbox")
         connection.execute("DELETE FROM studio_email_webhook_events")
+        connection.execute("DELETE FROM studio_error_events")
     with database_path.open("rb") as handle:
         os.fsync(handle.fileno())
 
@@ -319,6 +325,15 @@ def _content_sha256(connection: sqlite3.Connection) -> str:
             SELECT token_id, workspace_id, label, scope, token_hash,
                    created_at, expires_at, revoked_at
             FROM studio_ingestion_tokens ORDER BY token_id
+            """,
+        ),
+        (
+            "error_events",
+            """
+            SELECT event_id, request_id, workspace_id, action, method,
+                   status_code, error_type, failure_location, fingerprint,
+                   occurred_at, event_version
+            FROM studio_error_events ORDER BY event_id
             """,
         ),
         (

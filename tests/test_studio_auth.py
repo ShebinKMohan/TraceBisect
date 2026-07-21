@@ -456,7 +456,8 @@ def test_secured_metrics_require_a_dedicated_scrape_token(
         in health.json()["readiness"]["completed"]
     )
     assert (
-        "deployment wiring for metrics collection, alert delivery, and error-event retention"
+        "deployment wiring for metrics collection and alert delivery, "
+        "plus shared error-event retention"
         in health.json()["readiness"]["blockers"]
     )
     assert "secret-safe structured server error events" in health.json()["readiness"]["completed"]

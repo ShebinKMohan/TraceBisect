@@ -3,8 +3,8 @@
 The browser product still defaults to an in-memory store so a first-time user
 can run it without configuration. SQLite enables restart-safe local or
 single-node storage. PostgreSQL enables multi-instance-safe workspace data,
-managed keys, and browser sessions, while human identity and email operations
-remain explicitly gated to SQLite until their repositories migrate together.
+managed access, upload-only tokens, retained server errors, human identity, and
+encrypted invitation-email delivery.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from tracebisect.studio.service import (
     StudioStore,
 )
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 _WORKSPACE_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 _STORAGE_SETTING_NAMES = (
     "TRACEBISECT_STUDIO_STORAGE",
@@ -396,7 +396,17 @@ def ensure_studio_schema(connection: sqlite3.Connection) -> None:
                 "INSERT INTO studio_schema (version) VALUES (?)",
                 (SCHEMA_VERSION,),
             )
-        elif not isinstance(row[0], int) or row[0] not in {1, 2, 3, 4, 5, 6, 7, SCHEMA_VERSION}:
+        elif not isinstance(row[0], int) or row[0] not in {
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            SCHEMA_VERSION,
+        }:
             raise StudioPersistenceError(f"unsupported Studio database schema version {row[0]!r}")
         else:
             database_version = row[0]
@@ -489,6 +499,47 @@ def ensure_studio_schema(connection: sqlite3.Connection) -> None:
             """
             CREATE INDEX IF NOT EXISTS studio_ingestion_tokens_workspace_idx
             ON studio_ingestion_tokens (workspace_id, created_at)
+            """,
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS studio_error_events (
+                event_id TEXT PRIMARY KEY,
+                request_id TEXT NOT NULL,
+                workspace_id TEXT,
+                action TEXT NOT NULL,
+                method TEXT NOT NULL,
+                status_code INTEGER NOT NULL CHECK (status_code = 500),
+                error_type TEXT NOT NULL,
+                failure_location TEXT NOT NULL,
+                fingerprint TEXT NOT NULL,
+                occurred_at TEXT NOT NULL,
+                event_version INTEGER NOT NULL CHECK (event_version = 1)
+            )
+            """,
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS studio_error_events_request_idx
+            ON studio_error_events (request_id, occurred_at DESC)
+            """,
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS studio_error_events_fingerprint_idx
+            ON studio_error_events (fingerprint, occurred_at DESC)
+            """,
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS studio_error_events_retention_idx
+            ON studio_error_events (occurred_at DESC, event_id DESC)
+            """,
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS studio_error_events_workspace_retention_idx
+            ON studio_error_events (workspace_id, occurred_at DESC, event_id DESC)
             """,
         )
         connection.execute(

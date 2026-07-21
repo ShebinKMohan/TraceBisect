@@ -217,8 +217,9 @@ path. See
 [`docs/operations/studio-error-events.md`](docs/operations/studio-error-events.md)
 for the event contract and first-response workflow. Set
 `TRACEBISECT_STUDIO_ERROR_LOG_ENABLED=false` only when an equivalent safe error
-reporter is installed. The hosting platform still owns retention, search,
-delivery, and access control for both event streams.
+reporter is installed. Durable SQLite and PostgreSQL retain a bounded copy for
+operator request-ID search; the hosting platform still owns request-audit
+retention, centralized log access, and alert delivery.
 
 `/api/metrics` exposes Prometheus text metrics for storage readiness, request
 volume, result class, latency, authentication outcomes, in-flight work, and
@@ -281,12 +282,13 @@ uvicorn tracebisect.studio.api:app --port 8000
 ```
 
 Backups intentionally remove key-derived sessions, human identity sessions,
-the email outbox, and webhook metadata before they are published. A restored
-workspace keeps data, managed-key metadata,
+the email outbox, webhook metadata, and retained server-error history before
+they are published. A restored workspace keeps data, managed-key metadata,
 Argon2id users, memberships, invitation hashes, and recovery-code hashes, but
-requires every browser to sign in again. Restoring an older backup also restores
-older credential state, so production recovery must include a security review
-and credential rotation decision.
+requires every browser to sign in again and starts with an empty operational
+error history. Restoring an older backup also restores older credential state,
+so production recovery must include a security review and credential rotation
+decision.
 
 Each command reports the verified workspace, trace, comparison, guardrail,
 managed-access-key, person, and membership counts plus a SHA-256 checksum.
@@ -324,6 +326,8 @@ It is deliberately not described as horizontally scalable SaaS infrastructure.
   without persisting or redisplaying their plaintext values.
 - `tracebisect studio ingest-tokens create/list/revoke` — manages upload-only
   agent tokens with the same one-time plaintext handling.
+- `tracebisect studio error-events list` — finds retained secret-safe server
+  failures by the request ID shown to a user.
 - `tracebisect studio identity generate-secret` — creates the dedicated server
   secret for invitation-only human accounts, recovery, and sessions.
 - `tracebisect studio email deliver` — sends a bounded batch from the encrypted

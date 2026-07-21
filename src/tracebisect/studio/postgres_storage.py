@@ -1,8 +1,9 @@
 """Managed PostgreSQL storage for horizontally deployed Studio core data.
 
 This backend owns traces, comparison reports, regression cases, demo metadata,
-managed workspace keys, browser sessions, human identity, and the encrypted
-invitation-email outbox with delivery webhook reconciliation.
+managed workspace keys, upload-only ingestion tokens, retained server errors,
+browser sessions, human identity, and the encrypted invitation-email outbox with
+delivery webhook reconciliation.
 """
 
 from __future__ import annotations
@@ -49,7 +50,7 @@ from tracebisect.studio.storage import (
     validate_workspace_id,
 )
 
-POSTGRES_SCHEMA_VERSION = 6
+POSTGRES_SCHEMA_VERSION = 7
 _SCHEMA_LOCK_ID = 882_014_771
 _WORKSPACE_LOCK_SEED = 882_014_771
 _MANAGED_SECURITY_LOCK_ID = 882_014_772
@@ -157,6 +158,46 @@ POSTGRES_SCHEMA_STATEMENTS = (
     CREATE INDEX IF NOT EXISTS studio_ingestion_tokens_active_workspace_expiry_idx
     ON studio_ingestion_tokens (workspace_id, expires_at)
     WHERE revoked_at IS NULL
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS studio_error_events (
+        event_id text PRIMARY KEY,
+        request_id text NOT NULL,
+        workspace_id text,
+        action text NOT NULL,
+        method text NOT NULL,
+        status_code integer NOT NULL CHECK (status_code = 500),
+        error_type text NOT NULL,
+        failure_location text NOT NULL,
+        fingerprint text NOT NULL,
+        occurred_at timestamptz NOT NULL,
+        event_version integer NOT NULL CHECK (event_version = 1),
+        CHECK (char_length(event_id) = 32),
+        CHECK (char_length(request_id) BETWEEN 8 AND 64),
+        CHECK (request_id ~ '^[A-Za-z0-9._-]{8,64}$'),
+        CHECK (workspace_id IS NULL OR workspace_id ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'),
+        CHECK (char_length(action) BETWEEN 1 AND 80),
+        CHECK (char_length(method) BETWEEN 1 AND 16),
+        CHECK (char_length(error_type) BETWEEN 1 AND 80),
+        CHECK (char_length(failure_location) BETWEEN 1 AND 180),
+        CHECK (fingerprint ~ '^[a-f0-9]{20}$')
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS studio_error_events_request_idx
+    ON studio_error_events (request_id, occurred_at DESC)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS studio_error_events_fingerprint_idx
+    ON studio_error_events (fingerprint, occurred_at DESC)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS studio_error_events_retention_idx
+    ON studio_error_events (occurred_at DESC, event_id DESC)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS studio_error_events_workspace_retention_idx
+    ON studio_error_events (workspace_id, occurred_at DESC, event_id DESC)
     """,
     """
     CREATE TABLE IF NOT EXISTS studio_browser_sessions (

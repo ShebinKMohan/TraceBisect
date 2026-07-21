@@ -136,6 +136,13 @@ temporary files out of the web root, and throttle repeated API calls.
   JSON event records only the normalized action, bounded exception type, code
   location, stable fingerprint, and correlation fields; raw exception messages
   and request content are excluded.
+- Durable SQLite and PostgreSQL stores retain at most 1,000 secret-safe
+  server-error events per workspace, 10,000 overall, and 30 days of history.
+  Retention writes are serialized and
+  fail open to JSON logging, normal backups strip this operational history, and
+  `tracebisect studio error-events list` lets an operator search by the request
+  ID shown to a user or by recurring fingerprint. PostgreSQL shares the same
+  bounded history across API instances.
 - `/api/metrics` emits Prometheus text-format request counters, latency
   histograms, authentication outcomes, in-flight work, and process uptime.
   Labels use only fixed action/result values—never workspace, resource, user,
@@ -179,24 +186,25 @@ Studio a real multi-tenant SaaS:
   optional multi-factor or identity-provider sign-in.
 - Durable background jobs for large OTel imports and comparisons.
 - Durable centralized retention, search, alerting, and access control for the
-  structured audit stream.
+  high-volume structured request-audit stream. Server-error events now have
+  bounded SQLite/PostgreSQL retention and operator-only request-ID search.
 - Scheduled encrypted off-site backups, retention policy, and deployment-level
   recovery drills. The local CLI proves snapshot and restore mechanics only.
 - Object storage and antivirus/sandbox scanning for untrusted uploads.
-- Deployment wiring for centralized metrics collection, alert delivery,
-  dashboards, and durable error-event retention/search. The process now exposes
-  scrapeable metrics, starter alerts, and structured error events, but does not
-  configure the hosting platform around them.
+- Deployment wiring for centralized metrics collection, alert delivery, and
+  dashboards. The process exposes scrapeable metrics, starter alerts, and
+  retained structured error events, but does not configure the hosting platform
+  around them.
 - A managed hosting target and automated deployment workflow. The included
   Caddy/Compose bundle is an operator-run single-host topology, not a managed
   multi-region platform.
 
 The current build has pooled multi-instance PostgreSQL storage for core evidence,
 managed access, upload-only ingestion tokens, human identity, encrypted
-invitation delivery, and shared exact rate limiting, but it is not a finished
-hosted SaaS. The next production step is
+invitation delivery, shared exact rate limiting, and bounded server-error
+retention, but it is not a finished hosted SaaS. The next production step is
 a real provider migration rehearsal plus backup/restore drills, followed by
-email-domain operations, monitoring, and error-event retention. Do not add
+email-domain operations and hosted monitoring/alert delivery. Do not add
 Langfuse-scale ClickHouse or queues until the comparison workflow needs them.
 
 ## References

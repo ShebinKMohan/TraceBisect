@@ -31,6 +31,10 @@ from tracebisect.studio.access_sessions import (
 )
 from tracebisect.studio.auth import StudioAuthConfig
 from tracebisect.studio.email_delivery import StudioEmailDelivery, StudioEmailMessage
+from tracebisect.studio.error_reporting import (
+    StudioErrorReporter,
+    list_studio_error_events,
+)
 from tracebisect.studio.identity import (
     IssuedStudioInvitation,
     StudioInvitationRecord,
@@ -192,6 +196,11 @@ def test_postgres_schema_uses_jsonb_timestamps_constraints_and_workspace_indexes
     assert "create table if not exists studio_ingestion_tokens" in schema
     assert "scope text not null check (scope = 'trace:write')" in schema
     assert "studio_ingestion_tokens_active_workspace_expiry_idx" in schema
+    assert "create table if not exists studio_error_events" in schema
+    assert "studio_error_events_request_idx" in schema
+    assert "studio_error_events_fingerprint_idx" in schema
+    assert "studio_error_events_retention_idx" in schema
+    assert "studio_error_events_workspace_retention_idx" in schema
     assert "create table if not exists studio_browser_sessions" in schema
     assert "references studio_api_keys(key_id) on delete cascade" in schema
     assert "create table if not exists studio_users" in schema
@@ -216,7 +225,7 @@ def test_postgres_schema_uses_jsonb_timestamps_constraints_and_workspace_indexes
     assert "where revoked_at is null" in schema
 
 
-def test_postgres_schema_upgrades_core_v1_to_ingestion_tokens_v6() -> None:
+def test_postgres_schema_upgrades_core_v1_to_error_retention_v7() -> None:
     statements = [" ".join(statement.split()) for statement in POSTGRES_SCHEMA_STATEMENTS]
     connection = _Connection(
         [
@@ -568,6 +577,66 @@ def test_postgres_ingestion_token_creation_and_resolution_reuse_the_shared_pool(
     assert principal is not None
     assert principal.workspace_id == "workspace-a"
     assert principal.scope == "trace:write"
+    assert all("?" not in statement for statement, _params in connection.calls)
+    assert not connection.executions
+
+
+def test_postgres_error_retention_and_search_reuse_the_shared_pool() -> None:
+    store, connection, _pool = _store(
+        [
+            _Execution("pg_advisory_xact_lock"),
+            _Execution("DELETE FROM studio_error_events WHERE occurred_at"),
+            _Execution("INSERT INTO studio_error_events"),
+            _Execution("workspace_id IS NOT DISTINCT FROM"),
+            _Execution("DELETE FROM studio_error_events"),
+        ]
+    )
+    reporter = StudioErrorReporter(managed_database=store)
+    try:
+        raise RuntimeError("secret customer message")
+    except RuntimeError as error:
+        reporter.emit_unhandled(
+            request_id="request-postgres-1234",
+            method="POST",
+            path="/api/compare",
+            workspace_id="workspace-a",
+            error=error,
+            now=datetime(2026, 7, 21, 12, 0, tzinfo=timezone.utc),
+        )
+    insert_params = next(
+        params
+        for statement, params in connection.calls
+        if "INSERT INTO studio_error_events" in statement
+    )
+    assert isinstance(insert_params, tuple)
+    assert "secret customer message" not in str(insert_params)
+    connection.executions.append(
+        _Execution(
+            "SELECT event_id, request_id, workspace_id, action, method",
+            many=(
+                (
+                    insert_params[0],
+                    "request-postgres-1234",
+                    "workspace-a",
+                    "trace_compare",
+                    "POST",
+                    500,
+                    "RuntimeError",
+                    insert_params[7],
+                    insert_params[8],
+                    insert_params[9],
+                    1,
+                ),
+            ),
+        )
+    )
+
+    records = list_studio_error_events(store, request_id="request-postgres-1234")
+
+    assert len(records) == 1
+    assert records[0].request_id == "request-postgres-1234"
+    assert records[0].workspace_id == "workspace-a"
+    assert reporter.runtime_status()["retention_kind"] == "shared_postgres"
     assert all("?" not in statement for statement, _params in connection.calls)
     assert not connection.executions
 
@@ -1127,6 +1196,26 @@ def test_live_postgres_store_shares_fresh_data_and_isolates_workspaces() -> None
             is None
         )
 
+        error_request_id = f"request-live-{workspace_id}"
+        reporter = StudioErrorReporter(managed_database=first)
+        try:
+            raise RuntimeError("live customer content must not be retained")
+        except RuntimeError as error:
+            reporter.emit_unhandled(
+                request_id=error_request_id,
+                method="POST",
+                path="/api/compare",
+                workspace_id=workspace_id,
+                error=error,
+            )
+        retained_errors = list_studio_error_events(
+            restored,
+            request_id=error_request_id,
+        )
+        assert len(retained_errors) == 1
+        assert retained_errors[0].workspace_id == workspace_id
+        assert retained_errors[0].action == "trace_compare"
+
         identity_secret = "live-postgres-identity-secret-with-at-least-32-characters"
         invitation = create_studio_invitation(
             first,
@@ -1267,6 +1356,10 @@ def test_live_postgres_store_shares_fresh_data_and_isolates_workspaces() -> None
                     )
                     connection.execute(
                         "DELETE FROM studio_ingestion_tokens WHERE workspace_id = ?",
+                        (workspace_id,),
+                    )
+                    connection.execute(
+                        "DELETE FROM studio_error_events WHERE workspace_id = ?",
                         (workspace_id,),
                     )
                     connection.execute(

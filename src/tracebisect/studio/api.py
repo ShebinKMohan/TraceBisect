@@ -73,7 +73,7 @@ from tracebisect.studio.identity import (
     StudioMembershipRecord,
 )
 from tracebisect.studio.ingestion_tokens import MAX_ACTIVE_INGESTION_TOKENS_PER_WORKSPACE
-from tracebisect.studio.managed_database import StudioManagedDatabase
+from tracebisect.studio.managed_database import StudioDatabaseTarget, StudioManagedDatabase
 from tracebisect.studio.metrics import (
     PROMETHEUS_CONTENT_TYPE,
     StudioMetrics,
@@ -90,6 +90,7 @@ from tracebisect.studio.service import (
     seed_demo_report,
 )
 from tracebisect.studio.storage import (
+    SQLiteStudioStore,
     StudioConfigurationError,
     StudioPersistenceError,
     StudioStoreRegistry,
@@ -253,11 +254,23 @@ app = FastAPI(
 
 STORE_REGISTRY = StudioStoreRegistry()
 STORE: StudioStore = STORE_REGISTRY.default_store
+
+
+def _error_event_database(store: StudioStore) -> StudioDatabaseTarget | None:
+    if isinstance(store, SQLiteStudioStore):
+        return store.database_path
+    if isinstance(store, StudioManagedDatabase):
+        return store
+    return None
+
+
 AUTH_CONFIG = StudioAuthConfig.from_env(
     managed_database=STORE if isinstance(STORE, StudioManagedDatabase) else None,
 )
 AUDIT = StudioAudit.from_env()
-ERROR_REPORTER = StudioErrorReporter.from_env()
+ERROR_REPORTER = StudioErrorReporter.from_env(
+    managed_database=_error_event_database(STORE),
+)
 EMAIL_DELIVERY = StudioEmailDelivery.from_env(
     managed_database=STORE if isinstance(STORE, StudioManagedDatabase) else None,
 )
@@ -661,6 +674,14 @@ def health() -> JsonObject:
             "rate_limit_upload_requests": RATE_LIMIT_UPLOAD_REQUESTS,
             "max_active_workspace_keys": MAX_ACTIVE_STUDIO_API_KEYS_PER_WORKSPACE,
             "max_active_ingestion_tokens": MAX_ACTIVE_INGESTION_TOKENS_PER_WORKSPACE,
+            "max_stored_error_events": cast(
+                int,
+                ERROR_REPORTER.runtime_status()["max_stored_events"],
+            ),
+            "max_stored_error_events_per_workspace": cast(
+                int,
+                ERROR_REPORTER.runtime_status()["max_stored_events_per_workspace"],
+            ),
             "max_workspace_members": MAX_ACTIVE_MEMBERS_PER_WORKSPACE,
             "max_pending_workspace_invitations": MAX_ACTIVE_INVITATIONS_PER_WORKSPACE,
             "max_stored_workspace_invitations": MAX_STORED_INVITATIONS_PER_WORKSPACE,
@@ -1815,6 +1836,10 @@ def _production_readiness(
         blockers.insert(0, "structured request audit logs")
     if ERROR_REPORTER.enabled:
         completed.append("secret-safe structured server error events")
+        if ERROR_REPORTER.runtime_status()["durable_retention"] is True:
+            completed.append("bounded durable server-error retention with request-ID search")
+        else:
+            blockers.insert(0, "durable server-error retention and request-ID search")
     else:
         blockers.insert(0, "structured server error events")
     metrics_access = METRICS_ACCESS.access_mode(auth_required=AUTH_CONFIG.required)
@@ -1825,9 +1850,10 @@ def _production_readiness(
                 "vendor-neutral alert rules and beginner incident runbook",
             ]
         )
-        blockers[blockers.index("hosted deployment observability")] = (
-            "deployment wiring for metrics collection, alert delivery, and error-event retention"
-        )
+        observability_blocker = "deployment wiring for metrics collection and alert delivery"
+        if ERROR_REPORTER.runtime_status()["retention_kind"] != "shared_postgres":
+            observability_blocker += ", plus shared error-event retention"
+        blockers[blockers.index("hosted deployment observability")] = observability_blocker
     else:
         blockers.insert(0, "dedicated production metrics scrape access")
     if durable:

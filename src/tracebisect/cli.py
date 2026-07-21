@@ -355,6 +355,42 @@ def build_parser() -> argparse.ArgumentParser:
         help="12-character token ID shown by the list command.",
     )
 
+    studio_error_events = studio_commands.add_parser(
+        "error-events",
+        help="Find retained server failures by the request ID shown to a user.",
+    )
+    studio_error_event_commands = studio_error_events.add_subparsers(
+        dest="studio_error_event_command",
+        metavar="<error-command>",
+    )
+    studio_error_events.set_defaults(studio_error_events_parser=studio_error_events)
+
+    studio_error_events_list = studio_error_event_commands.add_parser(
+        "list",
+        help="List secret-safe server failure metadata, newest first.",
+    )
+    studio_error_events_list.add_argument(
+        "--database",
+        help=(
+            "SQLite database path. Omit for PostgreSQL when "
+            "TRACEBISECT_STUDIO_DATABASE_URL is set."
+        ),
+    )
+    studio_error_events_list.add_argument(
+        "--request-id",
+        help="Show only the failure with this request ID.",
+    )
+    studio_error_events_list.add_argument(
+        "--fingerprint",
+        help="Show recurring failures with this 20-character fingerprint.",
+    )
+    studio_error_events_list.add_argument(
+        "--limit",
+        type=int,
+        default=50,
+        help="Maximum results to show (default: 50, maximum: 500).",
+    )
+
     studio_metrics = studio_commands.add_parser(
         "metrics",
         help="Configure safe access to production service metrics.",
@@ -971,6 +1007,39 @@ def run_studio_ingest_tokens_revoke(database: str | None, token_id: str) -> int:
     return 0
 
 
+def run_studio_error_events_list(
+    database: str | None,
+    *,
+    request_id: str | None,
+    fingerprint: str | None,
+    limit: int,
+) -> int:
+    from tracebisect.studio.error_reporting import list_studio_error_events
+
+    with _studio_key_database(database) as target:
+        records = list_studio_error_events(
+            target,
+            request_id=request_id,
+            fingerprint=fingerprint,
+            limit=limit,
+        )
+    if not records:
+        print("No retained server error events match this search.")
+        print("Check the request ID or search again without a filter.")
+        return 0
+    print("Retained server error events")
+    print("These records contain operational metadata only, never exception messages.")
+    for record in records:
+        workspace = record.workspace_id or "public or unavailable"
+        print(
+            f"- {record.occurred_at} · {record.action} · {record.error_type} · "
+            f"{record.fingerprint}"
+        )
+        print(f"  request {record.request_id} · workspace {workspace}")
+        print(f"  location {record.failure_location}")
+    return 0
+
+
 @contextmanager
 def _studio_key_database(database: str | None) -> Iterator[StudioDatabaseTarget]:
     """Resolve a beginner-friendly SQLite path or configured PostgreSQL URL."""
@@ -1070,6 +1139,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         from tracebisect.studio.access_keys import StudioApiKeyError
         from tracebisect.studio.backup import StudioBackupError
         from tracebisect.studio.email_delivery import StudioEmailDeliveryError
+        from tracebisect.studio.error_reporting import StudioErrorEventError
         from tracebisect.studio.ingestion_tokens import StudioIngestionTokenError
         from tracebisect.studio.postgres_migration import StudioPostgresMigrationError
         from tracebisect.studio.storage import StudioConfigurationError
@@ -1119,6 +1189,17 @@ def main(argv: Sequence[str] | None = None) -> int:
                     return run_studio_ingest_tokens_list(args.database)
                 if args.studio_ingest_token_command == "revoke":
                     return run_studio_ingest_tokens_revoke(args.database, args.token_id)
+            if args.studio_command == "error-events":
+                if args.studio_error_event_command is None:
+                    args.studio_error_events_parser.print_help()
+                    return 0
+                if args.studio_error_event_command == "list":
+                    return run_studio_error_events_list(
+                        args.database,
+                        request_id=args.request_id,
+                        fingerprint=args.fingerprint,
+                        limit=args.limit,
+                    )
             if args.studio_command == "metrics":
                 if args.studio_metrics_command is None:
                     args.studio_metrics_parser.print_help()
@@ -1148,6 +1229,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             StudioBackupError,
             StudioConfigurationError,
             StudioEmailDeliveryError,
+            StudioErrorEventError,
             StudioIngestionTokenError,
             StudioPostgresMigrationError,
         ) as exc:
@@ -1159,6 +1241,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 and args.studio_ingest_token_command is not None
             ):
                 failed_command = f"ingest-tokens {args.studio_ingest_token_command}"
+            if (
+                args.studio_command == "error-events"
+                and args.studio_error_event_command is not None
+            ):
+                failed_command = f"error-events {args.studio_error_event_command}"
             if args.studio_command == "metrics" and args.studio_metrics_command is not None:
                 failed_command = f"metrics {args.studio_metrics_command}"
             if args.studio_command == "identity" and args.studio_identity_command is not None:

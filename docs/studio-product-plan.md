@@ -143,8 +143,9 @@ identity, recovery, team roles, upload-only ingestion tokens, encrypted
 invitation delivery, and shared exact request limiting across API and worker
 instances. Atomic SQLite cutover and
 verification tooling is implemented; provider rehearsal and hosted
-monitoring/error-event retention wiring remain separate SaaS milestones. The API
-also provides hashed expiring keys, a protected Prometheus
+monitoring and alert-delivery wiring remain separate SaaS milestones. The API
+also provides bounded durable server-error retention and request-ID search,
+hashed expiring keys, a protected Prometheus
 scrape endpoint, starter alert rules, and an incident runbook. Admins can now
 manage role-based workspace keys inside Settings after the operator bootstraps
 the first admin; hosting-platform collection and delivery are still required.
