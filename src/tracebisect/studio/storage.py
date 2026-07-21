@@ -26,7 +26,7 @@ from tracebisect.studio.service import (
     StudioStore,
 )
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 _WORKSPACE_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 _STORAGE_SETTING_NAMES = (
     "TRACEBISECT_STUDIO_STORAGE",
@@ -365,7 +365,7 @@ def ensure_studio_schema(connection: sqlite3.Connection) -> None:
                 "INSERT INTO studio_schema (version) VALUES (?)",
                 (SCHEMA_VERSION,),
             )
-        elif not isinstance(row[0], int) or row[0] not in {1, SCHEMA_VERSION}:
+        elif not isinstance(row[0], int) or row[0] not in {1, 2, SCHEMA_VERSION}:
             raise StudioPersistenceError(f"unsupported Studio database schema version {row[0]!r}")
         else:
             database_version = row[0]
@@ -418,6 +418,7 @@ def ensure_studio_schema(connection: sqlite3.Connection) -> None:
             CREATE TABLE IF NOT EXISTS studio_api_keys (
                 key_id TEXT PRIMARY KEY,
                 workspace_id TEXT NOT NULL,
+                role TEXT NOT NULL CHECK (role IN ('viewer', 'editor', 'admin')),
                 label TEXT NOT NULL,
                 key_hash TEXT NOT NULL,
                 created_at TEXT NOT NULL,
@@ -426,6 +427,13 @@ def ensure_studio_schema(connection: sqlite3.Connection) -> None:
             )
             """,
         )
+        key_columns = {
+            str(column[1]) for column in connection.execute("PRAGMA table_info(studio_api_keys)")
+        }
+        if "role" not in key_columns:
+            connection.execute(
+                "ALTER TABLE studio_api_keys ADD COLUMN role TEXT NOT NULL DEFAULT 'admin'"
+            )
         connection.execute(
             """
             CREATE INDEX IF NOT EXISTS studio_api_keys_workspace_idx

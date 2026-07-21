@@ -10,7 +10,7 @@ import pytest
 from tracebisect.cli import main
 from tracebisect.studio.access_keys import (
     create_studio_api_key,
-    workspace_for_managed_api_key,
+    principal_for_managed_api_key,
 )
 from tracebisect.studio.backup import (
     StudioBackupError,
@@ -46,6 +46,7 @@ def test_live_backup_verifies_and_restores_all_workspace_data(tmp_path: Path) ->
     issued_key = create_studio_api_key(
         source_path,
         workspace_id="workspace-a",
+        role="editor",
         label="Restored browser",
         expires_in_days=90,
         pepper=pepper,
@@ -80,14 +81,14 @@ def test_live_backup_verifies_and_restores_all_workspace_data(tmp_path: Path) ->
     assert restored.get_report(str(report["report_id"])) == report
     assert restored.get_case(str(case["case_id"])) == case
     restored.close()
-    assert (
-        workspace_for_managed_api_key(
-            restored_path,
-            api_key=issued_key.api_key,
-            pepper=pepper,
-        )
-        == "workspace-a"
+    restored_principal = principal_for_managed_api_key(
+        restored_path,
+        api_key=issued_key.api_key,
+        pepper=pepper,
     )
+    assert restored_principal is not None
+    assert restored_principal.workspace_id == "workspace-a"
+    assert restored_principal.role == "editor"
 
 
 def test_backup_and_restore_never_replace_existing_files(tmp_path: Path) -> None:

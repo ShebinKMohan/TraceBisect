@@ -13,8 +13,9 @@ from typing import Literal, cast
 
 from tracebisect.studio.access_keys import (
     API_KEY_PEPPER_ENV,
+    WorkspaceRole,
     api_key_pepper,
-    workspace_for_managed_api_key,
+    principal_for_managed_api_key,
 )
 from tracebisect.studio.storage import StudioConfigurationError, validate_workspace_id
 
@@ -23,6 +24,14 @@ CredentialSource = Literal["none", "environment", "managed"]
 MIN_API_KEY_LENGTH = 32
 MAX_API_KEY_LENGTH = 256
 _API_KEY_PATTERN = re.compile(r"^[A-Za-z0-9._~-]{32,256}$")
+
+
+@dataclass(frozen=True, slots=True)
+class StudioAuthPrincipal:
+    """Workspace and role granted by one accepted bearer credential."""
+
+    workspace_id: str
+    role: WorkspaceRole
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,6 +101,14 @@ class StudioAuthConfig:
 
     def workspace_for_authorization(self, authorization: str | None) -> str | None:
         """Return the authorized workspace, or ``None`` for a missing/invalid key."""
+        principal = self.principal_for_authorization(authorization)
+        return principal.workspace_id if principal is not None else None
+
+    def principal_for_authorization(
+        self,
+        authorization: str | None,
+    ) -> StudioAuthPrincipal | None:
+        """Return the workspace role granted by a valid bearer credential."""
         if not self.required:
             return None
         if authorization is None:
@@ -104,16 +121,24 @@ class StudioAuthConfig:
         if self.credential_source == "managed":
             if self._database_path is None or self._pepper is None:
                 return None
-            return workspace_for_managed_api_key(
+            principal = principal_for_managed_api_key(
                 self._database_path,
                 api_key=candidate,
                 pepper=self._pepper,
+            )
+            if principal is None:
+                return None
+            return StudioAuthPrincipal(
+                workspace_id=principal.workspace_id,
+                role=principal.role,
             )
         matched_workspace: str | None = None
         for expected, workspace_id in self._credentials:
             if secrets.compare_digest(candidate, expected):
                 matched_workspace = workspace_id
-        return matched_workspace
+        if matched_workspace is None:
+            return None
+        return StudioAuthPrincipal(workspace_id=matched_workspace, role="admin")
 
     def runtime_status(self) -> dict[str, str | bool]:
         """Describe the auth boundary without exposing credentials or workspace names."""

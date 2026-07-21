@@ -7,6 +7,7 @@ export type JsonValue =
   | { [key: string]: JsonValue };
 
 export type JsonObject = { [key: string]: JsonValue };
+export type WorkspaceRole = "viewer" | "editor" | "admin";
 
 export type StudioHealth = {
   ok: boolean;
@@ -49,6 +50,7 @@ export type StudioHealth = {
 export type StudioSession = {
   authenticated: boolean;
   workspace_id: string;
+  role: WorkspaceRole;
   runtime: StudioHealth["runtime"];
 };
 

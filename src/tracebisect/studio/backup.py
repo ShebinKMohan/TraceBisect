@@ -260,7 +260,7 @@ def _content_sha256(connection: sqlite3.Connection) -> str:
         (
             "api_keys",
             """
-            SELECT key_id, workspace_id, label, key_hash, created_at, expires_at, revoked_at
+            SELECT key_id, workspace_id, role, label, key_hash, created_at, expires_at, revoked_at
             FROM studio_api_keys ORDER BY key_id
             """,
         ),

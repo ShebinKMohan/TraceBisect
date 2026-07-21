@@ -34,6 +34,9 @@ temporary files out of the web root, and throttle repeated API calls.
 - The recommended managed-key mode stores only peppered HMAC-SHA256 digests in
   SQLite. Operator commands issue high-entropy expiring keys, list non-secret
   metadata, and revoke keys immediately; plaintext values are shown once.
+- Managed keys carry a `viewer`, `editor`, or `admin` role. Viewer requests are
+  enforced as read-only before route execution, including blocking the
+  side-effecting demo seed; legacy environment keys retain admin compatibility.
 - The legacy plaintext `TRACEBISECT_STUDIO_API_KEYS` mapping remains supported
   for migration/local use and is reported separately by the health endpoint.
 - Studio keeps an accepted workspace key in browser `sessionStorage`, not

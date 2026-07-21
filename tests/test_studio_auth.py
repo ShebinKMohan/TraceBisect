@@ -106,6 +106,7 @@ def test_managed_api_key_auth_observes_expiry_and_immediate_revocation(
     issued = create_studio_api_key(
         database_path,
         workspace_id="workspace-a",
+        role="editor",
         label="Browser access",
         expires_in_days=90,
         pepper=pepper,
@@ -124,6 +125,9 @@ def test_managed_api_key_auth_observes_expiry_and_immediate_revocation(
         "credential_source": "managed",
     }
     assert config.workspace_for_authorization(f"Bearer {issued.api_key}") == "workspace-a"
+    principal = config.principal_for_authorization(f"Bearer {issued.api_key}")
+    assert principal is not None
+    assert principal.role == "editor"
     assert config.workspace_for_authorization("Bearer tbsk_bad_bad") is None
     assert issued.api_key not in repr(config)
     assert pepper not in repr(config)
@@ -264,7 +268,9 @@ def test_secured_api_rejects_spoofing_and_isolates_workspace_data(
 
     assert workspace_a_session.status_code == 200
     assert workspace_a_session.json()["workspace_id"] == "workspace-a"
+    assert workspace_a_session.json()["role"] == "admin"
     assert workspace_b_session.json()["workspace_id"] == "workspace-b"
+    assert workspace_b_session.json()["role"] == "admin"
     assert workspace_a_report.status_code == 200
     assert workspace_b_report.status_code == 200
     assert workspace_a_report.json()["report_id"] != workspace_b_report.json()["report_id"]
@@ -296,6 +302,7 @@ def test_managed_key_secures_live_api_and_revokes_without_restart(
     issued = create_studio_api_key(
         database_path,
         workspace_id="workspace-a",
+        role="editor",
         label="Browser access",
         expires_in_days=90,
         pepper=pepper,
@@ -327,6 +334,7 @@ def test_managed_key_secures_live_api_and_revokes_without_restart(
     )
     assert accepted_response.status_code == 200
     assert accepted_response.json()["workspace_id"] == "workspace-a"
+    assert accepted_response.json()["role"] == "editor"
 
     revoke_studio_api_key(database_path, key_id=issued.record.key_id)
     revoked_response = client.get("/api/session", headers=headers)
@@ -335,4 +343,75 @@ def test_managed_key_secures_live_api_and_revokes_without_restart(
     audit_output = "\n".join(record.message for record in caplog.records)
     assert issued.api_key not in audit_output
     assert pepper not in audit_output
+    registry.close()
+
+
+def test_viewer_role_is_read_only_while_editor_can_seed_workspace(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    database_path = tmp_path / "studio.db"
+    pepper = "role-test-pepper-with-at-least-32-characters"
+    viewer = create_studio_api_key(
+        database_path,
+        workspace_id="workspace-a",
+        role="viewer",
+        label="Reviewer",
+        expires_in_days=90,
+        pepper=pepper,
+    )
+    editor = create_studio_api_key(
+        database_path,
+        workspace_id="workspace-a",
+        role="editor",
+        label="Developer",
+        expires_in_days=90,
+        pepper=pepper,
+    )
+    env = {
+        "TRACEBISECT_STUDIO_STORAGE": "sqlite",
+        "TRACEBISECT_STUDIO_SQLITE_PATH": str(database_path),
+        "TRACEBISECT_STUDIO_WORKSPACE_ID": "health-probe",
+        "TRACEBISECT_STUDIO_AUTH_MODE": "api-key",
+        "TRACEBISECT_STUDIO_API_KEY_PEPPER": pepper,
+    }
+    registry = StudioStoreRegistry(env)
+    auth_config = StudioAuthConfig.from_env(env)
+    monkeypatch.setattr(studio_api, "AUTH_CONFIG", auth_config)
+    monkeypatch.setattr(studio_api, "STORE_REGISTRY", registry)
+    monkeypatch.setattr(studio_api, "STORE", registry.default_store)
+    asyncio.run(studio_api.RATE_LIMITER.reset())
+    caplog.set_level(logging.INFO, logger=AUDIT_LOGGER_NAME)
+    client = TestClient(studio_api.app)
+    editor_headers = {"Authorization": f"Bearer {editor.api_key}"}
+    viewer_headers = {"Authorization": f"Bearer {viewer.api_key}"}
+
+    seeded = client.get("/api/demo-report", headers=editor_headers)
+    viewer_session = client.get("/api/session", headers=viewer_headers)
+    viewer_reads = [
+        client.get("/api/traces", headers=viewer_headers),
+        client.get("/api/runs", headers=viewer_headers),
+        client.get("/api/regression-cases", headers=viewer_headers),
+    ]
+    counts_before = registry.get("workspace-a").runtime_status()
+    viewer_mutations = [
+        client.get("/api/demo-report", headers=viewer_headers),
+        client.post("/api/traces/upload", headers=viewer_headers),
+        client.post("/api/compare", headers=viewer_headers, json={}),
+        client.post("/api/regression-cases", headers=viewer_headers, json={}),
+        client.post("/api/regression-cases/unknown/run", headers=viewer_headers, json={}),
+    ]
+
+    assert seeded.status_code == 200
+    assert viewer_session.status_code == 200
+    assert viewer_session.json()["role"] == "viewer"
+    assert all(response.status_code == 200 for response in viewer_reads)
+    assert all(response.status_code == 403 for response in viewer_mutations)
+    assert all("viewer access" in response.json()["detail"] for response in viewer_mutations)
+    assert registry.get("workspace-a").runtime_status() == counts_before
+    audit_output = "\n".join(record.message for record in caplog.records)
+    assert '"status_code":403' in audit_output
+    assert viewer.api_key not in audit_output
+    assert editor.api_key not in audit_output
     registry.close()

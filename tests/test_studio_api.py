@@ -60,6 +60,17 @@ def test_studio_api_serves_demo_report() -> None:
     assert len(STORE.list_report_summaries()) == 1
 
 
+def test_open_local_session_has_admin_access() -> None:
+    reset_studio_state()
+    client = TestClient(app)
+
+    response = client.get("/api/session")
+
+    assert response.status_code == 200
+    assert response.json()["authenticated"] is False
+    assert response.json()["role"] == "admin"
+
+
 def test_studio_api_lists_demo_run_history_without_duplicates() -> None:
     reset_studio_state()
     client = TestClient(app)

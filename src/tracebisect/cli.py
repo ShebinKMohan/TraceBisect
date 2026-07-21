@@ -23,7 +23,7 @@ import sys
 import tempfile
 from collections.abc import Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from colorama import init as colorama_init
 
@@ -217,6 +217,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--name",
         required=True,
         help="Human-readable owner or purpose, such as 'CI upload'.",
+    )
+    studio_keys_create.add_argument(
+        "--role",
+        choices=["viewer", "editor", "admin"],
+        default="editor",
+        help=(
+            "Access level: viewer reads, editor runs workflows, admin owns access "
+            "(default: editor)."
+        ),
     )
     studio_keys_create.add_argument(
         "--expires-in-days",
@@ -519,6 +528,7 @@ def run_studio_keys_create(
     database: str,
     workspace: str,
     name: str,
+    role: Literal["viewer", "editor", "admin"],
     expires_in_days: int,
 ) -> int:
     from tracebisect.studio.access_keys import api_key_pepper, create_studio_api_key
@@ -526,6 +536,7 @@ def run_studio_keys_create(
     issued = create_studio_api_key(
         database,
         workspace_id=workspace,
+        role=role,
         label=name,
         expires_in_days=expires_in_days,
         pepper=api_key_pepper(),
@@ -533,6 +544,7 @@ def run_studio_keys_create(
     print("Workspace access key created")
     print(f"  Key ID: {issued.record.key_id}")
     print(f"  Workspace: {issued.record.workspace_id}")
+    print(f"  Role: {issued.record.role}")
     print(f"  Name: {issued.record.label}")
     print(f"  Expires: {issued.record.expires_at}")
     print()
@@ -553,7 +565,10 @@ def run_studio_keys_list(database: str) -> int:
         return 0
     print("Managed workspace keys")
     for record in records:
-        print(f"- {record.key_id} · {record.status} · {record.workspace_id} · {record.label}")
+        print(
+            f"- {record.key_id} · {record.status} · {record.role} · "
+            f"{record.workspace_id} · {record.label}"
+        )
         print(f"  expires {record.expires_at}")
     return 0
 
@@ -565,6 +580,7 @@ def run_studio_keys_revoke(database: str, key_id: str) -> int:
     print("Workspace access key revoked")
     print(f"  Key ID: {record.key_id}")
     print(f"  Workspace: {record.workspace_id}")
+    print(f"  Role: {record.role}")
     print(f"  Name: {record.label}")
     print(f"  Revoked: {record.revoked_at}")
     return 0
@@ -637,6 +653,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         args.database,
                         args.workspace,
                         args.name,
+                        args.role,
                         args.expires_in_days,
                     )
                 if args.studio_keys_command == "list":

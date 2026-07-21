@@ -77,6 +77,7 @@ tracebisect studio keys create \
   --database .tracebisect/studio.db \
   --workspace team-a \
   --name 'Team A browser' \
+  --role editor \
   --expires-in-days 90
 
 TRACEBISECT_STUDIO_STORAGE=sqlite \
@@ -90,6 +91,11 @@ Studio stores a peppered HMAC digest—not the plaintext key—and rejects expir
 or revoked keys immediately. Use `tracebisect studio keys list` to review safe
 metadata. For zero-downtime rotation, create a replacement, update the client,
 then run `tracebisect studio keys revoke --key-id ...` for the old key.
+
+Choose the smallest role that fits: `viewer` can inspect existing evidence,
+`editor` can also upload, compare, save, and rerun guardrails, and `admin` is the
+operator/owner role. Studio enforces the role on every API request and shows a
+clear read-only banner for viewer sessions.
 
 The bearer key—not a client-provided workspace header—selects the authorized
 workspace. Studio keeps an accepted browser key in `sessionStorage`, so closing
@@ -220,9 +226,10 @@ V1 will ship:
 - pytest regression-test export with fresh CI capture
 - Studio web dashboard for upload, compare, visual report, and pytest copy flow
 
-V1 Studio is still intentionally narrow: it has opt-in workspace API-key
-protection, but no managed user accounts, billing, team RBAC, vendor-native
-direct importers, or git-history bisection.
+V1 Studio is still intentionally narrow: it has opt-in role-scoped workspace
+API-key protection, but no managed user accounts, billing, browser-based team
+membership administration, vendor-native direct importers, or git-history
+bisection.
 
 See [spec/production-spec.md](spec/production-spec.md) for the locked product
 specification.

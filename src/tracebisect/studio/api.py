@@ -108,6 +108,7 @@ UPLOAD_CHUNK_BYTES = 1024 * 1024
 VALID_RUN_STATUSES = frozenset({"passing", "failing"})
 VALID_RUN_SEVERITIES = frozenset({"INFO", "LOW", "MEDIUM", "HIGH", "CRITICAL"})
 PUBLIC_API_PATHS = frozenset({"/api/health", "/api/ready"})
+VIEWER_BLOCKED_GET_PATHS = frozenset({"/api/demo-report"})
 ALLOWED_ORIGINS = _configured_allowed_origins()
 
 app = FastAPI(
@@ -230,10 +231,10 @@ async def apply_api_guardrails(
             )
 
         if AUTH_CONFIG.required and request.url.path not in PUBLIC_API_PATHS:
-            workspace_id = AUTH_CONFIG.workspace_for_authorization(
+            principal = AUTH_CONFIG.principal_for_authorization(
                 request.headers.get("Authorization")
             )
-            if workspace_id is None:
+            if principal is None:
                 auth_outcome = "rejected"
                 unauthorized_response = JSONResponse(
                     status_code=401,
@@ -248,11 +249,35 @@ async def apply_api_guardrails(
                     auth_outcome=auth_outcome,
                     workspace_id=audit_workspace_id,
                 )
-            request.state.workspace_id = workspace_id
+            request.state.workspace_id = principal.workspace_id
+            request.state.workspace_role = principal.role
             auth_outcome = "authenticated"
-            audit_workspace_id = workspace_id
+            audit_workspace_id = principal.workspace_id
+            if not _role_allows_request(
+                role=principal.role,
+                method=request.method,
+                path=request.url.path,
+            ):
+                forbidden_response = JSONResponse(
+                    status_code=403,
+                    content={
+                        "detail": (
+                            "This workspace key has viewer access. An editor or admin key is "
+                            "required to change workspace data."
+                        )
+                    },
+                )
+                return _finalize_audited_response(
+                    request=request,
+                    response=forbidden_response,
+                    started_at=started_at,
+                    request_id=request_id,
+                    auth_outcome=auth_outcome,
+                    workspace_id=audit_workspace_id,
+                )
         else:
             request.state.workspace_id = STORE.workspace_id
+            request.state.workspace_role = "admin"
             if AUTH_CONFIG.required:
                 auth_outcome = "public"
             else:
@@ -358,9 +383,13 @@ def session(request: Request, store: StudioStoreDependency) -> JsonObject:
     workspace_id = getattr(request.state, "workspace_id", store.workspace_id)
     if not isinstance(workspace_id, str):
         raise StudioPersistenceError("request workspace context is invalid")
+    workspace_role = getattr(request.state, "workspace_role", "admin")
+    if workspace_role not in {"viewer", "editor", "admin"}:
+        raise StudioPersistenceError("request workspace role is invalid")
     return {
         "authenticated": AUTH_CONFIG.required,
         "workspace_id": workspace_id,
+        "role": workspace_role,
         "runtime": store.runtime_status(),
     }
 
@@ -632,13 +661,20 @@ def _validate_run_filter(name: str, value: str | None, allowed: frozenset[str]) 
         raise HTTPException(status_code=400, detail=f"{name} must be one of: {allowed_values}.")
 
 
+def _role_allows_request(*, role: str, method: str, path: str) -> bool:
+    """Keep viewer credentials read-only, including the demo's seeding GET route."""
+    if role != "viewer":
+        return True
+    return method.upper() in {"GET", "HEAD"} and path not in VIEWER_BLOCKED_GET_PATHS
+
+
 def _production_readiness(*, storage_ok: bool) -> JsonObject:
     runtime = STORE.runtime_status()
     durable = runtime["durable"] is True
     completed: list[str] = ["API storage health check"] if storage_ok else []
     blockers = [
         "scheduled encrypted off-site backups and recovery drills",
-        "managed user accounts, recovery, and team RBAC",
+        "managed user accounts, recovery, and team membership administration",
         "hosted deployment observability",
     ]
     if AUTH_CONFIG.required:
@@ -649,7 +685,12 @@ def _production_readiness(*, storage_ok: bool) -> JsonObject:
             ]
         )
         if AUTH_CONFIG.credential_source == "managed":
-            completed.append("hashed expiring workspace keys with operator revocation")
+            completed.extend(
+                [
+                    "hashed expiring workspace keys with operator revocation",
+                    "viewer, editor, and admin request authorization",
+                ]
+            )
         else:
             blockers.insert(0, "hashed API-key issuance, expiry, and revocation")
     else:

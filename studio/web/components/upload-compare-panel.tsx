@@ -7,6 +7,7 @@ type UploadComparePanelProps = {
   baselineId: string;
   candidateId: string;
   busy: boolean;
+  readOnly: boolean;
   onBaselineChange: (value: string) => void;
   onCandidateChange: (value: string) => void;
   onUpload: (file: File, role: "baseline" | "candidate") => void;
@@ -18,12 +19,13 @@ export function UploadComparePanel({
   baselineId,
   candidateId,
   busy,
+  readOnly,
   onBaselineChange,
   onCandidateChange,
   onUpload,
   onCompare,
 }: UploadComparePanelProps) {
-  const disabled = busy || !baselineId || !candidateId;
+  const disabled = readOnly || busy || !baselineId || !candidateId;
   return (
     <section className="panel upload-panel">
       <div className="section-heading compact">
@@ -34,9 +36,16 @@ export function UploadComparePanel({
         <UploadCloud size={19} aria-hidden />
       </div>
 
+      {readOnly ? (
+        <div className="read-only-panel-note" role="status">
+          Viewer access is read-only. Browse the trace library below, or ask an admin for an editor key to upload and compare runs.
+        </div>
+      ) : null}
+
       <div className="upload-grid">
         <TraceUpload
           id="baseline-upload"
+          disabled={readOnly}
           label="Known-good baseline"
           selectedId={baselineId}
           traces={traces}
@@ -45,6 +54,7 @@ export function UploadComparePanel({
         />
         <TraceUpload
           id="candidate-upload"
+          disabled={readOnly}
           label="New run to check"
           selectedId={candidateId}
           traces={traces}
@@ -59,8 +69,9 @@ export function UploadComparePanel({
         data-testid="compare-button"
         disabled={disabled}
         onClick={onCompare}
+        title={readOnly ? "Editor access is required" : "Compare the selected traces"}
       >
-        {busy ? "Comparing..." : "Find first behavior change"}
+        {readOnly ? "Editor access required" : busy ? "Comparing..." : "Find first behavior change"}
       </button>
     </section>
   );
@@ -68,6 +79,7 @@ export function UploadComparePanel({
 
 type TraceUploadProps = {
   id: string;
+  disabled: boolean;
   label: string;
   selectedId: string;
   traces: TraceSummary[];
@@ -75,7 +87,7 @@ type TraceUploadProps = {
   onUpload: (file: File) => void;
 };
 
-function TraceUpload({ id, label, selectedId, traces, onSelect, onUpload }: TraceUploadProps) {
+function TraceUpload({ id, disabled, label, selectedId, traces, onSelect, onUpload }: TraceUploadProps) {
   return (
     <div className="upload-card">
       <label htmlFor={id}>
@@ -88,6 +100,7 @@ function TraceUpload({ id, label, selectedId, traces, onSelect, onUpload }: Trac
         data-testid={id}
         type="file"
         accept=".tbtrace,.json,application/json"
+        disabled={disabled}
         onChange={(event) => {
           const file = event.currentTarget.files?.[0];
           if (file) onUpload(file);
@@ -95,6 +108,7 @@ function TraceUpload({ id, label, selectedId, traces, onSelect, onUpload }: Trac
       />
       <select
         aria-label={`${label} trace`}
+        disabled={disabled}
         value={selectedId}
         onChange={(event) => onSelect(event.currentTarget.value)}
       >

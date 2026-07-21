@@ -28,6 +28,7 @@ def test_key_is_shown_once_but_only_a_hash_is_persisted(tmp_path: Path) -> None:
     issued = create_studio_api_key(
         database,
         workspace_id="team-a",
+        role="editor",
         label="CI upload",
         expires_in_days=90,
         pepper=PEPPER,
@@ -38,6 +39,7 @@ def test_key_is_shown_once_but_only_a_hash_is_persisted(tmp_path: Path) -> None:
     assert database.stat().st_mode & 0o777 == 0o600
     assert re.fullmatch(r"tbsk_[A-Za-z0-9_-]{12}_[A-Za-z0-9_-]{43}", issued.api_key)
     assert issued.record.status == "active"
+    assert issued.record.role == "editor"
     assert issued.record.expires_at == "2026-10-19T05:00:00Z"
     assert issued.api_key not in repr(issued)
 
@@ -77,6 +79,7 @@ def test_expired_and_revoked_keys_fail_closed_immediately(tmp_path: Path) -> Non
     issued = create_studio_api_key(
         database,
         workspace_id="team-a",
+        role="viewer",
         label="Temporary browser",
         expires_in_days=1,
         pepper=PEPPER,
@@ -97,6 +100,7 @@ def test_expired_and_revoked_keys_fail_closed_immediately(tmp_path: Path) -> Non
     revoked = revoke_studio_api_key(database, key_id=issued.record.key_id, now=NOW)
 
     assert revoked.status == "revoked"
+    assert revoked.role == "viewer"
     assert revoked.revoked_at == "2026-07-21T05:00:00Z"
     assert (
         workspace_for_managed_api_key(
@@ -115,6 +119,7 @@ def test_corrupt_key_metadata_fails_closed_with_operator_safe_error(tmp_path: Pa
     issued = create_studio_api_key(
         database,
         workspace_id="team-a",
+        role="editor",
         label="Browser",
         expires_in_days=90,
         pepper=PEPPER,
@@ -158,6 +163,7 @@ def test_key_creation_rejects_unsafe_metadata(
         create_studio_api_key(
             database,
             workspace_id="team-a",
+            role="editor",
             label=label,
             expires_in_days=days,
             pepper=PEPPER,
@@ -219,6 +225,7 @@ def test_key_cli_guides_create_list_and_revoke(
     list_output = capsys.readouterr().out
     assert key_id in list_output
     assert "active" in list_output
+    assert "editor" in list_output
     assert "team-a" in list_output
     assert plaintext_key not in list_output
 

@@ -17,7 +17,7 @@ import {
   SunMedium,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import type { StudioHealth, StudioSection } from "@/lib/types";
+import type { StudioHealth, StudioSection, WorkspaceRole } from "@/lib/types";
 
 const navItems = [
   { id: "home", label: "Home", icon: Home },
@@ -32,6 +32,7 @@ const navItems = [
 type SidebarProps = {
   activeSection: StudioSection;
   authRequired: boolean;
+  canEdit: boolean;
   collapsed: boolean;
   onLock: () => void;
   onPrimaryAction: () => void;
@@ -40,11 +41,13 @@ type SidebarProps = {
   onToggleCollapsed: () => void;
   runtime: StudioHealth["runtime"] | null;
   theme: "light" | "dark";
+  workspaceRole: WorkspaceRole | null;
 };
 
 export function Sidebar({
   activeSection,
   authRequired,
+  canEdit,
   collapsed,
   onLock,
   onPrimaryAction,
@@ -53,6 +56,7 @@ export function Sidebar({
   onToggleCollapsed,
   runtime,
   theme,
+  workspaceRole,
 }: SidebarProps) {
   const ThemeIcon = theme === "light" ? Moon : SunMedium;
   const durable = runtime?.durable ?? false;
@@ -63,7 +67,7 @@ export function Sidebar({
     : "Checking workspace";
   const workspaceDetail = runtime
     ? authRequired
-      ? `Workspace · ${runtime.workspace_id}`
+      ? `${workspaceRole ? `${workspaceRole[0].toUpperCase()}${workspaceRole.slice(1)}` : "Protected"} · ${runtime.workspace_id}`
       : durable
       ? "Saved across API restarts"
       : "Data resets with the API"
@@ -94,7 +98,7 @@ export function Sidebar({
           </button>
         </div>
 
-        <button className="new-trace-button" onClick={onPrimaryAction} title="Compare two traces" type="button">
+        <button className="new-trace-button" disabled={!canEdit} onClick={onPrimaryAction} title={canEdit ? "Compare two traces" : "Editor access is required"} type="button">
           <Sparkles size={16} aria-hidden />
           <span>Compare traces</span>
         </button>

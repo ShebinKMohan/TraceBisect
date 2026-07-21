@@ -19,7 +19,7 @@ import {
   unlockStudioWorkspace,
   uploadTrace,
 } from "@/lib/api";
-import type { RegressionCase, Report, RunSummary, StudioHealth, StudioSection, TraceEvent, TraceSummary } from "@/lib/types";
+import type { RegressionCase, Report, RunSummary, StudioHealth, StudioSection, TraceEvent, TraceSummary, WorkspaceRole } from "@/lib/types";
 import { CompareDrawer } from "@/components/compare-drawer";
 import { EventDetailsPanel } from "@/components/event-details-panel";
 import { HomePanel } from "@/components/home-panel";
@@ -65,6 +65,7 @@ export function StudioDashboard() {
   const [notice, setNotice] = useState<string | null>(null);
   const [locked, setLocked] = useState(false);
   const [unlockError, setUnlockError] = useState<string | null>(null);
+  const [workspaceRole, setWorkspaceRole] = useState<WorkspaceRole | null>(null);
 
   useEffect(() => {
     const stored = window.localStorage.getItem("tracebisect-theme");
@@ -87,6 +88,7 @@ export function StudioDashboard() {
     activeEvents[0] ??
     null;
   const content = sectionContent(activeSection);
+  const canEdit = workspaceRole !== "viewer";
 
   useEffect(() => {
     const preferred =
@@ -123,6 +125,7 @@ export function StudioDashboard() {
     try {
       const studioHealth = await fetchStudioHealth();
       setHealth(studioHealth);
+      let role: WorkspaceRole = "admin";
       if (studioHealth.auth.required) {
         if (!hasStoredStudioApiKey()) {
           setLocked(true);
@@ -131,6 +134,7 @@ export function StudioDashboard() {
         try {
           const session = await fetchStudioSession();
           setHealth({ ...studioHealth, runtime: session.runtime });
+          role = session.role;
         } catch (err) {
           if (isUnauthorizedStudioError(err)) {
             forgetStudioApiKey();
@@ -141,7 +145,8 @@ export function StudioDashboard() {
           throw err;
         }
       }
-      await loadWorkspaceData();
+      setWorkspaceRole(role);
+      await loadWorkspaceData(role);
     } catch (err) {
       presentApiError(err, "Failed to load the Studio workspace.");
     } finally {
@@ -149,7 +154,25 @@ export function StudioDashboard() {
     }
   }
 
-  async function loadWorkspaceData() {
+  async function loadWorkspaceData(role: WorkspaceRole) {
+    if (role === "viewer") {
+      const [traceList, caseList, runList] = await Promise.all([
+        fetchTraces(),
+        fetchRegressionCases(),
+        fetchRuns(),
+      ]);
+      const latestReport = runList[0]
+        ? await fetchRunReport(runList[0].report_id)
+        : null;
+      setReport(latestReport);
+      setSelectedReportId(latestReport?.report_id ?? null);
+      setTraces(traceList);
+      setCases(caseList);
+      setRuns(runList);
+      setBaselineId(latestReport?.baseline.id ?? "");
+      setCandidateId(latestReport?.candidate.id ?? "");
+      return;
+    }
     const demoReport = await fetchDemoReport();
     const [traceList, caseList, runList] = await Promise.all([
       fetchTraces(),
@@ -171,7 +194,8 @@ export function StudioDashboard() {
     try {
       const session = await unlockStudioWorkspace(apiKey);
       setHealth((current) => current ? { ...current, runtime: session.runtime } : current);
-      await loadWorkspaceData();
+      setWorkspaceRole(session.role);
+      await loadWorkspaceData(session.role);
       setLocked(false);
     } catch (err) {
       if (isUnauthorizedStudioError(err)) {
@@ -201,6 +225,7 @@ export function StudioDashboard() {
     setCandidateId("");
     setError(null);
     setNotice(null);
+    setWorkspaceRole(null);
     setHealth((current) =>
       current?.auth.required
         ? {
@@ -247,6 +272,10 @@ export function StudioDashboard() {
   }
 
   async function handleUpload(file: File, role: "baseline" | "candidate") {
+    if (!canEdit) {
+      setError("This viewer key is read-only. Ask a workspace admin for an editor key to upload traces.");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -263,6 +292,10 @@ export function StudioDashboard() {
   }
 
   async function handleCompare() {
+    if (!canEdit) {
+      setError("This viewer key is read-only. Ask a workspace admin for an editor key to run comparisons.");
+      return;
+    }
     if (!baselineId || !candidateId) return;
     setBusy(true);
     setError(null);
@@ -280,6 +313,10 @@ export function StudioDashboard() {
   }
 
   async function handleSaveCase() {
+    if (!canEdit) {
+      setError("This viewer key is read-only. Ask a workspace admin for an editor key to save guardrails.");
+      return;
+    }
     if (!report) return;
     setBusy(true);
     setError(null);
@@ -302,6 +339,10 @@ export function StudioDashboard() {
   }
 
   async function handleRunCase(item: RegressionCase) {
+    if (!canEdit) {
+      setError("This viewer key is read-only. Ask a workspace admin for an editor key to recheck guardrails.");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -355,6 +396,7 @@ export function StudioDashboard() {
       <div className={sidebarCollapsed ? "dashboard-frame dashboard-frame-sidebar-collapsed" : "dashboard-frame"}>
         <Sidebar
           activeSection={activeSection}
+          canEdit={canEdit}
           collapsed={sidebarCollapsed}
           onPrimaryAction={() => handleSectionChange("sources")}
           authRequired={health?.auth.required ?? false}
@@ -364,6 +406,7 @@ export function StudioDashboard() {
           onToggleCollapsed={() => setSidebarCollapsed((current) => !current)}
           runtime={health?.runtime ?? null}
           theme={theme}
+          workspaceRole={workspaceRole}
         />
         <div className="dashboard-main">
           <Topbar
@@ -391,7 +434,7 @@ export function StudioDashboard() {
                   </span>
                 </div>
                 {activeSection === "runs" ? (
-                  <button className="header-save-action" disabled={!report || busy} onClick={() => void handleSaveCase()} type="button">
+                  <button className="header-save-action" disabled={!report || busy || !canEdit} onClick={() => void handleSaveCase()} title={canEdit ? "Save this comparison as a guardrail" : "Editor access is required"} type="button">
                     <ShieldCheck size={15} aria-hidden />
                     Save as guardrail
                   </button>
@@ -419,13 +462,23 @@ export function StudioDashboard() {
             </section>
           ) : null}
 
+          {workspaceRole === "viewer" ? (
+            <section className="role-access-band" role="status">
+              <ShieldCheck size={18} aria-hidden />
+              <div>
+                <strong>Read-only workspace</strong>
+                <span>You can inspect traces, comparisons, issues, sessions, and generated tests. An editor or admin key is required to change data.</span>
+              </div>
+            </section>
+          ) : null}
+
           <SectionOverview
             report={report}
             section={activeSection}
           />
 
           {activeSection === "home" ? (
-            <HomePanel authRequired={health?.auth.required ?? false} cases={cases} onSectionChange={handleSectionChange} report={report} runtime={health?.runtime ?? null} traces={traces} />
+            <HomePanel authRequired={health?.auth.required ?? false} canEdit={canEdit} cases={cases} onSectionChange={handleSectionChange} report={report} runtime={health?.runtime ?? null} traces={traces} />
           ) : null}
 
           {activeSection === "runs" ? (
@@ -484,13 +537,14 @@ export function StudioDashboard() {
                 <RegressionCaseLibrary
                   busy={busy}
                   cases={cases}
+                  readOnly={!canEdit}
                   onRunCase={(item) => void handleRunCase(item)}
                   onSaveCase={() => void handleSaveCase()}
                   report={report}
                 />
               ) : null}
               {activeSection === "setup" ? (
-                <SettingsPanel health={health} />
+                <SettingsPanel health={health} workspaceRole={workspaceRole} />
               ) : null}
               {activeSection === "sources" ? (
                 <>
@@ -500,6 +554,7 @@ export function StudioDashboard() {
                       baselineId={baselineId}
                       candidateId={candidateId}
                       busy={busy}
+                      readOnly={!canEdit}
                       onBaselineChange={setBaselineId}
                       onCandidateChange={setCandidateId}
                       onUpload={(file, role) => void handleUpload(file, role)}

@@ -2,14 +2,14 @@
 
 import { Check, Clipboard, FileJson2, PlayCircle, ShieldCheck, TerminalSquare, UploadCloud } from "lucide-react";
 import { useState } from "react";
-import type { StudioHealth } from "@/lib/types";
+import type { StudioHealth, WorkspaceRole } from "@/lib/types";
 
 const demoCommand = "tracebisect demo";
 const uploadCommand = "curl -X POST http://127.0.0.1:8000/api/traces/upload -F 'file=@run.tbtrace'";
 const recordCommand = "tracebisect record --output run.tbtrace -- python your_agent.py";
 const durableCommand = "TRACEBISECT_STUDIO_STORAGE=sqlite TRACEBISECT_STUDIO_SQLITE_PATH=.tracebisect/studio.db uvicorn tracebisect.studio.api:app --port 8000";
 const listKeysCommand = "tracebisect studio keys list --database .tracebisect/studio.db";
-const createKeyCommand = "tracebisect studio keys create --database .tracebisect/studio.db --workspace team-a --name 'Browser access'";
+const createKeyCommand = "tracebisect studio keys create --database .tracebisect/studio.db --workspace team-a --name 'Browser access' --role editor";
 
 function CopyCommand({ command, label }: { command: string; label: string }) {
   const [copied, setCopied] = useState(false);
@@ -41,7 +41,7 @@ function CopyCommand({ command, label }: { command: string; label: string }) {
   );
 }
 
-export function SettingsPanel({ health }: { health: StudioHealth | null }) {
+export function SettingsPanel({ health, workspaceRole }: { health: StudioHealth | null; workspaceRole: WorkspaceRole | null }) {
   const durable = health?.runtime.durable ?? false;
   const authRequired = health?.auth.required ?? false;
   const credentialSource = health?.auth.credential_source ?? "none";
@@ -63,7 +63,7 @@ export function SettingsPanel({ health }: { health: StudioHealth | null }) {
             {health
               ? durable
                 ? authRequired
-                  ? `Your session key grants access to ${health.runtime.workspace_id}. Its traces, comparisons, and guardrails are saved across API restarts.`
+                  ? `Your ${workspaceRole ?? "workspace"} key grants access to ${health.runtime.workspace_id}. Its traces, comparisons, and guardrails are saved across API restarts.`
                   : `Traces, comparisons, and guardrails for ${health.runtime.workspace_id} are saved across API restarts.`
                 : "No account or API key is required. Uploaded data is held in memory and resets with the API process."
               : "Waiting for the API to confirm whether this workspace is temporary or durable."}
@@ -132,7 +132,7 @@ export function SettingsPanel({ health }: { health: StudioHealth | null }) {
             <strong>Workspace access</strong>
             <span>
               {credentialSource === "managed"
-                ? "Hashed, expiring keys with operator revocation"
+                ? `${workspaceRole ? `${workspaceRole[0].toUpperCase()}${workspaceRole.slice(1)} · ` : ""}hashed, expiring key with operator revocation`
                 : credentialSource === "environment"
                   ? "Static environment keys; managed rotation is not enabled"
                   : "Open local mode; no workspace key required"}
@@ -151,7 +151,7 @@ export function SettingsPanel({ health }: { health: StudioHealth | null }) {
         {!durable ? <CopyCommand command={durableCommand} label="durable storage command" /> : null}
       </div>
 
-      {credentialSource === "managed" ? (
+      {credentialSource === "managed" && workspaceRole === "admin" ? (
         <div className="setup-boundary setup-operations">
           <h2>Manage workspace access safely</h2>
           <p>
@@ -162,12 +162,23 @@ export function SettingsPanel({ health }: { health: StudioHealth | null }) {
         </div>
       ) : null}
 
+      {credentialSource === "managed" && workspaceRole !== "admin" ? (
+        <div className="setup-boundary setup-operations">
+          <h2>{workspaceRole === "viewer" ? "Viewer access is read-only" : "Editor access is enabled"}</h2>
+          <p>
+            {workspaceRole === "viewer"
+              ? "You can inspect workspace evidence and copy generated tests. Ask a workspace admin for an editor key when you need to upload, compare, save, or rerun data."
+              : "You can upload, compare, save, and rerun workspace data. Key issuance and revocation stay with an operator who controls the Studio database and server secret."}
+          </p>
+        </div>
+      ) : null}
+
       <div className="setup-boundary">
         <h2>What is not enabled yet</h2>
         <p>
           {authRequired
             ? credentialSource === "managed"
-              ? "User accounts, account recovery, team roles, browser self-service, hosted ingestion, and billing are future production milestones—not active features in this build."
+              ? "User accounts, account recovery, team membership administration, browser self-service, hosted ingestion, and billing are future production milestones—not active features in this build."
               : "Managed user accounts, hashed key rotation, hosted ingestion, team administration, and billing are future production milestones—not active features in this build."
             : "Authentication, request-scoped workspace access, hosted ingestion, team access, billing, and API keys are future production milestones—not active features in this build."}
         </p>

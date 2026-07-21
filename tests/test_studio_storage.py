@@ -135,6 +135,54 @@ def test_sqlite_store_migrates_v1_data_to_managed_key_schema(tmp_path: Path) -> 
     migrated.close()
 
 
+def test_sqlite_store_migrates_v2_keys_to_admin_role(tmp_path: Path) -> None:
+    database_path = tmp_path / "studio.sqlite3"
+    current = SQLiteStudioStore(database_path, workspace_id="workspace-a")
+    current.close()
+    with sqlite3.connect(database_path) as connection:
+        connection.execute("DROP TABLE studio_api_keys")
+        connection.execute(
+            """
+            CREATE TABLE studio_api_keys (
+                key_id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                label TEXT NOT NULL,
+                key_hash TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                revoked_at TEXT
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO studio_api_keys (
+                key_id, workspace_id, label, key_hash, created_at, expires_at, revoked_at
+            ) VALUES (?, ?, ?, ?, ?, ?, NULL)
+            """,
+            (
+                "legacyKey123",
+                "workspace-a",
+                "Legacy key",
+                "0" * 64,
+                "2026-07-21T00:00:00Z",
+                "2026-10-21T00:00:00Z",
+            ),
+        )
+        connection.execute("UPDATE studio_schema SET version = 2")
+
+    migrated = SQLiteStudioStore(database_path, workspace_id="workspace-a")
+
+    with sqlite3.connect(database_path) as connection:
+        assert connection.execute(
+            "SELECT role FROM studio_api_keys WHERE key_id = 'legacyKey123'"
+        ).fetchone() == ("admin",)
+        assert connection.execute("SELECT version FROM studio_schema").fetchone() == (
+            SCHEMA_VERSION,
+        )
+    migrated.close()
+
+
 def test_sqlite_store_isolates_workspaces_in_one_database(tmp_path: Path) -> None:
     database_path = tmp_path / "studio.sqlite3"
     workspace_a = SQLiteStudioStore(database_path, workspace_id="workspace-a")

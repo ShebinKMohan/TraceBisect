@@ -24,6 +24,7 @@ type RegressionCaseLibraryProps = {
   cases: RegressionCase[];
   report: Report | null;
   busy: boolean;
+  readOnly: boolean;
   onRunCase: (item: RegressionCase) => void;
   onSaveCase: () => void;
 };
@@ -125,6 +126,7 @@ export function RegressionCaseLibrary({
   cases,
   report,
   busy,
+  readOnly,
   onRunCase,
   onSaveCase,
 }: RegressionCaseLibraryProps) {
@@ -132,7 +134,7 @@ export function RegressionCaseLibrary({
   const [caseFilter, setCaseFilter] = useState<CaseFilter>("all");
   const [caseSort, setCaseSort] = useState<CaseSort>("recent");
   const [selectedDatasetKey, setSelectedDatasetKey] = useState<string | null>(null);
-  const canSave = Boolean(report?.baseline.trace_id && report?.candidate.trace_id);
+  const canSave = !readOnly && Boolean(report?.baseline.trace_id && report?.candidate.trace_id);
   const datasets = useMemo(() => buildGuardrailDatasets(cases), [cases]);
   const filteredDatasets = useMemo(() => {
     const matched = datasets.filter((dataset) => caseFilter === "all" || dataset.latest.last_result.status === caseFilter);
@@ -168,12 +170,19 @@ export function RegressionCaseLibrary({
           data-testid="save-regression-case"
           disabled={!canSave || busy}
           onClick={onSaveCase}
+          title={readOnly ? "Editor access is required" : "Save the current comparison"}
           type="button"
         >
           <Save size={14} aria-hidden />
           Save guardrail
         </button>
       </div>
+
+      {readOnly ? (
+        <div className="read-only-panel-note" role="status">
+          Viewer access can inspect and copy guardrails, but an editor or admin key is required to save or recheck them.
+        </div>
+      ) : null}
 
       <div className="case-library-summary">
         <article>
@@ -291,7 +300,7 @@ export function RegressionCaseLibrary({
                     </span>
                   </div>
                   <div className="guardrail-actions">
-                    <button disabled={busy} onClick={() => onRunCase(selectedCase)} type="button">
+                    <button disabled={busy || readOnly} onClick={() => onRunCase(selectedCase)} title={readOnly ? "Editor access is required" : "Recheck this saved trace"} type="button">
                       <Play size={13} aria-hidden />
                       Recheck saved trace
                     </button>

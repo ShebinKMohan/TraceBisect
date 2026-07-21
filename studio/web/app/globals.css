@@ -4560,6 +4560,14 @@ html[data-theme="dark"] .sidebar {
   box-shadow: 0 12px 28px rgba(11, 157, 118, 0.24);
 }
 
+.new-trace-button:disabled {
+  background: var(--surface-muted);
+  color: var(--text-muted);
+  box-shadow: none;
+  cursor: not-allowed;
+  transform: none;
+}
+
 .nav-stack {
   gap: 4px;
   padding: 0 10px;
@@ -4767,6 +4775,49 @@ html[data-theme="dark"] .sidebar {
   background: transparent;
   color: var(--accent);
   font-weight: 650;
+}
+
+.role-access-band {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin: 0 32px 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--accent-line);
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--text-muted);
+}
+
+.role-access-band svg {
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+
+.role-access-band strong,
+.role-access-band span {
+  display: block;
+}
+
+.role-access-band strong {
+  color: var(--text);
+  font-size: 12.5px;
+}
+
+.role-access-band span {
+  margin-top: 3px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.read-only-panel-note {
+  padding: 10px 12px;
+  border: 1px solid var(--accent-line);
+  border-radius: 7px;
+  background: var(--accent-soft);
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .header-action {
@@ -5454,7 +5505,8 @@ html[data-theme="dark"] .sidebar {
     padding: 20px 16px 14px;
   }
 
-  .success-band {
+  .success-band,
+  .role-access-band {
     margin-right: 12px;
     margin-left: 12px;
   }

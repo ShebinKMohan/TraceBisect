@@ -4,6 +4,7 @@ import { friendlyDivergenceType, friendlyTraceName } from "@/lib/format";
 
 type HomePanelProps = {
   authRequired: boolean;
+  canEdit: boolean;
   cases: RegressionCase[];
   report: Report | null;
   runtime: StudioHealth["runtime"] | null;
@@ -19,7 +20,7 @@ const glossary = [
   ["Guardrail", "A saved pytest check that helps stop the same bug returning."],
 ];
 
-export function HomePanel({ authRequired, cases, report, runtime, traces, onSectionChange }: HomePanelProps) {
+export function HomePanel({ authRequired, canEdit, cases, report, runtime, traces, onSectionChange }: HomePanelProps) {
   const first = report?.first_divergence ?? null;
   const durable = runtime?.durable ?? false;
   const workspaceTitle = runtime
@@ -38,7 +39,7 @@ export function HomePanel({ authRequired, cases, report, runtime, traces, onSect
           </p>
           <div className="home-actions">
             <button className="home-primary-action" onClick={() => onSectionChange("sources")} type="button">
-              Compare your traces
+              {canEdit ? "Compare your traces" : "Browse workspace traces"}
               <ArrowRight size={16} aria-hidden />
             </button>
             <button className="home-secondary-action" onClick={() => onSectionChange("runs")} type="button">
@@ -49,12 +50,14 @@ export function HomePanel({ authRequired, cases, report, runtime, traces, onSect
         <div className="home-demo-summary" aria-label="Loaded demo summary">
           <span className="home-demo-icon"><GitCompare size={19} aria-hidden /></span>
           <div>
-            <small>Demo ready</small>
-            <strong>{first ? friendlyDivergenceType(first.type) : "No behavior change"}</strong>
+            <small>{report ? "Comparison ready" : canEdit ? "Preparing demo" : "Read-only workspace"}</small>
+            <strong>{first ? friendlyDivergenceType(first.type) : report ? "No behavior change" : "No saved comparison yet"}</strong>
             <p>
               {report
                 ? `${friendlyTraceName(report.baseline.display_name)} compared with ${friendlyTraceName(report.candidate.display_name)}.`
-                : "Loading the built-in refund-agent example."}
+                : canEdit
+                  ? "Loading the built-in refund-agent example."
+                  : "An editor can add the first comparison; viewer access never creates demo data."}
             </p>
           </div>
           <button onClick={() => onSectionChange("runs")} type="button">Open result</button>
@@ -73,7 +76,7 @@ export function HomePanel({ authRequired, cases, report, runtime, traces, onSect
               <UploadCloud size={18} aria-hidden />
               <h3>Choose two traces</h3>
               <p>Select the run that worked, then the new run you want to check.</p>
-              <button onClick={() => onSectionChange("sources")} type="button">Choose traces <ArrowRight size={14} aria-hidden /></button>
+              <button onClick={() => onSectionChange("sources")} type="button">{canEdit ? "Choose traces" : "Browse traces"} <ArrowRight size={14} aria-hidden /></button>
             </div>
           </li>
           <li>

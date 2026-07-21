@@ -127,6 +127,7 @@ def test_studio_parser_exposes_beginner_safe_recovery_commands() -> None:
     )
     assert keys.studio_command == "keys"
     assert keys.studio_keys_command == "create"
+    assert keys.role == "editor"
 
 
 def test_studio_command_without_action_shows_recovery_help(

@@ -30,6 +30,8 @@ _KEY_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{12}$")
 _MANAGED_KEY_PATTERN = re.compile(r"^tbsk_([A-Za-z0-9_-]{12})_([A-Za-z0-9_-]{43})$")
 
 StudioApiKeyStatus = Literal["active", "expired", "revoked"]
+WorkspaceRole = Literal["viewer", "editor", "admin"]
+WORKSPACE_ROLES = frozenset({"viewer", "editor", "admin"})
 
 
 class StudioApiKeyError(RuntimeError):
@@ -42,6 +44,7 @@ class StudioApiKeyRecord:
 
     key_id: str
     workspace_id: str
+    role: WorkspaceRole
     label: str
     created_at: str
     expires_at: str
@@ -55,6 +58,14 @@ class IssuedStudioApiKey:
 
     record: StudioApiKeyRecord
     api_key: str = field(repr=False)
+
+
+@dataclass(frozen=True, slots=True)
+class ManagedApiKeyPrincipal:
+    """Authorization facts resolved from one valid managed key."""
+
+    workspace_id: str
+    role: WorkspaceRole
 
 
 def api_key_pepper(env: Mapping[str, str] | None = None) -> str:
@@ -77,6 +88,7 @@ def create_studio_api_key(
     database_path: str | Path,
     *,
     workspace_id: str,
+    role: WorkspaceRole,
     label: str,
     expires_in_days: int,
     pepper: str,
@@ -84,6 +96,7 @@ def create_studio_api_key(
 ) -> IssuedStudioApiKey:
     """Issue a high-entropy key and persist only its peppered HMAC digest."""
     validated_workspace = validate_workspace_id(workspace_id)
+    validated_role = _validate_role(role)
     validated_label = _validate_label(label)
     if not 1 <= expires_in_days <= MAX_KEY_LIFETIME_DAYS:
         raise StudioApiKeyError(f"key lifetime must be between 1 and {MAX_KEY_LIFETIME_DAYS} days")
@@ -105,12 +118,13 @@ def create_studio_api_key(
             connection.execute(
                 """
                 INSERT INTO studio_api_keys (
-                    key_id, workspace_id, label, key_hash, created_at, expires_at, revoked_at
-                ) VALUES (?, ?, ?, ?, ?, ?, NULL)
+                    key_id, workspace_id, role, label, key_hash, created_at, expires_at, revoked_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
                 """,
                 (
                     key_id,
                     validated_workspace,
+                    validated_role,
                     validated_label,
                     key_hash,
                     _timestamp(created),
@@ -125,6 +139,7 @@ def create_studio_api_key(
     record = StudioApiKeyRecord(
         key_id=key_id,
         workspace_id=validated_workspace,
+        role=validated_role,
         label=validated_label,
         created_at=_timestamp(created),
         expires_at=_timestamp(expires),
@@ -148,7 +163,7 @@ def list_studio_api_keys(
             ensure_studio_schema(connection)
             rows = connection.execute(
                 """
-                SELECT key_id, workspace_id, label, created_at, expires_at, revoked_at
+                SELECT key_id, workspace_id, role, label, created_at, expires_at, revoked_at
                 FROM studio_api_keys
                 ORDER BY created_at DESC, key_id
                 """
@@ -176,19 +191,19 @@ def revoke_studio_api_key(
             ensure_studio_schema(connection)
             row = connection.execute(
                 """
-                SELECT key_id, workspace_id, label, created_at, expires_at, revoked_at
+                SELECT key_id, workspace_id, role, label, created_at, expires_at, revoked_at
                 FROM studio_api_keys WHERE key_id = ?
                 """,
                 (key_id,),
             ).fetchone()
             if row is None:
                 raise StudioApiKeyError("no Studio API key exists with that key ID")
-            if row[5] is None:
+            if row[6] is None:
                 connection.execute(
                     "UPDATE studio_api_keys SET revoked_at = ? WHERE key_id = ?",
                     (_timestamp(revoked), key_id),
                 )
-                row = (*row[:5], _timestamp(revoked))
+                row = (*row[:6], _timestamp(revoked))
             record = _record_from_row(row, now=revoked)
     except StudioApiKeyError:
         raise
@@ -205,6 +220,23 @@ def workspace_for_managed_api_key(
     now: datetime | None = None,
 ) -> str | None:
     """Resolve one active managed key to its workspace, failing closed on any error."""
+    principal = principal_for_managed_api_key(
+        database_path,
+        api_key=api_key,
+        pepper=pepper,
+        now=now,
+    )
+    return principal.workspace_id if principal is not None else None
+
+
+def principal_for_managed_api_key(
+    database_path: str | Path,
+    *,
+    api_key: str,
+    pepper: str,
+    now: datetime | None = None,
+) -> ManagedApiKeyPrincipal | None:
+    """Resolve one active managed key to its workspace role, failing closed on errors."""
     match = _MANAGED_KEY_PATTERN.fullmatch(api_key)
     if match is None:
         return None
@@ -219,14 +251,14 @@ def workspace_for_managed_api_key(
         ) as connection:
             row = connection.execute(
                 """
-                SELECT workspace_id, key_hash, expires_at, revoked_at
+                SELECT workspace_id, role, key_hash, expires_at, revoked_at
                 FROM studio_api_keys WHERE key_id = ?
                 """,
                 (key_id,),
             ).fetchone()
         if row is None:
             return None
-        workspace_id, expected_hash, expires_at, revoked_at = row
+        workspace_id, role, expected_hash, expires_at, revoked_at = row
         supplied_hash = _key_digest(api_key, pepper)
         digest_matches = isinstance(expected_hash, str) and secrets.compare_digest(
             supplied_hash,
@@ -236,7 +268,10 @@ def workspace_for_managed_api_key(
             return None
         if _parse_timestamp(str(expires_at)) <= _utc_now(now):
             return None
-        return validate_workspace_id(str(workspace_id))
+        return ManagedApiKeyPrincipal(
+            workspace_id=validate_workspace_id(str(workspace_id)),
+            role=_validate_role(str(role)),
+        )
     except (
         OSError,
         sqlite3.DatabaseError,
@@ -248,7 +283,7 @@ def workspace_for_managed_api_key(
 
 
 def _record_from_row(row: tuple[object, ...], *, now: datetime) -> StudioApiKeyRecord:
-    key_id, workspace_id, label, created_at, expires_at, revoked_at = row
+    key_id, workspace_id, role, label, created_at, expires_at, revoked_at = row
     revoked_value = str(revoked_at) if revoked_at is not None else None
     expires_value = str(expires_at)
     if revoked_value is not None:
@@ -260,6 +295,7 @@ def _record_from_row(row: tuple[object, ...], *, now: datetime) -> StudioApiKeyR
     return StudioApiKeyRecord(
         key_id=str(key_id),
         workspace_id=str(workspace_id),
+        role=_validate_role(str(role)),
         label=str(label),
         created_at=str(created_at),
         expires_at=expires_value,
@@ -297,6 +333,17 @@ def _validate_label(value: str) -> str:
             f"key name must contain 1-{MAX_KEY_LABEL_LENGTH} printable characters"
         )
     return label
+
+
+def _validate_role(value: str) -> WorkspaceRole:
+    if value not in WORKSPACE_ROLES:
+        allowed = ", ".join(sorted(WORKSPACE_ROLES))
+        raise StudioApiKeyError(f"workspace role must be one of: {allowed}")
+    if value == "viewer":
+        return "viewer"
+    if value == "editor":
+        return "editor"
+    return "admin"
 
 
 def _validate_pepper(value: str) -> None:
