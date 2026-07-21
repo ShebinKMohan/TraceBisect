@@ -26,6 +26,7 @@ from tracebisect.studio.access_sessions import (
 )
 from tracebisect.studio.audit import AuditAuthOutcome, StudioAudit
 from tracebisect.studio.auth import StudioAuthConfig
+from tracebisect.studio.error_reporting import StudioErrorReporter
 from tracebisect.studio.metrics import (
     PROMETHEUS_CONTENT_TYPE,
     StudioMetrics,
@@ -178,6 +179,7 @@ STORE_REGISTRY = StudioStoreRegistry()
 STORE: StudioStore = STORE_REGISTRY.default_store
 AUTH_CONFIG = StudioAuthConfig.from_env()
 AUDIT = StudioAudit.from_env()
+ERROR_REPORTER = StudioErrorReporter.from_env()
 METRICS = StudioMetrics()
 METRICS_ACCESS = StudioMetricsAccess.from_env()
 
@@ -404,25 +406,29 @@ async def apply_api_guardrails(
 
     try:
         response = await call_next(request)
-    except Exception:
-        duration_seconds = time.perf_counter() - started_at
-        AUDIT.emit_request(
+    except Exception as exc:
+        ERROR_REPORTER.emit_unhandled(
             request_id=request_id,
             method=request.method,
             path=request.url.path,
+            workspace_id=audit_workspace_id,
+            error=exc,
+        )
+        failure_response = JSONResponse(
             status_code=500,
-            duration_ms=duration_seconds * 1000,
+            content={
+                "detail": "Studio hit an unexpected error. Share the request ID with support.",
+                "request_id": request_id,
+            },
+        )
+        return _finalize_audited_response(
+            request=request,
+            response=failure_response,
+            started_at=started_at,
+            request_id=request_id,
             auth_outcome=auth_outcome,
             workspace_id=audit_workspace_id,
         )
-        METRICS.request_finished(
-            method=request.method,
-            path=request.url.path,
-            status_code=500,
-            duration_seconds=duration_seconds,
-            auth_outcome=auth_outcome,
-        )
-        raise
     return _finalize_audited_response(
         request=request,
         response=response,
@@ -491,6 +497,7 @@ def health() -> JsonObject:
             "format": "json",
             "request_id_header": "X-Request-ID",
         },
+        "errors": cast(JsonValue, ERROR_REPORTER.runtime_status()),
         "metrics": {
             "format": "prometheus_text_0.0.4",
             "path": METRICS_API_PATH,
@@ -957,6 +964,10 @@ def _production_readiness(*, storage_ok: bool) -> JsonObject:
         completed.append("secret-safe structured request audit logs")
     else:
         blockers.insert(0, "structured request audit logs")
+    if ERROR_REPORTER.enabled:
+        completed.append("secret-safe structured server error events")
+    else:
+        blockers.insert(0, "structured server error events")
     metrics_access = METRICS_ACCESS.access_mode(auth_required=AUTH_CONFIG.required)
     if metrics_access == "bearer_token":
         completed.extend(
@@ -966,7 +977,7 @@ def _production_readiness(*, storage_ok: bool) -> JsonObject:
             ]
         )
         blockers[blockers.index("hosted deployment observability")] = (
-            "deployment wiring for metrics collection and alerts, plus error tracking"
+            "deployment wiring for metrics collection, alert delivery, and error-event retention"
         )
     else:
         blockers.insert(0, "dedicated production metrics scrape access")

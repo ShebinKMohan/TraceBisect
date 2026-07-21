@@ -6,7 +6,11 @@ const ALLOWED_TRACE_UPLOAD_EXTENSIONS = [".tbtrace", ".json"];
 const STUDIO_API_KEY_STORAGE = "tracebisect-workspace-api-key";
 
 export class StudioApiError extends Error {
-  constructor(message: string, readonly status: number) {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly requestId: string | null = null,
+  ) {
     super(message);
     this.name = "StudioApiError";
   }
@@ -23,11 +27,13 @@ type ApiErrorDetail =
 type ApiErrorPayload = {
   detail?: ApiErrorDetail;
   message?: string;
+  request_id?: string;
 };
 
 async function parseResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
-    throw new StudioApiError(await responseErrorMessage(response), response.status);
+    const error = await responseError(response);
+    throw new StudioApiError(error.message, response.status, error.requestId);
   }
   return (await response.json()) as T;
 }
@@ -111,7 +117,8 @@ export async function logoutStudioWorkspace(managedBrowserSession: boolean): Pro
     headers: { "X-TraceBisect-CSRF": "1" },
   });
   if (!response.ok) {
-    throw new StudioApiError(await responseErrorMessage(response), response.status);
+    const error = await responseError(response);
+    throw new StudioApiError(error.message, response.status, error.requestId);
   }
 }
 
@@ -234,20 +241,42 @@ function validateTraceUpload(file: File): void {
   }
 }
 
-async function responseErrorMessage(response: Response): Promise<string> {
+async function responseError(
+  response: Response,
+): Promise<{ message: string; requestId: string | null }> {
   const fallback = `Request failed with ${response.status}`;
+  const headerRequestId = safeRequestId(response.headers.get("x-request-id"));
   const contentType = response.headers.get("content-type") ?? "";
   if (!contentType.includes("application/json")) {
     const text = (await response.text()).trim();
-    return text || fallback;
+    return withRequestId(text || fallback, headerRequestId, response.status);
   }
 
   try {
     const payload = (await response.json()) as ApiErrorPayload;
-    return detailToMessage(payload.detail) ?? payload.message ?? fallback;
+    const requestId = headerRequestId ?? safeRequestId(payload.request_id);
+    const message = detailToMessage(payload.detail) ?? payload.message ?? fallback;
+    return withRequestId(message, requestId, response.status);
   } catch {
-    return fallback;
+    return withRequestId(fallback, headerRequestId, response.status);
   }
+}
+
+function safeRequestId(value: string | undefined | null): string | null {
+  if (!value || !/^[A-Za-z0-9._-]{8,64}$/.test(value)) return null;
+  return value;
+}
+
+function withRequestId(
+  message: string,
+  requestId: string | null,
+  status: number,
+): { message: string; requestId: string | null } {
+  return {
+    message:
+      requestId && status >= 500 ? `${message} Request ID: ${requestId}` : message,
+    requestId,
+  };
 }
 
 function detailToMessage(detail: ApiErrorDetail | undefined): string | undefined {

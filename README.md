@@ -123,6 +123,17 @@ keys, headers, request bodies, query values, filenames, and resource IDs. Set
 `TRACEBISECT_STUDIO_AUDIT_LOG_ENABLED=false` only when another layer provides an
 equivalent request audit trail.
 
+Unexpected server failures return a safe support message with that same request
+ID and emit a separate `studio.server_error` JSON event. Error events contain a
+bounded error type, code location, and stable fingerprint, but never the raw
+exception message, request content, credential, uploaded filename, or database
+path. See
+[`docs/operations/studio-error-events.md`](docs/operations/studio-error-events.md)
+for the event contract and first-response workflow. Set
+`TRACEBISECT_STUDIO_ERROR_LOG_ENABLED=false` only when an equivalent safe error
+reporter is installed. The hosting platform still owns retention, search,
+delivery, and access control for both event streams.
+
 `/api/metrics` exposes Prometheus text metrics for storage readiness, request
 volume, result class, latency, authentication outcomes, in-flight work, and
 process uptime. It never

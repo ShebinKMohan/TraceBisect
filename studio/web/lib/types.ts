@@ -25,6 +25,13 @@ export type StudioHealth = {
     format: "json";
     request_id_header: "X-Request-ID";
   };
+  errors: {
+    enabled: boolean;
+    format: "json";
+    event: "studio.server_error";
+    request_id_join: true;
+    includes_exception_messages: false;
+  };
   metrics: {
     format: "prometheus_text_0.0.4";
     path: "/api/metrics";

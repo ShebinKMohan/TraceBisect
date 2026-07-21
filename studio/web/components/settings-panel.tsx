@@ -129,7 +129,7 @@ export function SettingsPanel({ health, workspaceRole }: { health: StudioHealth 
           <div>
             <strong>API operations</strong>
             <span>
-              JSON audit {health?.audit.enabled ? "on" : "off"} · Metrics {metricsAccess === "bearer_token" ? "protected" : metricsAccess === "open_local" ? "local" : metricsAccess === "unavailable" ? "need a token" : "checking"}
+              JSON audit {health?.audit.enabled ? "on" : "off"} · Safe errors {health?.errors.enabled ? "on" : "off"} · Metrics {metricsAccess === "bearer_token" ? "protected" : metricsAccess === "open_local" ? "local" : metricsAccess === "unavailable" ? "need a token" : "checking"}
             </span>
           </div>
         </article>

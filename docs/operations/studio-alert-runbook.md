@@ -133,6 +133,8 @@ clamp_min(sum(increase(tracebisect_studio_http_request_duration_seconds_count{
 2. Open `/api/health` and `/api/ready`; neither endpoint requires a product key.
 3. Check whether a deployment, key rotation, or database maintenance just ran.
 4. Preserve the relevant `X-Request-ID` values from user reports or audit logs.
+   Use the same ID to join a `studio.server_error` event to its request audit
+   event; neither event should contain the user's trace or credential.
 5. Do not paste keys, uploaded trace content, filenames, or workspace data into
    incident notes.
 6. Do not delete, overwrite, or restore the database while investigating. Take a

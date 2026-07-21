@@ -60,6 +60,11 @@ temporary files out of the web root, and throttle repeated API calls.
   versioned JSON audit event per request. Events normalize resource paths into
   actions and omit credentials, headers, bodies, query values, filenames, and
   resource IDs.
+- Unexpected failures return a stable support-safe `500` response carrying the
+  request ID instead of exposing an exception. A separate `studio.server_error`
+  JSON event records only the normalized action, bounded exception type, code
+  location, stable fingerprint, and correlation fields; raw exception messages
+  and request content are excluded.
 - `/api/metrics` emits Prometheus text-format request counters, latency
   histograms, authentication outcomes, in-flight work, and process uptime.
   Labels use only fixed action/result values—never workspace, resource, user,
@@ -105,17 +110,17 @@ Studio a real multi-tenant SaaS:
   recovery drills. The local CLI proves snapshot and restore mechanics only.
 - Object storage and antivirus/sandbox scanning for untrusted uploads.
 - Deployment wiring for centralized metrics collection, alert delivery,
-  dashboards, and error tracking. The process now exposes scrapeable metrics and
-  ships starter alert rules, but does not configure the hosting platform around
-  them.
+  dashboards, and durable error-event retention/search. The process now exposes
+  scrapeable metrics, starter alerts, and structured error events, but does not
+  configure the hosting platform around them.
 - Deployment-specific TLS, reverse-proxy, and extended security-header
   configuration.
 
 The current build has restart-safe single-node persistence plus fail-closed
 workspace API-key authorization, not a finished hosted SaaS. The next
 production step is managed identity/account recovery and deployment-level
-monitoring/error-tracking wiring; do not add Langfuse-scale ClickHouse or queues
-until the comparison workflow needs them.
+monitoring/error-event retention wiring; do not add Langfuse-scale ClickHouse or
+queues until the comparison workflow needs them.
 
 ## References
 
