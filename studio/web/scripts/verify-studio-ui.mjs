@@ -315,9 +315,33 @@ async function main() {
   await expectText(page, ".sidebar", "Setup guide", "desktop sidebar labels");
   await page.getByTestId("sidebar-section-runs").click();
   await expectText(page, '[data-testid="studio-title"]', "Compare two runs", "comparison title");
+  assert(
+    new URL(page.url()).searchParams.get("view") === "comparisons",
+    `Comparison navigation did not create a shareable URL. Actual: ${page.url()}`,
+  );
+  assert(
+    (await page.title()) === "Compare two runs · TraceBisect Studio",
+    `Comparison navigation did not update the page title. Actual: ${await page.title()}`,
+  );
   await expectText(page, '[data-testid="workflow-steps"]', "Choose traces", "comparison workflow");
   const placeholder = await page.locator(".search-control input").getAttribute("placeholder");
   assert(placeholder === "Search comparisons", `Search placeholder was not page-specific. Actual: ${placeholder}`);
+  await page.keyboard.press("Meta+K");
+  assert(
+    await page.getByTestId("section-search").evaluate((input) => document.activeElement === input),
+    "Command+K did not focus the page search input",
+  );
+  const searchFocusRing = await page.locator(".search-control").evaluate(
+    (control) => getComputedStyle(control).boxShadow,
+  );
+  assert(searchFocusRing !== "none", "Focused page search did not expose a visible focus ring");
+  await page.getByTestId("section-search").evaluate((input) => input.blur());
+  await page.keyboard.press("Control+K");
+  assert(
+    await page.getByTestId("section-search").evaluate((input) => document.activeElement === input),
+    "Control+K did not focus the page search input",
+  );
+  await expectText(page, '[role="status"]', "Opened Compare two runs", "section announcement");
   await expectText(page, '[data-testid="runs-table"]', "Refund search", "runs table");
   await expectText(page, '[data-testid="runs-table"]', "Tool arguments changed", "run divergence signal");
   await expectNotText(page, '[data-testid="runs-table"]', ".tbtrace", "runs table primary labels");
@@ -329,6 +353,16 @@ async function main() {
   await expectText(page, '[data-testid="runs-table"]', "Refund search", "cleared run filters");
   await page.getByTestId("sidebar-section-sources").click();
   await expectText(page, '[data-testid="studio-title"]', "Choose your traces", "traces title");
+  assert(
+    new URL(page.url()).searchParams.get("view") === "traces",
+    `Trace navigation did not create a shareable URL. Actual: ${page.url()}`,
+  );
+  await page.goBack({ waitUntil: "domcontentloaded" });
+  await expectText(page, '[data-testid="studio-title"]', "Compare two runs", "browser back navigation");
+  await page.goForward({ waitUntil: "domcontentloaded" });
+  await expectText(page, '[data-testid="studio-title"]', "Choose your traces", "browser forward navigation");
+  await page.reload({ waitUntil: "load" });
+  await expectText(page, '[data-testid="studio-title"]', "Choose your traces", "deep-link refresh");
   await expectText(page, '[data-testid="trace-table"]', "Captured traces", "trace table");
   await expectText(page, '[data-testid="trace-table"]', "gpt-4o-mini", "trace table model");
   await expectText(page, '[data-testid="trace-table"]', "refund_search:v3", "trace table prompt");
@@ -548,7 +582,7 @@ async function main() {
     document.documentElement.dataset.theme = "light";
   });
   await page.setViewportSize({ width: 390, height: 900 });
-  await page.reload({ waitUntil: "load" });
+  await page.goto(baseUrl, { waitUntil: "load" });
   await page.getByTestId("studio-title").waitFor({ state: "visible" });
   await assertFullScreenAppShell(page, "mobile light");
   await expectText(page, '[data-testid="studio-title"]', "Welcome to TraceBisect", "mobile product title");

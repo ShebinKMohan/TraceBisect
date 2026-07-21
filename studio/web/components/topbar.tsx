@@ -1,4 +1,6 @@
 import { BookOpen, Search } from "lucide-react";
+import type { RefObject } from "react";
+import { searchableStudioSections } from "@/lib/navigation";
 import type { StudioHealth, StudioSection } from "@/lib/types";
 
 type TopbarProps = {
@@ -8,9 +10,8 @@ type TopbarProps = {
   onHelp: () => void;
   onSearchChange: (value: string) => void;
   runtime: StudioHealth["runtime"] | null;
+  searchInputRef: RefObject<HTMLInputElement | null>;
 };
-
-const searchableSections = new Set<StudioSection>(["runs", "sources", "sessions", "divergences"]);
 
 const searchPlaceholders: Partial<Record<StudioSection, string>> = {
   runs: "Search comparisons",
@@ -19,16 +20,27 @@ const searchPlaceholders: Partial<Record<StudioSection, string>> = {
   divergences: "Search issues",
 };
 
-export function Topbar({ activeSection, authRequired, searchValue, onHelp, onSearchChange, runtime }: TopbarProps) {
-  const searchable = searchableSections.has(activeSection);
+export function Topbar({
+  activeSection,
+  authRequired,
+  searchValue,
+  onHelp,
+  onSearchChange,
+  runtime,
+  searchInputRef,
+}: TopbarProps) {
+  const searchable = searchableStudioSections.has(activeSection);
   return (
     <header className="topbar">
       {searchable ? (
         <label className="search-control">
           <Search size={16} aria-hidden />
           <input
+            aria-keyshortcuts="Meta+K Control+K"
+            data-testid="section-search"
             type="search"
             placeholder={searchPlaceholders[activeSection]}
+            ref={searchInputRef}
             value={searchValue}
             onChange={(event) => onSearchChange(event.target.value)}
           />

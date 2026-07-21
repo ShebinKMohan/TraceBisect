@@ -1,7 +1,7 @@
 "use client";
 
 import { AlertTriangle, GitCompare, ShieldCheck } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   compareTraces,
   createRegressionCase,
@@ -41,6 +41,11 @@ import { UploadComparePanel } from "@/components/upload-compare-panel";
 import { WorkflowSteps } from "@/components/workflow-steps";
 import { WorkspaceConnecting, WorkspaceUnlock } from "@/components/workspace-unlock";
 import { friendlyTraceName } from "@/lib/format";
+import {
+  searchableStudioSections,
+  studioSectionFromUrl,
+  studioSectionUrl,
+} from "@/lib/navigation";
 
 export function StudioDashboard() {
   const [report, setReport] = useState<Report | null>(null);
@@ -68,14 +73,49 @@ export function StudioDashboard() {
   const [locked, setLocked] = useState(false);
   const [unlockError, setUnlockError] = useState<string | null>(null);
   const [workspaceRole, setWorkspaceRole] = useState<WorkspaceRole | null>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const stored = window.localStorage.getItem("tracebisect-theme");
     const nextTheme = stored === "dark" ? "dark" : "light";
     setTheme(nextTheme);
     document.documentElement.dataset.theme = nextTheme;
+    setActiveSection(studioSectionFromUrl(window.location.href));
     void initializeStudio();
   }, []);
+
+  useEffect(() => {
+    function restoreSectionFromHistory() {
+      setSearchQuery("");
+      setNotice(null);
+      setActiveSection(studioSectionFromUrl(window.location.href));
+    }
+
+    window.addEventListener("popstate", restoreSectionFromHistory);
+    return () => window.removeEventListener("popstate", restoreSectionFromHistory);
+  }, []);
+
+  useEffect(() => {
+    document.title = `${sectionContent(activeSection).title} · TraceBisect Studio`;
+  }, [activeSection]);
+
+  useEffect(() => {
+    function focusSectionSearch(event: KeyboardEvent) {
+      if (
+        event.key.toLowerCase() !== "k" ||
+        (!event.metaKey && !event.ctrlKey) ||
+        !searchableStudioSections.has(activeSection)
+      ) {
+        return;
+      }
+      event.preventDefault();
+      searchInputRef.current?.focus();
+      searchInputRef.current?.select();
+    }
+
+    window.addEventListener("keydown", focusSectionSearch);
+    return () => window.removeEventListener("keydown", focusSectionSearch);
+  }, [activeSection]);
 
   const first = report?.first_divergence ?? null;
   const highlightedIds = useMemo(() => {
@@ -119,6 +159,11 @@ export function StudioDashboard() {
     setSearchQuery("");
     setNotice(null);
     setActiveSection(section);
+    const nextUrl = studioSectionUrl(section, window.location.href);
+    const currentUrl = `${window.location.pathname}${window.location.search}`;
+    if (nextUrl !== currentUrl) {
+      window.history.pushState(null, "", nextUrl);
+    }
   }
 
   async function initializeStudio() {
@@ -357,7 +402,7 @@ export function StudioDashboard() {
       const nextReport = await compareTraces(baselineId, candidateId);
       setReport(nextReport);
       setSelectedReportId(nextReport.report_id);
-      setActiveSection("runs");
+      handleSectionChange("runs");
       await refreshRuns();
     } catch (err) {
       presentApiError(err, "Comparison failed.");
@@ -450,7 +495,7 @@ export function StudioDashboard() {
   }
 
   return (
-    <main className="studio-shell">
+    <main className="studio-shell" data-active-section={activeSection}>
       <div className={sidebarCollapsed ? "dashboard-frame dashboard-frame-sidebar-collapsed" : "dashboard-frame"}>
         <Sidebar
           activeSection={activeSection}
@@ -474,7 +519,12 @@ export function StudioDashboard() {
             searchValue={searchQuery}
             onSearchChange={setSearchQuery}
             runtime={health?.runtime ?? null}
+            searchInputRef={searchInputRef}
           />
+
+          <div aria-atomic="true" aria-live="polite" className="sr-only" role="status">
+            Opened {content.title}
+          </div>
 
           <section className="page-header">
             <div>

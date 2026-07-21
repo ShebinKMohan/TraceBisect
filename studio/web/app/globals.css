@@ -4691,6 +4691,15 @@ html[data-theme="dark"] .sidebar {
   font-size: 13px;
 }
 
+.search-control:focus-within {
+  border-color: var(--accent-line);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.search-control input:focus-visible {
+  outline: 0;
+}
+
 .search-control kbd {
   border-radius: 5px;
 }
