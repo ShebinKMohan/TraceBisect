@@ -89,6 +89,38 @@ keys, headers, request bodies, query values, filenames, and resource IDs. Set
 `TRACEBISECT_STUDIO_AUDIT_LOG_ENABLED=false` only when another layer provides an
 equivalent request audit trail.
 
+### Back up and restore Studio data
+
+No SQLite knowledge is required. Create a consistent snapshot—even while Studio
+is running—then verify it before moving it to off-site storage:
+
+```bash
+tracebisect studio backup \
+  --database .tracebisect/studio.db \
+  --output backups/studio-2026-07-21.db
+
+tracebisect studio verify \
+  --backup backups/studio-2026-07-21.db
+```
+
+Recovery is deliberately non-destructive: it writes a new database and refuses
+to replace any existing file. After restoring, point Studio at the new file and
+restart the API:
+
+```bash
+tracebisect studio restore \
+  --backup backups/studio-2026-07-21.db \
+  --database .tracebisect/restored-studio.db
+
+TRACEBISECT_STUDIO_STORAGE=sqlite \
+TRACEBISECT_STUDIO_SQLITE_PATH=.tracebisect/restored-studio.db \
+uvicorn tracebisect.studio.api:app --port 8000
+```
+
+Each command reports the verified workspace/trace/comparison/guardrail counts
+and a SHA-256 checksum. Production operators must still schedule encrypted,
+off-site backups and practice recovery in their deployment environment.
+
 ## Commands
 
 - `tracebisect --version` — prints the package version.
@@ -102,6 +134,10 @@ equivalent request audit trail.
   pass `--mode strict` or `--mode ci` when you need those comparison modes.
 - `tracebisect export-pytest` — writes a live-capture pytest regression test
   using the public `tracebisect.testing` runtime API.
+- `tracebisect studio backup` — creates a consistent durable-database snapshot.
+- `tracebisect studio verify` — checks backup integrity and schema compatibility.
+- `tracebisect studio restore` — restores into a new database without replacing
+  current data.
 
 Example static comparison:
 

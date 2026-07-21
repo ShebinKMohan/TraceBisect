@@ -75,6 +75,7 @@ def test_demo_writes_artifacts(capsys: pytest.CaptureFixture[str]) -> None:
         (["record", "--output", "/tmp/x.tbtrace"], "record"),
         (["diff", "b.tbtrace", "c.tbtrace"], "diff"),
         (["export-pytest", "b.tbtrace", "out.py"], "export-pytest"),
+        (["studio", "verify", "--backup", "backup.db"], "studio"),
     ],
 )
 def test_parser_exposes_all_subcommands(argv: list[str], expected_command: str) -> None:
@@ -93,6 +94,34 @@ def test_diff_parser_exposes_determinism_mode() -> None:
 
     assert default_args.mode == "permissive"
     assert strict_args.mode == "strict"
+
+
+def test_studio_parser_exposes_beginner_safe_recovery_commands() -> None:
+    parser = build_parser()
+
+    backup = parser.parse_args(
+        ["studio", "backup", "--database", "studio.db", "--output", "backup.db"]
+    )
+    verify = parser.parse_args(["studio", "verify", "--backup", "backup.db"])
+    restore = parser.parse_args(
+        ["studio", "restore", "--backup", "backup.db", "--database", "restored.db"]
+    )
+
+    assert backup.studio_command == "backup"
+    assert verify.studio_command == "verify"
+    assert restore.studio_command == "restore"
+
+
+def test_studio_command_without_action_shows_recovery_help(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert main(["studio"]) == 0
+
+    output = capsys.readouterr().out
+    assert "usage: tracebisect studio" in output
+    assert "backup" in output
+    assert "verify" in output
+    assert "restore" in output
 
 
 def test_ingest_otel_json_writes_canonical_tbtrace(

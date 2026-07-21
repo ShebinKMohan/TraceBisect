@@ -637,7 +637,7 @@ def _production_readiness(*, storage_ok: bool) -> JsonObject:
     durable = runtime["durable"] is True
     completed: list[str] = ["API storage health check"] if storage_ok else []
     blockers = [
-        "managed backups and restore testing",
+        "scheduled encrypted off-site backups and recovery drills",
         "managed user accounts and API-key lifecycle",
         "hosted deployment observability",
     ]
@@ -658,7 +658,12 @@ def _production_readiness(*, storage_ok: bool) -> JsonObject:
     else:
         blockers.insert(0, "structured request audit logs")
     if durable:
-        completed.append("restart-safe workspace storage")
+        completed.extend(
+            [
+                "restart-safe workspace storage",
+                "verified local backup and non-destructive restore tooling",
+            ]
+        )
     else:
         blockers.insert(0, "restart-safe durable storage")
     return {

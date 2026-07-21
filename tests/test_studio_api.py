@@ -286,6 +286,10 @@ def test_studio_api_sets_security_headers(caplog: pytest.LogCaptureFixture) -> N
     }
     assert response.json()["readiness"]["production_saas_ready"] is False
     assert "restart-safe durable storage" in response.json()["readiness"]["blockers"]
+    assert (
+        "verified local backup and non-destructive restore tooling"
+        not in response.json()["readiness"]["completed"]
+    )
     audit_payload = json.loads(caplog.records[-1].message)
     assert audit_payload["request_id"] == "request-1234"
     assert audit_payload["action"] == "health_check"

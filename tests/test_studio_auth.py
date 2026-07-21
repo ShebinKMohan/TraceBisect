@@ -160,6 +160,10 @@ def test_secured_api_rejects_spoofing_and_isolates_workspace_data(
     assert health_response.json()["runtime"]["trace_count"] == 0
     assert health_response.json()["readiness"]["production_saas_ready"] is False
     assert "bearer API-key authentication" in health_response.json()["readiness"]["completed"]
+    assert (
+        "verified local backup and non-destructive restore tooling"
+        in health_response.json()["readiness"]["completed"]
+    )
     assert missing_response.status_code == 401
     assert missing_response.headers["www-authenticate"] == "Bearer"
     assert missing_response.headers["access-control-allow-origin"] == "http://127.0.0.1:3000"

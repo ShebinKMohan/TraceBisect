@@ -42,6 +42,9 @@ temporary files out of the web root, and throttle repeated API calls.
   versioned JSON audit event per request. Events normalize resource paths into
   actions and omit credentials, headers, bodies, query values, filenames, and
   resource IDs.
+- `tracebisect studio backup`, `verify`, and `restore` provide an integrity-
+  checked recovery workflow. Backups use SQLite's online snapshot API, and
+  restore refuses to overwrite an existing database.
 - `/api/ready` checks the configured store, while `/api/health` separates
   process readiness from full production-SaaS readiness.
 - Compare requests reject identical baseline/candidate IDs.
@@ -67,6 +70,8 @@ Studio a real multi-tenant SaaS:
 - Distributed rate limiting backed by Redis or the hosting provider.
 - Durable centralized retention, search, alerting, and access control for the
   structured audit stream.
+- Scheduled encrypted off-site backups, retention policy, and deployment-level
+  recovery drills. The local CLI proves snapshot and restore mechanics only.
 - Object storage and antivirus/sandbox scanning for untrusted uploads.
 - Real observability for Studio itself: structured logs, metrics, alerts, and
   error tracking.

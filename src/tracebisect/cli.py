@@ -9,6 +9,8 @@ downstream tooling can be written against stable shapes:
 - ``diff`` renders a terminal comparison of two canonical traces.
 - ``export-pytest`` writes a live-capture regression test file.
 - ``record`` runs a scenario command with the V1 capture environment contract.
+- ``studio`` provides safe backup, verification, and non-destructive restore
+  commands for the durable Studio database.
 """
 
 from __future__ import annotations
@@ -21,6 +23,7 @@ import sys
 import tempfile
 from collections.abc import Sequence
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from colorama import init as colorama_init
 
@@ -33,6 +36,9 @@ from tracebisect.render import render_terminal_diff
 from tracebisect.schema import TraceBisectSchemaError
 from tracebisect.testing import capture_trace
 from tracebisect.version import __version__
+
+if TYPE_CHECKING:
+    from tracebisect.studio.backup import StudioBackupInspection
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -126,6 +132,56 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=1.5,
         help="Maximum cost ratio relative to baseline (default: 1.5).",
+    )
+
+    studio = subparsers.add_parser(
+        "studio",
+        help="Back up, verify, or safely restore a durable Studio database.",
+    )
+    studio_commands = studio.add_subparsers(
+        dest="studio_command",
+        metavar="<studio-command>",
+    )
+    studio.set_defaults(studio_parser=studio)
+
+    studio_backup = studio_commands.add_parser(
+        "backup",
+        help="Create a consistent snapshot while Studio is running.",
+    )
+    studio_backup.add_argument(
+        "--database",
+        required=True,
+        help="Current TRACEBISECT_STUDIO_SQLITE_PATH value.",
+    )
+    studio_backup.add_argument(
+        "--output",
+        required=True,
+        help="New backup file path. Existing files are never replaced.",
+    )
+
+    studio_verify = studio_commands.add_parser(
+        "verify",
+        help="Check backup integrity, compatibility, and record counts.",
+    )
+    studio_verify.add_argument(
+        "--backup",
+        required=True,
+        help="Backup file to verify.",
+    )
+
+    studio_restore = studio_commands.add_parser(
+        "restore",
+        help="Restore a verified backup to a new database file.",
+    )
+    studio_restore.add_argument(
+        "--backup",
+        required=True,
+        help="Verified backup file to restore.",
+    )
+    studio_restore.add_argument(
+        "--database",
+        required=True,
+        help="New database path. Existing files are never replaced.",
     )
 
     return parser
@@ -335,6 +391,51 @@ def test_tracebisect_regression():
 '''
 
 
+def run_studio_backup(database: str, output: str) -> int:
+    from tracebisect.studio.backup import create_studio_backup
+
+    inspection = create_studio_backup(database, output)
+    _print_studio_backup_summary("Studio backup created", Path(output), inspection)
+    print()
+    print("Next: copy this backup away from the Studio server, then verify it with:")
+    print(f"  tracebisect studio verify --backup {shlex.quote(str(Path(output)))}")
+    return 0
+
+
+def run_studio_verify(backup: str) -> int:
+    from tracebisect.studio.backup import inspect_studio_backup
+
+    inspection = inspect_studio_backup(backup)
+    _print_studio_backup_summary("Studio backup is healthy", Path(backup), inspection)
+    return 0
+
+
+def run_studio_restore(backup: str, database: str) -> int:
+    from tracebisect.studio.backup import restore_studio_backup
+
+    inspection = restore_studio_backup(backup, database)
+    _print_studio_backup_summary("Studio backup restored", Path(database), inspection)
+    print()
+    print("Next: set TRACEBISECT_STUDIO_SQLITE_PATH to this new file and restart Studio.")
+    return 0
+
+
+def _print_studio_backup_summary(
+    title: str,
+    path: Path,
+    inspection: StudioBackupInspection,
+) -> None:
+    print(title)
+    print(f"  File: {path.expanduser().resolve()}")
+    print(f"  Schema: {inspection.schema_version}")
+    print(f"  Workspaces: {inspection.workspace_count}")
+    print(f"  Traces: {inspection.trace_count}")
+    print(f"  Comparisons: {inspection.report_count}")
+    print(f"  Guardrails: {inspection.case_count}")
+    print(f"  Size: {inspection.size_bytes} bytes")
+    print(f"  SHA-256: {inspection.sha256}")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -373,6 +474,24 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         except ValueError as exc:
             print(f"tracebisect export-pytest failed: {exc}", file=sys.stderr)
+            return 2
+
+    if command == "studio":
+        if args.studio_command is None:
+            args.studio_parser.print_help()
+            return 0
+
+        from tracebisect.studio.backup import StudioBackupError
+
+        try:
+            if args.studio_command == "backup":
+                return run_studio_backup(args.database, args.output)
+            if args.studio_command == "verify":
+                return run_studio_verify(args.backup)
+            if args.studio_command == "restore":
+                return run_studio_restore(args.backup, args.database)
+        except StudioBackupError as exc:
+            print(f"tracebisect studio {args.studio_command} failed: {exc}", file=sys.stderr)
             return 2
 
     parser.print_help()
