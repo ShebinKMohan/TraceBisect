@@ -20,6 +20,11 @@ from starlette.responses import JSONResponse
 from tracebisect.schema import JsonObject, JsonValue, TraceBisectSchemaError
 from tracebisect.studio.audit import AuditAuthOutcome, StudioAudit
 from tracebisect.studio.auth import StudioAuthConfig
+from tracebisect.studio.metrics import (
+    PROMETHEUS_CONTENT_TYPE,
+    StudioMetrics,
+    StudioMetricsAccess,
+)
 from tracebisect.studio.service import (
     DEFAULT_SCENARIO_CMD,
     StudioStore,
@@ -109,6 +114,7 @@ VALID_RUN_STATUSES = frozenset({"passing", "failing"})
 VALID_RUN_SEVERITIES = frozenset({"INFO", "LOW", "MEDIUM", "HIGH", "CRITICAL"})
 PUBLIC_API_PATHS = frozenset({"/api/health", "/api/ready"})
 VIEWER_BLOCKED_GET_PATHS = frozenset({"/api/demo-report"})
+METRICS_API_PATH = "/api/metrics"
 ALLOWED_ORIGINS = _configured_allowed_origins()
 
 app = FastAPI(
@@ -121,6 +127,8 @@ STORE_REGISTRY = StudioStoreRegistry()
 STORE: StudioStore = STORE_REGISTRY.default_store
 AUTH_CONFIG = StudioAuthConfig.from_env()
 AUDIT = StudioAudit.from_env()
+METRICS = StudioMetrics()
+METRICS_ACCESS = StudioMetricsAccess.from_env()
 
 
 def _request_store(request: Request) -> StudioStore:
@@ -200,6 +208,7 @@ async def apply_api_guardrails(
     call_next: Callable[[Request], Awaitable[Response]],
 ) -> Response:
     started_at = time.perf_counter()
+    METRICS.request_started()
     request_id = AUDIT.request_id(request.headers.get("X-Request-ID"))
     request.state.request_id = request_id
     auth_outcome: AuditAuthOutcome = "not_checked"
@@ -230,7 +239,36 @@ async def apply_api_guardrails(
                 workspace_id=audit_workspace_id,
             )
 
-        if AUTH_CONFIG.required and request.url.path not in PUBLIC_API_PATHS:
+        if request.url.path == METRICS_API_PATH:
+            metrics_authorized = METRICS_ACCESS.authorizes(
+                request.headers.get("Authorization"),
+                auth_required=AUTH_CONFIG.required,
+            )
+            if not metrics_authorized:
+                auth_outcome = "rejected"
+                status_code = 401 if METRICS_ACCESS.token_configured else 503
+                detail = (
+                    "A valid Studio metrics bearer token is required."
+                    if METRICS_ACCESS.token_configured
+                    else "Studio metrics access is not configured for secured mode."
+                )
+                metrics_denied_response = JSONResponse(
+                    status_code=status_code,
+                    content={"detail": detail},
+                    headers={"WWW-Authenticate": "Bearer"} if status_code == 401 else None,
+                )
+                return _finalize_audited_response(
+                    request=request,
+                    response=metrics_denied_response,
+                    started_at=started_at,
+                    request_id=request_id,
+                    auth_outcome=auth_outcome,
+                    workspace_id=None,
+                )
+            request.state.workspace_id = STORE.workspace_id
+            request.state.workspace_role = "admin"
+            auth_outcome = "authenticated" if METRICS_ACCESS.token_configured else "not_required"
+        elif AUTH_CONFIG.required and request.url.path not in PUBLIC_API_PATHS:
             principal = AUTH_CONFIG.principal_for_authorization(
                 request.headers.get("Authorization")
             )
@@ -260,12 +298,7 @@ async def apply_api_guardrails(
             ):
                 forbidden_response = JSONResponse(
                     status_code=403,
-                    content={
-                        "detail": (
-                            "This workspace key has viewer access. An editor or admin key is "
-                            "required to change workspace data."
-                        )
-                    },
+                    content={"detail": _role_denied_detail(principal.role)},
                 )
                 return _finalize_audited_response(
                     request=request,
@@ -287,14 +320,22 @@ async def apply_api_guardrails(
     try:
         response = await call_next(request)
     except Exception:
+        duration_seconds = time.perf_counter() - started_at
         AUDIT.emit_request(
             request_id=request_id,
             method=request.method,
             path=request.url.path,
             status_code=500,
-            duration_ms=(time.perf_counter() - started_at) * 1000,
+            duration_ms=duration_seconds * 1000,
             auth_outcome=auth_outcome,
             workspace_id=audit_workspace_id,
+        )
+        METRICS.request_finished(
+            method=request.method,
+            path=request.url.path,
+            status_code=500,
+            duration_seconds=duration_seconds,
+            auth_outcome=auth_outcome,
         )
         raise
     return _finalize_audited_response(
@@ -316,6 +357,7 @@ def _finalize_audited_response(
     auth_outcome: AuditAuthOutcome,
     workspace_id: str | None,
 ) -> Response:
+    duration_seconds = time.perf_counter() - started_at
     response.headers["X-Request-ID"] = request_id
     _apply_security_headers(response)
     AUDIT.emit_request(
@@ -323,9 +365,16 @@ def _finalize_audited_response(
         method=request.method,
         path=request.url.path,
         status_code=response.status_code,
-        duration_ms=(time.perf_counter() - started_at) * 1000,
+        duration_ms=duration_seconds * 1000,
         auth_outcome=auth_outcome,
         workspace_id=workspace_id,
+    )
+    METRICS.request_finished(
+        method=request.method,
+        path=request.url.path,
+        status_code=response.status_code,
+        duration_seconds=duration_seconds,
+        auth_outcome=auth_outcome,
     )
     return response
 
@@ -351,6 +400,13 @@ def health() -> JsonObject:
             "format": "json",
             "request_id_header": "X-Request-ID",
         },
+        "metrics": {
+            "format": "prometheus_text_0.0.4",
+            "path": METRICS_API_PATH,
+            "access": METRICS_ACCESS.access_mode(auth_required=AUTH_CONFIG.required),
+            "scope": "process",
+            "resets_on_restart": True,
+        },
         "runtime": _public_runtime_status(),
         "readiness": _production_readiness(storage_ok=storage_ok),
         "limits": {
@@ -375,6 +431,15 @@ def ready(response: Response) -> JsonObject:
         "ready": storage_ok,
         "checks": {"storage": "ok" if storage_ok else "unavailable"},
     }
+
+
+@app.get(METRICS_API_PATH, response_model=None, include_in_schema=False)
+def metrics() -> Response:
+    """Expose low-cardinality service metrics without workspace or resource labels."""
+    return Response(
+        content=METRICS.render_prometheus(),
+        media_type=PROMETHEUS_CONTENT_TYPE,
+    )
 
 
 @app.get("/api/session", response_model=None)
@@ -668,6 +733,15 @@ def _role_allows_request(*, role: str, method: str, path: str) -> bool:
     return method.upper() in {"GET", "HEAD"} and path not in VIEWER_BLOCKED_GET_PATHS
 
 
+def _role_denied_detail(role: str) -> str:
+    if role == "viewer":
+        return (
+            "This workspace key has viewer access. An editor or admin key is required to "
+            "change workspace data."
+        )
+    return "This workspace key is not authorized for this operation."
+
+
 def _production_readiness(*, storage_ok: bool) -> JsonObject:
     runtime = STORE.runtime_status()
     durable = runtime["durable"] is True
@@ -702,6 +776,14 @@ def _production_readiness(*, storage_ok: bool) -> JsonObject:
         completed.append("secret-safe structured request audit logs")
     else:
         blockers.insert(0, "structured request audit logs")
+    metrics_access = METRICS_ACCESS.access_mode(auth_required=AUTH_CONFIG.required)
+    if metrics_access == "bearer_token":
+        completed.append("low-cardinality Prometheus metrics with dedicated scrape access")
+        blockers[blockers.index("hosted deployment observability")] = (
+            "centralized metrics collection, alerts, and error tracking"
+        )
+    else:
+        blockers.insert(0, "dedicated production metrics scrape access")
     if durable:
         completed.extend(
             [

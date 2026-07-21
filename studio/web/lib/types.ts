@@ -22,6 +22,13 @@ export type StudioHealth = {
     format: "json";
     request_id_header: "X-Request-ID";
   };
+  metrics: {
+    format: "prometheus_text_0.0.4";
+    path: "/api/metrics";
+    access: "open_local" | "bearer_token" | "unavailable";
+    scope: "process";
+    resets_on_restart: true;
+  };
   runtime: {
     kind: "memory" | "sqlite";
     durable: boolean;

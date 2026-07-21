@@ -129,6 +129,10 @@ def test_studio_parser_exposes_beginner_safe_recovery_commands() -> None:
     assert keys.studio_keys_command == "create"
     assert keys.role == "editor"
 
+    metrics = parser.parse_args(["studio", "metrics", "generate-token"])
+    assert metrics.studio_command == "metrics"
+    assert metrics.studio_metrics_command == "generate-token"
+
 
 def test_studio_command_without_action_shows_recovery_help(
     capsys: pytest.CaptureFixture[str],
@@ -140,6 +144,27 @@ def test_studio_command_without_action_shows_recovery_help(
     assert "backup" in output
     assert "verify" in output
     assert "restore" in output
+    assert "metrics" in output
+
+
+def test_metrics_token_command_shows_one_secret_once(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert main(["studio", "metrics", "generate-token"]) == 0
+
+    output = capsys.readouterr().out
+    assert "Studio metrics token generated" in output
+    assert "TRACEBISECT_STUDIO_METRICS_TOKEN=" in output
+    assert "Do not use a workspace key" in output
+    secret_lines = [
+        line.strip()
+        for line in output.splitlines()
+        if line.strip().startswith("TRACEBISECT_STUDIO_METRICS_TOKEN=")
+    ]
+    assert len(secret_lines) == 1
+    token = secret_lines[0].partition("=")[2]
+    assert len(token) == 43
+    assert all(character.isalnum() or character in "_-" for character in token)
 
 
 def test_ingest_otel_json_writes_canonical_tbtrace(

@@ -67,10 +67,10 @@ class StudioAudit:
             "event_version": AUDIT_EVENT_VERSION,
             "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "request_id": request_id,
-            "action": _request_action(method, path),
+            "action": request_action(method, path),
             "method": method.upper(),
             "status_code": status_code,
-            "result": _request_result(status_code),
+            "result": request_result(status_code),
             "duration_ms": round(max(0.0, duration_ms), 3),
             "auth_outcome": auth_outcome,
             "workspace_id": workspace_id,
@@ -81,12 +81,15 @@ class StudioAudit:
         )
 
 
-def _request_action(method: str, path: str) -> str:
+def request_action(method: str, path: str) -> str:
+    """Map resource-bearing paths to a fixed, secret-safe action name."""
     normalized_method = method.upper()
     if path == "/api/health":
         return "health_check"
     if path == "/api/ready":
         return "readiness_check"
+    if path == "/api/metrics":
+        return "metrics_scrape"
     if path == "/api/session":
         return "session_check"
     if path == "/api/demo-report":
@@ -110,7 +113,8 @@ def _request_action(method: str, path: str) -> str:
     return "unclassified_request"
 
 
-def _request_result(status_code: int) -> str:
+def request_result(status_code: int) -> str:
+    """Collapse arbitrary HTTP codes into a bounded operational result."""
     if status_code < 400:
         return "success"
     if status_code in {401, 403}:

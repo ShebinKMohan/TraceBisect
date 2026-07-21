@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Clipboard, FileJson2, PlayCircle, ShieldCheck, TerminalSquare, UploadCloud } from "lucide-react";
+import { Activity, Check, Clipboard, FileJson2, PlayCircle, ShieldCheck, TerminalSquare, UploadCloud } from "lucide-react";
 import { useState } from "react";
 import type { StudioHealth, WorkspaceRole } from "@/lib/types";
 
@@ -9,7 +9,7 @@ const uploadCommand = "curl -X POST http://127.0.0.1:8000/api/traces/upload -F '
 const recordCommand = "tracebisect record --output run.tbtrace -- python your_agent.py";
 const durableCommand = "TRACEBISECT_STUDIO_STORAGE=sqlite TRACEBISECT_STUDIO_SQLITE_PATH=.tracebisect/studio.db uvicorn tracebisect.studio.api:app --port 8000";
 const listKeysCommand = "tracebisect studio keys list --database .tracebisect/studio.db";
-const createKeyCommand = "tracebisect studio keys create --database .tracebisect/studio.db --workspace team-a --name 'Browser access' --role editor";
+const generateMetricsTokenCommand = "tracebisect studio metrics generate-token";
 
 function CopyCommand({ command, label }: { command: string; label: string }) {
   const [copied, setCopied] = useState(false);
@@ -45,6 +45,9 @@ export function SettingsPanel({ health, workspaceRole }: { health: StudioHealth 
   const durable = health?.runtime.durable ?? false;
   const authRequired = health?.auth.required ?? false;
   const credentialSource = health?.auth.credential_source ?? "none";
+  const metricsAccess = health?.metrics.access ?? null;
+  const workspaceId = health?.runtime.workspace_id ?? "team-a";
+  const createKeyCommand = `tracebisect studio keys create --database .tracebisect/studio.db --workspace ${workspaceId} --name 'Browser access' --role editor`;
   return (
     <section className="setup-guide" data-testid="setup-section">
       <div className="setup-mode-banner">
@@ -118,11 +121,11 @@ export function SettingsPanel({ health, workspaceRole }: { health: StudioHealth 
           <div><strong>Upload limit</strong><span>5 MB per file in the default local configuration</span></div>
         </article>
         <article>
-          <TerminalSquare size={19} aria-hidden />
+          <Activity size={19} aria-hidden />
           <div>
-            <strong>API &amp; audit</strong>
+            <strong>API operations</strong>
             <span>
-              <code>http://127.0.0.1:8000</code> · JSON request audit {health?.audit.enabled ? "on" : "off"}
+              JSON audit {health?.audit.enabled ? "on" : "off"} · Metrics {metricsAccess === "bearer_token" ? "protected" : metricsAccess === "open_local" ? "local" : metricsAccess === "unavailable" ? "need a token" : "checking"}
             </span>
           </div>
         </article>
@@ -170,6 +173,18 @@ export function SettingsPanel({ health, workspaceRole }: { health: StudioHealth 
               ? "You can inspect workspace evidence and copy generated tests. Ask a workspace admin for an editor key when you need to upload, compare, save, or rerun data."
               : "You can upload, compare, save, and rerun workspace data. Key issuance and revocation stay with an operator who controls the Studio database and server secret."}
           </p>
+        </div>
+      ) : null}
+
+      {authRequired && workspaceRole === "admin" ? (
+        <div className="setup-boundary setup-operations">
+          <h2>{metricsAccess === "bearer_token" ? "Service monitoring is protected" : "Connect service monitoring"}</h2>
+          <p>
+            {metricsAccess === "bearer_token"
+              ? "The Prometheus metrics endpoint uses its own read-only bearer token. Workspace keys are rejected, so your monitoring service cannot open or change product data."
+              : "Protected Studio keeps the metrics endpoint unavailable until you create a separate scraper token. Generate one, save it as TRACEBISECT_STUDIO_METRICS_TOKEN, then restart the API."}
+          </p>
+          {metricsAccess !== "bearer_token" ? <CopyCommand command={generateMetricsTokenCommand} label="generate metrics token command" /> : null}
         </div>
       ) : null}
 

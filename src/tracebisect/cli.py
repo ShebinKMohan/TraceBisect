@@ -136,7 +136,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     studio = subparsers.add_parser(
         "studio",
-        help="Back up, verify, or safely restore a durable Studio database.",
+        help="Operate Studio storage, access keys, and monitoring safely.",
     )
     studio_commands = studio.add_subparsers(
         dest="studio_command",
@@ -257,6 +257,20 @@ def build_parser() -> argparse.ArgumentParser:
         "--key-id",
         required=True,
         help="12-character key ID shown by the list command.",
+    )
+
+    studio_metrics = studio_commands.add_parser(
+        "metrics",
+        help="Configure safe access to production service metrics.",
+    )
+    studio_metrics_commands = studio_metrics.add_subparsers(
+        dest="studio_metrics_command",
+        metavar="<metrics-command>",
+    )
+    studio_metrics.set_defaults(studio_metrics_parser=studio_metrics)
+    studio_metrics_commands.add_parser(
+        "generate-token",
+        help="Generate the dedicated bearer token used by a metrics scraper.",
     )
 
     return parser
@@ -586,6 +600,17 @@ def run_studio_keys_revoke(database: str, key_id: str) -> int:
     return 0
 
 
+def run_studio_metrics_generate_token() -> int:
+    from tracebisect.studio.metrics import METRICS_TOKEN_ENV, generate_metrics_token
+
+    print("Studio metrics token generated")
+    print("Store this value in your deployment secret manager. Do not use a workspace key.")
+    print(f"  {METRICS_TOKEN_ENV}={generate_metrics_token()}")
+    print()
+    print("Next: configure your metrics scraper to send this value as a bearer token.")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -660,10 +685,18 @@ def main(argv: Sequence[str] | None = None) -> int:
                     return run_studio_keys_list(args.database)
                 if args.studio_keys_command == "revoke":
                     return run_studio_keys_revoke(args.database, args.key_id)
+            if args.studio_command == "metrics":
+                if args.studio_metrics_command is None:
+                    args.studio_metrics_parser.print_help()
+                    return 0
+                if args.studio_metrics_command == "generate-token":
+                    return run_studio_metrics_generate_token()
         except (StudioApiKeyError, StudioBackupError, StudioConfigurationError) as exc:
             failed_command = args.studio_command
             if args.studio_command == "keys" and args.studio_keys_command is not None:
                 failed_command = f"keys {args.studio_keys_command}"
+            if args.studio_command == "metrics" and args.studio_metrics_command is not None:
+                failed_command = f"metrics {args.studio_metrics_command}"
             print(f"tracebisect studio {failed_command} failed: {exc}", file=sys.stderr)
             return 2
 

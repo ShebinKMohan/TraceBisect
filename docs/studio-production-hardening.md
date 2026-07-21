@@ -50,6 +50,14 @@ temporary files out of the web root, and throttle repeated API calls.
   versioned JSON audit event per request. Events normalize resource paths into
   actions and omit credentials, headers, bodies, query values, filenames, and
   resource IDs.
+- `/api/metrics` emits Prometheus text-format request counters, latency
+  histograms, authentication outcomes, in-flight work, and process uptime.
+  Labels use only fixed action/result values—never workspace, resource, user,
+  filename, query, or request identifiers. Counters are process-local and reset
+  on restart; the deployment monitor owns retention and multi-instance sums.
+- Protected deployments require a separate
+  `TRACEBISECT_STUDIO_METRICS_TOKEN` for scrapes. Workspace keys are rejected so
+  a monitoring agent never needs permission to read or mutate product data.
 - `tracebisect studio backup`, `verify`, and `restore` provide an integrity-
   checked recovery workflow. Backups use SQLite's online snapshot API, and
   restore refuses to overwrite an existing database.
@@ -81,16 +89,17 @@ Studio a real multi-tenant SaaS:
 - Scheduled encrypted off-site backups, retention policy, and deployment-level
   recovery drills. The local CLI proves snapshot and restore mechanics only.
 - Object storage and antivirus/sandbox scanning for untrusted uploads.
-- Real observability for Studio itself: structured logs, metrics, alerts, and
-  error tracking.
+- Centralized metrics collection, alert rules, dashboards, and error tracking.
+  The process now exposes scrapeable low-cardinality metrics, but does not
+  configure the hosting platform around them.
 - Deployment-specific TLS, reverse-proxy, and extended security-header
   configuration.
 
 The current build has restart-safe single-node persistence plus fail-closed
 workspace API-key authorization, not a finished hosted SaaS. The next
-production step is managed identity/key lifecycle and deployment observability;
-do not add Langfuse-scale ClickHouse or queues until the comparison workflow
-needs them.
+production step is managed identity, browser key lifecycle, and deployment-level
+collection/alerting; do not add Langfuse-scale ClickHouse or queues until the
+comparison workflow needs them.
 
 ## References
 
@@ -98,3 +107,7 @@ needs them.
   https://owasp.org/API-Security/editions/2023/en/0xa4-unrestricted-resource-consumption/
 - OWASP File Upload Cheat Sheet:
   https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html
+- Prometheus exposition formats:
+  https://prometheus.io/docs/instrumenting/exposition_formats/
+- Prometheus instrumentation and label-cardinality guidance:
+  https://prometheus.io/docs/practices/instrumentation/

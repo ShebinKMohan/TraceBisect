@@ -17,6 +17,7 @@ from tracebisect.studio.access_keys import (
 )
 from tracebisect.studio.audit import AUDIT_LOGGER_NAME
 from tracebisect.studio.auth import StudioAuthConfig
+from tracebisect.studio.metrics import StudioMetricsAccess
 from tracebisect.studio.storage import (
     StudioConfigurationError,
     StudioStoreRegistry,
@@ -343,6 +344,83 @@ def test_managed_key_secures_live_api_and_revokes_without_restart(
     audit_output = "\n".join(record.message for record in caplog.records)
     assert issued.api_key not in audit_output
     assert pepper not in audit_output
+    registry.close()
+
+
+def test_secured_metrics_require_a_dedicated_scrape_token(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    metrics_token = "dedicated-metrics-token-with-at-least-32-characters"
+    env = {
+        **_secured_env(tmp_path / "studio.db"),
+        "TRACEBISECT_STUDIO_METRICS_TOKEN": metrics_token,
+    }
+    registry = StudioStoreRegistry(env)
+    monkeypatch.setattr(studio_api, "AUTH_CONFIG", StudioAuthConfig.from_env(env))
+    monkeypatch.setattr(studio_api, "METRICS_ACCESS", StudioMetricsAccess.from_env(env))
+    monkeypatch.setattr(studio_api, "STORE_REGISTRY", registry)
+    monkeypatch.setattr(studio_api, "STORE", registry.default_store)
+    asyncio.run(studio_api.RATE_LIMITER.reset())
+    studio_api.METRICS.reset()
+    caplog.set_level(logging.INFO, logger=AUDIT_LOGGER_NAME)
+    client = TestClient(studio_api.app)
+
+    missing = client.get("/api/metrics")
+    workspace_admin = client.get(
+        "/api/metrics",
+        headers={"Authorization": f"Bearer {WORKSPACE_A_KEY}"},
+    )
+    accepted = client.get(
+        "/api/metrics",
+        headers={"Authorization": f"Bearer {metrics_token}"},
+    )
+    health = client.get("/api/health")
+
+    assert missing.status_code == 401
+    assert missing.headers["www-authenticate"] == "Bearer"
+    assert workspace_admin.status_code == 401
+    assert accepted.status_code == 200
+    assert health.json()["metrics"]["access"] == "bearer_token"
+    assert (
+        "low-cardinality Prometheus metrics with dedicated scrape access"
+        in health.json()["readiness"]["completed"]
+    )
+    assert (
+        "centralized metrics collection, alerts, and error tracking"
+        in health.json()["readiness"]["blockers"]
+    )
+    assert "workspace-a" not in accepted.text
+    assert metrics_token not in accepted.text
+    assert WORKSPACE_A_KEY not in accepted.text
+    audit_output = "\n".join(record.message for record in caplog.records)
+    assert metrics_token not in audit_output
+    assert WORKSPACE_A_KEY not in audit_output
+    registry.close()
+
+
+def test_secured_metrics_are_unavailable_without_scrape_configuration(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env = _secured_env(tmp_path / "studio.db")
+    registry = StudioStoreRegistry(env)
+    monkeypatch.setattr(studio_api, "AUTH_CONFIG", StudioAuthConfig.from_env(env))
+    monkeypatch.setattr(studio_api, "METRICS_ACCESS", StudioMetricsAccess.from_env(env))
+    monkeypatch.setattr(studio_api, "STORE_REGISTRY", registry)
+    monkeypatch.setattr(studio_api, "STORE", registry.default_store)
+    asyncio.run(studio_api.RATE_LIMITER.reset())
+    studio_api.METRICS.reset()
+    client = TestClient(studio_api.app)
+
+    response = client.get("/api/metrics")
+
+    assert response.status_code == 503
+    assert response.headers.get("www-authenticate") is None
+    assert response.json() == {
+        "detail": "Studio metrics access is not configured for secured mode."
+    }
     registry.close()
 
 

@@ -23,6 +23,7 @@ CANDIDATE = REPO_ROOT / "tests" / "fixtures" / "refund_search_candidate_changed_
 def reset_studio_state() -> None:
     STORE.clear()
     asyncio.run(RATE_LIMITER.reset())
+    studio_api.METRICS.reset()
 
 
 def test_build_demo_report_contains_real_first_divergence() -> None:
@@ -315,6 +316,33 @@ def test_studio_api_readiness_checks_storage() -> None:
 
     assert response.status_code == 200
     assert response.json() == {"ready": True, "checks": {"storage": "ok"}}
+
+
+def test_open_local_metrics_endpoint_exposes_prometheus_contract() -> None:
+    reset_studio_state()
+    client = TestClient(app)
+
+    health_response = client.get("/api/health")
+    response = client.get("/api/metrics")
+
+    assert health_response.json()["metrics"] == {
+        "format": "prometheus_text_0.0.4",
+        "path": "/api/metrics",
+        "access": "open_local",
+        "scope": "process",
+        "resets_on_restart": True,
+    }
+    assert response.status_code == 200
+    assert response.headers["content-type"] == studio_api.PROMETHEUS_CONTENT_TYPE
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert "# TYPE tracebisect_studio_http_requests_total counter" in response.text
+    assert (
+        'tracebisect_studio_http_requests_total{action="health_check",result="success"} 1'
+        in response.text
+    )
+    assert "workspace_id" not in response.text
+    assert "request_id" not in response.text
 
 
 def test_studio_api_rejects_unsupported_upload_extension() -> None:

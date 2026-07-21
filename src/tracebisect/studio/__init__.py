@@ -2,6 +2,7 @@
 
 from tracebisect.studio.audit import StudioAudit
 from tracebisect.studio.auth import StudioAuthConfig
+from tracebisect.studio.metrics import StudioMetrics, StudioMetricsAccess
 from tracebisect.studio.service import StudioStore, build_comparison_report, build_demo_report
 from tracebisect.studio.storage import (
     SQLiteStudioStore,
@@ -13,6 +14,8 @@ __all__ = [
     "SQLiteStudioStore",
     "StudioAuthConfig",
     "StudioAudit",
+    "StudioMetrics",
+    "StudioMetricsAccess",
     "StudioStore",
     "StudioStoreRegistry",
     "build_comparison_report",
