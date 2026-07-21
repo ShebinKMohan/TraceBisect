@@ -111,6 +111,8 @@ def request_action(method: str, path: str) -> str:
     if path == "/api/team/invitations":
         return "invitation_create" if normalized_method == "POST" else "invitation_list"
     if path.startswith("/api/team/invitations/"):
+        if path.endswith("/resend") and normalized_method == "POST":
+            return "invitation_resend"
         return "invitation_revoke"
     if path == "/api/access-keys":
         return "access_key_create" if normalized_method == "POST" else "access_key_list"

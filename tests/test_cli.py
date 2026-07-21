@@ -133,6 +133,13 @@ def test_studio_parser_exposes_beginner_safe_recovery_commands() -> None:
     assert metrics.studio_command == "metrics"
     assert metrics.studio_metrics_command == "generate-token"
 
+    email = parser.parse_args(
+        ["studio", "email", "deliver", "--database", "studio.db", "--limit", "12"]
+    )
+    assert email.studio_command == "email"
+    assert email.studio_email_command == "deliver"
+    assert email.limit == 12
+
 
 def test_studio_command_without_action_shows_recovery_help(
     capsys: pytest.CaptureFixture[str],
@@ -145,6 +152,7 @@ def test_studio_command_without_action_shows_recovery_help(
     assert "verify" in output
     assert "restore" in output
     assert "metrics" in output
+    assert "email" in output
 
 
 def test_metrics_token_command_shows_one_secret_once(

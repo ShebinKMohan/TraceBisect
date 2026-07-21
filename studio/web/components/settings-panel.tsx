@@ -49,6 +49,7 @@ export function SettingsPanel({ health, workspaceRole }: { health: StudioHealth 
   const credentialSource = health?.auth.credential_source ?? "none";
   const browserSessions = health?.auth.browser_sessions ?? false;
   const humanAccounts = health?.auth.human_accounts ?? false;
+  const emailDelivery = health?.email.enabled ?? false;
   const metricsAccess = health?.metrics.access ?? null;
   return (
     <section className="setup-guide" data-testid="setup-section">
@@ -194,7 +195,9 @@ export function SettingsPanel({ health, workspaceRole }: { health: StudioHealth 
           {authRequired
             ? credentialSource === "managed"
               ? humanAccounts
-                ? "Automated invitation email delivery, email verification, optional multi-factor sign-in, hosted ingestion, and billing remain production milestones—not active features in this build."
+                ? emailDelivery
+                  ? "Delivery and bounce tracking, email ownership re-verification, optional multi-factor sign-in, hosted ingestion, and billing remain production milestones—not active features in this build."
+                  : "Automated invitation email delivery, email verification, optional multi-factor sign-in, hosted ingestion, and billing remain production milestones—not active features in this build."
                 : "Human accounts, recovery, invitations, hosted ingestion, and billing are future production milestones—not active features in this build."
               : "Managed user accounts, hashed key rotation, hosted ingestion, team administration, and billing are future production milestones—not active features in this build."
             : "Authentication, request-scoped workspace access, hosted ingestion, team access, billing, and API keys are future production milestones—not active features in this build."}

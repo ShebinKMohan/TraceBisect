@@ -26,7 +26,7 @@ from tracebisect.studio.service import (
     StudioStore,
 )
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 _WORKSPACE_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 _STORAGE_SETTING_NAMES = (
     "TRACEBISECT_STUDIO_STORAGE",
@@ -365,7 +365,7 @@ def ensure_studio_schema(connection: sqlite3.Connection) -> None:
                 "INSERT INTO studio_schema (version) VALUES (?)",
                 (SCHEMA_VERSION,),
             )
-        elif not isinstance(row[0], int) or row[0] not in {1, 2, 3, 4, SCHEMA_VERSION}:
+        elif not isinstance(row[0], int) or row[0] not in {1, 2, 3, 4, 5, SCHEMA_VERSION}:
             raise StudioPersistenceError(f"unsupported Studio database schema version {row[0]!r}")
         else:
             database_version = row[0]
@@ -565,6 +565,49 @@ def ensure_studio_schema(connection: sqlite3.Connection) -> None:
             """
             CREATE INDEX IF NOT EXISTS studio_identity_sessions_expiry_idx
             ON studio_identity_sessions (expires_at)
+            """,
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS studio_email_outbox (
+                message_id TEXT PRIMARY KEY,
+                invitation_id TEXT NOT NULL,
+                workspace_id TEXT NOT NULL,
+                recipient_email TEXT NOT NULL COLLATE NOCASE,
+                payload_ciphertext TEXT NOT NULL,
+                status TEXT NOT NULL CHECK (
+                    status IN ('pending', 'sending', 'retry', 'sent', 'failed')
+                ),
+                attempt_count INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                available_at TEXT NOT NULL,
+                lease_expires_at TEXT,
+                lease_token TEXT,
+                sent_at TEXT,
+                failed_at TEXT,
+                provider_message_id TEXT,
+                last_error_code TEXT,
+                FOREIGN KEY (invitation_id)
+                    REFERENCES studio_invitations (invitation_id) ON DELETE CASCADE
+            )
+            """,
+        )
+        email_columns = {
+            str(column[1])
+            for column in connection.execute("PRAGMA table_info(studio_email_outbox)")
+        }
+        if "lease_token" not in email_columns:
+            connection.execute("ALTER TABLE studio_email_outbox ADD COLUMN lease_token TEXT")
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS studio_email_outbox_due_idx
+            ON studio_email_outbox (status, available_at, lease_expires_at)
+            """,
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS studio_email_outbox_invitation_idx
+            ON studio_email_outbox (workspace_id, invitation_id, created_at)
             """,
         )
         if database_version < SCHEMA_VERSION:

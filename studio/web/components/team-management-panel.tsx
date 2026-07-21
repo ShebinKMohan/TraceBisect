@@ -17,6 +17,7 @@ import {
   fetchWorkspaceInvitations,
   fetchWorkspaceMembers,
   removeWorkspaceMember,
+  resendWorkspaceInvitation,
   revokeWorkspaceInvitation,
   updateWorkspaceMember,
 } from "@/lib/api";
@@ -85,8 +86,13 @@ export function TeamManagementPanel() {
         role,
         expires_in_days: expiresInDays,
       });
-      const link = `${window.location.origin}${window.location.pathname}#invite=${encodeURIComponent(result.invitation_token)}`;
-      setIssuedLink(link);
+      if (result.invitation_token) {
+        const link = `${window.location.origin}${window.location.pathname}#invite=${encodeURIComponent(result.invitation_token)}`;
+        setIssuedLink(link);
+      } else {
+        setIssuedLink(null);
+        setNotice(`Invitation email queued for ${result.invitation.email}.`);
+      }
       setInvitations((items) => [
         result.invitation,
         ...items.filter((item) => item.invitation_id !== result.invitation.invitation_id),
@@ -156,6 +162,24 @@ export function TeamManagementPanel() {
     }
   }
 
+  async function resend(invitation: WorkspaceInvitation) {
+    if (busy || invitation.delivery?.status !== "failed") return;
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const delivery = await resendWorkspaceInvitation(invitation.invitation_id);
+      setInvitations((items) => items.map((item) => (
+        item.invitation_id === invitation.invitation_id ? { ...item, delivery } : item
+      )));
+      setNotice(`Invitation email queued again for ${invitation.email}.`);
+    } catch (resendError) {
+      setError(messageFor(resendError, "Studio could not retry this invitation email."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <section className="access-management team-management" aria-labelledby="team-management-title">
       <div className="access-management-heading">
@@ -205,7 +229,7 @@ export function TeamManagementPanel() {
             </select>
           </div>
           <p className="access-role-help"><ShieldCheck size={15} aria-hidden />{roleHelp[role]}</p>
-          <button className="access-primary-button" disabled={!email.trim() || busy} type="submit"><MailPlus size={16} aria-hidden />{busy ? "Creating…" : "Create invitation"}</button>
+          <button className="access-primary-button" disabled={!email.trim() || busy} type="submit"><MailPlus size={16} aria-hidden />{busy ? "Creating…" : "Invite person"}</button>
         </form>
       )}
 
@@ -234,13 +258,24 @@ export function TeamManagementPanel() {
       ) : null}
 
       <div className="access-list-heading team-pending-heading"><div><h3>Pending invitations</h3><p>{pendingInvitations.length ? `${pendingInvitations.length} waiting to be accepted` : "No active invitation links"}</p></div></div>
-      {pendingInvitations.length ? <div className="access-key-list">{pendingInvitations.map((invitation) => <article className="access-key-row team-invitation-row" key={invitation.invitation_id}><div className="access-key-identity"><span aria-hidden><MailPlus size={16} /></span><div><strong>{invitation.email}</strong><p>{roleName(invitation.role)} · expires {formatDate(invitation.expires_at)}</p></div></div><span className="access-key-status access-key-status-active">Pending</span><div className="access-key-actions"><button className="access-revoke-button" disabled={busy} onClick={() => void revoke(invitation)} type="button">Revoke</button></div></article>)}</div> : <p className="access-empty">Create an invitation when someone needs account access.</p>}
+      {pendingInvitations.length ? <div className="access-key-list">{pendingInvitations.map((invitation) => <article className="access-key-row team-invitation-row" key={invitation.invitation_id}><div className="access-key-identity"><span aria-hidden><MailPlus size={16} /></span><div><strong>{invitation.email}</strong><p>{roleName(invitation.role)} · expires {formatDate(invitation.expires_at)} · {deliveryLabel(invitation)}</p></div></div><span className={`access-key-status ${invitation.delivery?.status === "failed" ? "access-key-status-revoked" : "access-key-status-active"}`}>{invitation.delivery?.status === "failed" ? "Email failed" : "Pending"}</span><div className="access-key-actions">{invitation.delivery?.status === "failed" ? <button className="access-secondary-button" disabled={busy} onClick={() => void resend(invitation)} type="button"><RefreshCw size={14} aria-hidden />Retry email</button> : null}<button className="access-revoke-button" disabled={busy} onClick={() => void revoke(invitation)} type="button">Revoke</button></div></article>)}</div> : <p className="access-empty">Invite someone when they need account access.</p>}
     </section>
   );
 }
 
 function roleName(role: WorkspaceRole): string {
   return `${role[0].toUpperCase()}${role.slice(1)}`;
+}
+
+function deliveryLabel(invitation: WorkspaceInvitation): string {
+  switch (invitation.delivery?.status) {
+    case "pending": return "email queued";
+    case "sending": return "sending email";
+    case "retry": return "email will retry";
+    case "sent": return "email accepted by provider";
+    case "failed": return "email needs attention";
+    default: return "share the private link manually";
+  }
 }
 
 function formatDate(value: string): string {

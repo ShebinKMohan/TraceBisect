@@ -22,6 +22,7 @@ from tracebisect.studio.backup import (
     inspect_studio_backup,
     restore_studio_backup,
 )
+from tracebisect.studio.email_delivery import StudioEmailDelivery
 from tracebisect.studio.identity import (
     accept_studio_invitation,
     create_studio_invitation,
@@ -90,6 +91,26 @@ def test_live_backup_verifies_and_restores_all_workspace_data(tmp_path: Path) ->
         identity_secret_value=identity_secret,
     )
     assert identity_login.session is not None
+    queued_invitation = create_studio_invitation(
+        source_path,
+        workspace_id="workspace-a",
+        email="next-owner@example.com",
+        role="admin",
+        expires_in_days=7,
+        identity_secret_value=identity_secret,
+    )
+    email_delivery = StudioEmailDelivery.from_env(
+        {
+            "TRACEBISECT_STUDIO_STORAGE": "sqlite",
+            "TRACEBISECT_STUDIO_SQLITE_PATH": str(source_path),
+            "TRACEBISECT_STUDIO_IDENTITY_SECRET": identity_secret,
+            "TRACEBISECT_STUDIO_EMAIL_PROVIDER": "resend",
+            "TRACEBISECT_STUDIO_EMAIL_FROM": "invites@example.com",
+            "TRACEBISECT_STUDIO_PUBLIC_URL": "https://studio.example.com",
+            "RESEND_API_KEY": "re_backup_test_key_long_enough",
+        }
+    )
+    email_delivery.queue_invitation(queued_invitation)
     with pytest.raises(StudioBackupError, match="contains browser sessions"):
         inspect_studio_backup(source_path)
 
@@ -112,6 +133,7 @@ def test_live_backup_verifies_and_restores_all_workspace_data(tmp_path: Path) ->
         assert connection.execute("SELECT COUNT(*) FROM studio_identity_sessions").fetchone() == (
             0,
         )
+        assert connection.execute("SELECT COUNT(*) FROM studio_email_outbox").fetchone() == (0,)
 
     # Prove that the backup is a point-in-time snapshot, not a reference to the live file.
     source.clear()

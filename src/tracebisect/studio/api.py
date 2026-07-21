@@ -14,7 +14,17 @@ from pathlib import Path
 from typing import Annotated, cast
 from urllib.parse import urlsplit
 
-from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, Response, UploadFile
+from fastapi import (
+    BackgroundTasks,
+    Depends,
+    FastAPI,
+    File,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
 from starlette.responses import JSONResponse
@@ -35,6 +45,15 @@ from tracebisect.studio.access_sessions import (
 )
 from tracebisect.studio.audit import AuditAuthOutcome, StudioAudit
 from tracebisect.studio.auth import StudioAuthConfig
+from tracebisect.studio.email_delivery import (
+    MAX_EMAIL_DELIVERY_ATTEMPTS,
+    MAX_STORED_EMAIL_MESSAGES_PER_WORKSPACE,
+    StudioEmailDelivery,
+    StudioEmailDeliveryConflict,
+    StudioEmailDeliveryError,
+    StudioEmailDeliveryNotFound,
+    StudioEmailDeliveryRecord,
+)
 from tracebisect.studio.error_reporting import StudioErrorReporter
 from tracebisect.studio.identity import (
     MAX_ACTIVE_INVITATIONS_PER_WORKSPACE,
@@ -230,6 +249,7 @@ STORE: StudioStore = STORE_REGISTRY.default_store
 AUTH_CONFIG = StudioAuthConfig.from_env()
 AUDIT = StudioAudit.from_env()
 ERROR_REPORTER = StudioErrorReporter.from_env()
+EMAIL_DELIVERY = StudioEmailDelivery.from_env()
 METRICS = StudioMetrics()
 METRICS_ACCESS = StudioMetricsAccess.from_env()
 
@@ -607,6 +627,7 @@ def health() -> JsonObject:
             "request_id_header": "X-Request-ID",
         },
         "errors": cast(JsonValue, ERROR_REPORTER.runtime_status()),
+        "email": cast(JsonValue, EMAIL_DELIVERY.runtime_status()),
         "metrics": {
             "format": "prometheus_text_0.0.4",
             "path": METRICS_API_PATH,
@@ -630,6 +651,12 @@ def health() -> JsonObject:
             "max_stored_workspace_invitations": MAX_STORED_INVITATIONS_PER_WORKSPACE,
             "identity_rate_limit_requests": IDENTITY_RATE_LIMIT_REQUESTS,
             "identity_recovery_rate_limit_requests": IDENTITY_RECOVERY_RATE_LIMIT_REQUESTS,
+            "max_email_delivery_attempts": (
+                MAX_EMAIL_DELIVERY_ATTEMPTS if EMAIL_DELIVERY.enabled else 0
+            ),
+            "max_stored_email_messages_per_workspace": (
+                MAX_STORED_EMAIL_MESSAGES_PER_WORKSPACE if EMAIL_DELIVERY.enabled else 0
+            ),
         },
     }
 
@@ -950,15 +977,30 @@ def list_workspace_invitations(request: Request) -> JsonObject:
     _require_identity()
     try:
         invitations = AUTH_CONFIG.list_workspace_invitations(workspace_id)
-    except (StudioIdentityError, StudioApiKeyError) as exc:
+        delivery_records = EMAIL_DELIVERY.latest_for_workspace(workspace_id)
+    except (StudioIdentityError, StudioApiKeyError, StudioEmailDeliveryError) as exc:
         raise HTTPException(status_code=503, detail="Studio could not load invitations.") from exc
-    return {"invitations": cast(JsonValue, [_invitation_payload(item) for item in invitations])}
+    return {
+        "invitations": cast(
+            JsonValue,
+            [
+                {
+                    **_invitation_payload(item),
+                    "delivery": _email_delivery_payload(
+                        delivery_records.get(item.invitation_id)
+                    ),
+                }
+                for item in invitations
+            ],
+        )
+    }
 
 
 @app.post(TEAM_INVITATIONS_API_PATH, response_model=None, status_code=201)
 def create_workspace_invitation(
     payload: InvitationCreateRequest,
     request: Request,
+    background_tasks: BackgroundTasks,
 ) -> JsonObject:
     workspace_id, _current_key_id = _admin_access_context(request)
     _require_identity()
@@ -981,10 +1023,59 @@ def create_workspace_invitation(
         raise HTTPException(
             status_code=503, detail="Studio could not create the invitation."
         ) from exc
+    delivery: StudioEmailDeliveryRecord | None = None
+    if EMAIL_DELIVERY.enabled:
+        try:
+            delivery = EMAIL_DELIVERY.queue_invitation(issued)
+        except StudioEmailDeliveryError:
+            delivery = None
+        else:
+            background_tasks.add_task(_deliver_invitation_email, delivery.message_id)
     return {
-        "invitation_token": issued.invitation_token,
-        "invitation": _invitation_payload(issued.record),
+        "invitation_token": None if delivery is not None else issued.invitation_token,
+        "invitation": {
+            **_invitation_payload(issued.record),
+            "delivery": _email_delivery_payload(delivery),
+        },
+        "delivery": _email_delivery_payload(delivery),
     }
+
+
+@app.post(
+    f"{TEAM_INVITATIONS_API_PATH}/{{invitation_id}}/resend",
+    response_model=None,
+)
+def resend_workspace_invitation(
+    invitation_id: str,
+    request: Request,
+    background_tasks: BackgroundTasks,
+) -> JsonObject:
+    workspace_id, _current_key_id = _admin_access_context(request)
+    _require_identity()
+    if not EMAIL_DELIVERY.enabled:
+        raise HTTPException(
+            status_code=409,
+            detail="Automatic invitation email is not configured for this Studio.",
+        )
+    try:
+        delivery = EMAIL_DELIVERY.requeue_invitation(
+            workspace_id=workspace_id,
+            invitation_id=invitation_id,
+        )
+    except StudioEmailDeliveryNotFound as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="This invitation only has a manual link. Revoke it and create a new invite.",
+        ) from exc
+    except StudioEmailDeliveryConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except StudioEmailDeliveryError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Studio could not queue another invitation email.",
+        ) from exc
+    background_tasks.add_task(_deliver_invitation_email, delivery.message_id)
+    return {"delivery": _email_delivery_payload(delivery)}
 
 
 @app.delete(f"{TEAM_INVITATIONS_API_PATH}/{{invitation_id}}", response_model=None)
@@ -1530,6 +1621,30 @@ def _invitation_payload(record: StudioInvitationRecord) -> JsonObject:
     }
 
 
+def _email_delivery_payload(record: StudioEmailDeliveryRecord | None) -> JsonObject:
+    if record is None:
+        return {
+            "mode": "manual",
+            "status": "not_queued",
+            "attempt_count": 0,
+            "last_error_code": None,
+        }
+    return {
+        "mode": "automatic",
+        "status": record.status,
+        "attempt_count": record.attempt_count,
+        "last_error_code": record.last_error_code,
+    }
+
+
+def _deliver_invitation_email(message_id: str) -> None:
+    """Let the durable worker own failures instead of surfacing background errors."""
+    try:
+        EMAIL_DELIVERY.deliver_message(message_id)
+    except StudioEmailDeliveryError:
+        return
+
+
 def _access_key_payload(record: StudioApiKeyRecord) -> JsonObject:
     return {
         "key_id": record.key_id,
@@ -1583,7 +1698,16 @@ def _production_readiness(*, storage_ok: bool) -> JsonObject:
                 blockers.remove(
                     "managed user accounts, recovery, and team membership administration"
                 )
-                blockers.insert(0, "transactional invitation delivery and email verification")
+                if EMAIL_DELIVERY.enabled:
+                    completed.append(
+                        "encrypted transactional invitation email with bounded retries"
+                    )
+                    blockers.insert(
+                        0,
+                        "email delivery webhooks, bounce handling, and domain operations",
+                    )
+                else:
+                    blockers.insert(0, "transactional invitation email delivery")
         else:
             blockers.insert(0, "hashed API-key issuance, expiry, and revocation")
     else:

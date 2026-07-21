@@ -122,10 +122,14 @@ password, saves eight one-time recovery codes, and then signs in with email and
 password. Passwords use Argon2id; invitation tokens, recovery codes, and human
 sessions are stored only as keyed digests. Multi-workspace accounts choose a
 workspace only after password verification, and role/removal changes affect
-active sessions immediately. Invitation delivery is manual in this release:
-Studio shows a private link once and does not send email. See
+active sessions immediately. Optional Resend delivery encrypts the complete
+message payload in a durable outbox, hides the secret link from the API response,
+and retries temporary failures with a stable idempotency key. Without email
+configuration, Studio shows the private link once for manual sharing. See
 [`docs/operations/studio-accounts.md`](docs/operations/studio-accounts.md) for
-the complete setup, enrollment, recovery, restore, and current hosted boundary.
+account setup and
+[`docs/operations/studio-email-delivery.md`](docs/operations/studio-email-delivery.md)
+for sender configuration, worker scheduling, and the current delivery boundary.
 
 The bearer key or its derived browser session—not a client-provided workspace
 header—selects the authorized workspace. The older
@@ -212,8 +216,8 @@ TRACEBISECT_STUDIO_SQLITE_PATH=.tracebisect/restored-studio.db \
 uvicorn tracebisect.studio.api:app --port 8000
 ```
 
-Backups intentionally remove key-derived and human identity sessions before
-they are published. A restored workspace keeps data, managed-key metadata,
+Backups intentionally remove key-derived sessions, human identity sessions, and
+the email outbox before they are published. A restored workspace keeps data, managed-key metadata,
 Argon2id users, memberships, invitation hashes, and recovery-code hashes, but
 requires every browser to sign in again. Restoring an older backup also restores
 older credential state, so production recovery must include a security review
@@ -248,6 +252,8 @@ deployment environment.
   without persisting or redisplaying their plaintext values.
 - `tracebisect studio identity generate-secret` — creates the dedicated server
   secret for invitation-only human accounts, recovery, and sessions.
+- `tracebisect studio email deliver` — sends a bounded batch from the encrypted
+  invitation outbox and records safe retry/failure state.
 
 Example static comparison:
 
@@ -311,10 +317,11 @@ V1 will ship:
 - Studio web dashboard for upload, compare, visual report, and pytest copy flow
 
 V1 Studio is still intentionally narrow: it has opt-in role-scoped workspace
-keys plus invitation-only human accounts, saved-code recovery, and browser team
-membership administration. It does not yet include automated email delivery,
-multi-factor/identity-provider sign-in, billing, vendor-native direct importers,
-or git-history bisection.
+keys plus invitation-only human accounts, saved-code recovery, browser team
+membership administration, and optional encrypted Resend invitation delivery.
+It does not yet include delivery/bounce webhooks, multi-factor or
+identity-provider sign-in, billing, vendor-native direct importers, or
+git-history bisection.
 
 See [spec/production-spec.md](spec/production-spec.md) for the locked product
 specification.

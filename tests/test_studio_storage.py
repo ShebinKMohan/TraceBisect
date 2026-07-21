@@ -242,6 +242,28 @@ def test_sqlite_store_migrates_v4_to_human_identity_schema(tmp_path: Path) -> No
     migrated.close()
 
 
+def test_sqlite_store_migrates_v5_to_encrypted_email_outbox(tmp_path: Path) -> None:
+    database_path = tmp_path / "studio.sqlite3"
+    original = SQLiteStudioStore(database_path, workspace_id="workspace-a")
+    original.close()
+    with sqlite3.connect(database_path) as connection:
+        connection.execute("DROP TABLE studio_email_outbox")
+        connection.execute("UPDATE studio_schema SET version = 5")
+
+    migrated = SQLiteStudioStore(database_path, workspace_id="workspace-a")
+
+    with sqlite3.connect(database_path) as connection:
+        assert connection.execute("SELECT version FROM studio_schema").fetchone() == (
+            SCHEMA_VERSION,
+        )
+        columns = {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(studio_email_outbox)")
+        }
+    assert {"payload_ciphertext", "lease_token", "provider_message_id"}.issubset(columns)
+    migrated.close()
+
+
 def test_sqlite_store_isolates_workspaces_in_one_database(tmp_path: Path) -> None:
     database_path = tmp_path / "studio.sqlite3"
     workspace_a = SQLiteStudioStore(database_path, workspace_id="workspace-a")

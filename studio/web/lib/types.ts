@@ -34,6 +34,13 @@ export type StudioHealth = {
     request_id_join: true;
     includes_exception_messages: false;
   };
+  email: {
+    enabled: boolean;
+    provider: "none" | "resend";
+    durable_outbox: boolean;
+    encrypted_payloads: boolean;
+    max_attempts: number;
+  };
   metrics: {
     format: "prometheus_text_0.0.4";
     path: "/api/metrics";
@@ -69,6 +76,8 @@ export type StudioHealth = {
     max_stored_workspace_invitations: number;
     identity_rate_limit_requests: number;
     identity_recovery_rate_limit_requests: number;
+    max_email_delivery_attempts: number;
+    max_stored_email_messages_per_workspace: number;
   };
 };
 
@@ -106,6 +115,14 @@ export type WorkspaceInvitation = {
   accepted_at: string | null;
   revoked_at: string | null;
   status: "pending" | "accepted" | "expired" | "revoked";
+  delivery?: WorkspaceInvitationDelivery;
+};
+
+export type WorkspaceInvitationDelivery = {
+  mode: "automatic" | "manual";
+  status: "pending" | "sending" | "retry" | "sent" | "failed" | "not_queued";
+  attempt_count: number;
+  last_error_code: string | null;
 };
 
 export type IdentityWorkspaceChoice = {

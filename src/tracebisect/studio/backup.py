@@ -26,6 +26,7 @@ _REQUIRED_TABLES = frozenset(
         "studio_invitations",
         "studio_recovery_codes",
         "studio_identity_sessions",
+        "studio_email_outbox",
     }
 )
 _HASH_CHUNK_BYTES = 1024 * 1024
@@ -65,7 +66,7 @@ def create_studio_backup(
     temporary = _temporary_path(output)
     try:
         _copy_database(source, temporary)
-        _clear_login_sessions(temporary)
+        _clear_ephemeral_state(temporary)
         inspection = inspect_studio_backup(temporary)
         _publish_new_file(temporary, output)
     except (OSError, sqlite3.DatabaseError) as exc:
@@ -130,6 +131,10 @@ def inspect_studio_backup(backup_path: str | Path) -> StudioBackupInspection:
                 raise StudioBackupError(
                     "the backup contains identity sessions and is unsafe to restore"
                 )
+            if _table_count(connection, "studio_email_outbox") != 0:
+                raise StudioBackupError(
+                    "the backup contains email delivery records and is unsafe to restore"
+                )
             content_sha256 = _content_sha256(connection)
     except StudioBackupError:
         raise
@@ -189,11 +194,12 @@ def _copy_database(source: Path, destination: Path) -> None:
         os.fsync(handle.fileno())
 
 
-def _clear_login_sessions(database_path: Path) -> None:
-    """Keep recoverable product data while refusing to resurrect login sessions."""
+def _clear_ephemeral_state(database_path: Path) -> None:
+    """Keep product data without resurrecting sessions or sending stale email."""
     with sqlite3.connect(database_path, timeout=5) as connection:
         connection.execute("DELETE FROM studio_browser_sessions")
         connection.execute("DELETE FROM studio_identity_sessions")
+        connection.execute("DELETE FROM studio_email_outbox")
     with database_path.open("rb") as handle:
         os.fsync(handle.fileno())
 
@@ -339,6 +345,16 @@ def _content_sha256(connection: sqlite3.Connection) -> str:
             SELECT session_id, user_id, workspace_id, session_hash, session_epoch,
                    created_at, expires_at, revoked_at
             FROM studio_identity_sessions ORDER BY session_id
+            """,
+        ),
+        (
+            "email_outbox",
+            """
+            SELECT message_id, invitation_id, workspace_id, recipient_email,
+                   payload_ciphertext, status, attempt_count, created_at,
+                   available_at, lease_expires_at, lease_token, sent_at, failed_at,
+                   provider_message_id, last_error_code
+            FROM studio_email_outbox ORDER BY message_id
             """,
         ),
     )

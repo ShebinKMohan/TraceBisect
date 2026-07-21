@@ -39,12 +39,14 @@ secret rotation, but old recovery codes will not work.
 2. Open Studio with that key.
 3. Open **Settings → People and invitations**.
 4. Enter the person's email, choose **Admin**, and select an expiry.
-5. Select **Create invitation**.
-6. Copy the link while it is visible and send it through a private channel.
+5. Select **Invite person**.
+6. With email delivery configured, confirm that Studio reports the message as
+   queued. Otherwise copy the one-time link and send it through a private channel.
 
-Studio stores only a protected invitation-token digest. The plaintext link is
-shown once and never appears in invitation lists, request audit events, or URL
-paths handled by the API. This release does not send email automatically.
+Studio stores only a protected invitation-token digest. With automatic delivery,
+the complete email body and secret URL are authenticated ciphertext in a durable
+outbox, and the API does not return the token. Without it, the plaintext link is
+shown once. See [studio-email-delivery.md](studio-email-delivery.md) for setup.
 
 ## Accept an invitation
 
@@ -117,9 +119,9 @@ multi-instance deployment still needs a distributed limiter.
 ## Backup and restore boundary
 
 Studio backups preserve users, Argon2id password hashes, memberships,
-invitations, and recovery-code hashes. They remove both key-derived browser
-sessions and human identity sessions before publication, so every browser must
-sign in after a restore.
+invitations, and recovery-code hashes. They remove key-derived browser sessions,
+human identity sessions, and queued/sent email records before publication, so
+every browser must sign in and old email cannot be sent after a restore.
 
 Restoring an older backup also restores the credential state from that point in
 time, including older password hashes, keys, invitations, and recovery-code
@@ -130,7 +132,7 @@ and tell people to replace passwords/recovery codes before reopening traffic.
 ## Current hosted boundary
 
 This milestone provides invitation-only accounts, offline recovery, team roles,
-and revocable human sessions for the single-node SQLite deployment. It does not
-yet provide automated invitation email delivery, email ownership re-verification,
-multi-factor or identity-provider sign-in, a managed multi-user database,
-distributed rate limiting, or billing.
+revocable human sessions, and optional encrypted Resend invitation delivery for
+the single-node SQLite deployment. It does not yet provide delivery/bounce
+webhooks, email ownership re-verification, multi-factor or identity-provider
+sign-in, a managed multi-user database, distributed rate limiting, or billing.

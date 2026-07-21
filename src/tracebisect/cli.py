@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shlex
 import subprocess
 import sys
@@ -287,6 +288,31 @@ def build_parser() -> argparse.ArgumentParser:
         help="Generate the server secret used to protect identity credentials.",
     )
 
+    studio_email = studio_commands.add_parser(
+        "email",
+        help="Deliver queued workspace invitations with bounded retries.",
+    )
+    studio_email_commands = studio_email.add_subparsers(
+        dest="studio_email_command",
+        metavar="<email-command>",
+    )
+    studio_email.set_defaults(studio_email_parser=studio_email)
+    studio_email_deliver = studio_email_commands.add_parser(
+        "deliver",
+        help="Send a bounded batch of due invitation emails.",
+    )
+    studio_email_deliver.add_argument(
+        "--database",
+        required=True,
+        help="Current TRACEBISECT_STUDIO_SQLITE_PATH value.",
+    )
+    studio_email_deliver.add_argument(
+        "--limit",
+        type=int,
+        default=20,
+        help="Maximum due messages to examine (default: 20, maximum: 100).",
+    )
+
     return parser
 
 
@@ -523,6 +549,21 @@ def run_studio_restore(backup: str, database: str) -> int:
     return 0
 
 
+def run_studio_email_deliver(database: str, limit: int) -> int:
+    from tracebisect.studio.email_delivery import StudioEmailDelivery
+
+    env = dict(os.environ)
+    env["TRACEBISECT_STUDIO_STORAGE"] = "sqlite"
+    env["TRACEBISECT_STUDIO_SQLITE_PATH"] = database
+    result = StudioEmailDelivery.from_env(env).deliver_due(limit=limit)
+    print("Studio invitation email delivery finished")
+    print(f"  Examined: {result.examined}")
+    print(f"  Accepted by provider: {result.sent}")
+    print(f"  Waiting to retry: {result.retrying}")
+    print(f"  Permanently failed: {result.failed}")
+    return 2 if result.failed else 0
+
+
 def _print_studio_backup_summary(
     title: str,
     path: Path,
@@ -685,6 +726,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         from tracebisect.studio.access_keys import StudioApiKeyError
         from tracebisect.studio.backup import StudioBackupError
+        from tracebisect.studio.email_delivery import StudioEmailDeliveryError
         from tracebisect.studio.storage import StudioConfigurationError
 
         try:
@@ -724,7 +766,18 @@ def main(argv: Sequence[str] | None = None) -> int:
                     return 0
                 if args.studio_identity_command == "generate-secret":
                     return run_studio_identity_generate_secret()
-        except (StudioApiKeyError, StudioBackupError, StudioConfigurationError) as exc:
+            if args.studio_command == "email":
+                if args.studio_email_command is None:
+                    args.studio_email_parser.print_help()
+                    return 0
+                if args.studio_email_command == "deliver":
+                    return run_studio_email_deliver(args.database, args.limit)
+        except (
+            StudioApiKeyError,
+            StudioBackupError,
+            StudioConfigurationError,
+            StudioEmailDeliveryError,
+        ) as exc:
             failed_command = args.studio_command
             if args.studio_command == "keys" and args.studio_keys_command is not None:
                 failed_command = f"keys {args.studio_keys_command}"
@@ -732,6 +785,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 failed_command = f"metrics {args.studio_metrics_command}"
             if args.studio_command == "identity" and args.studio_identity_command is not None:
                 failed_command = f"identity {args.studio_identity_command}"
+            if args.studio_command == "email" and args.studio_email_command is not None:
+                failed_command = f"email {args.studio_email_command}"
             print(f"tracebisect studio {failed_command} failed: {exc}", file=sys.stderr)
             return 2
 

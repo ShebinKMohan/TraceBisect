@@ -12,6 +12,7 @@ import type {
   WorkspaceAccessKey,
   WorkspaceAccessKeyList,
   WorkspaceInvitation,
+  WorkspaceInvitationDelivery,
   WorkspaceMembership,
   WorkspaceRole,
 } from "@/lib/types";
@@ -271,7 +272,11 @@ export async function createWorkspaceInvitation(payload: {
   email: string;
   role: WorkspaceRole;
   expires_in_days: number;
-}): Promise<{ invitation_token: string; invitation: WorkspaceInvitation }> {
+}): Promise<{
+  invitation_token: string | null;
+  invitation: WorkspaceInvitation;
+  delivery: WorkspaceInvitationDelivery;
+}> {
   return parseResponse(
     await authorizedFetch(`${API_BASE}/api/team/invitations`, {
       method: "POST",
@@ -279,6 +284,18 @@ export async function createWorkspaceInvitation(payload: {
       body: JSON.stringify(payload),
     }),
   );
+}
+
+export async function resendWorkspaceInvitation(
+  invitationId: string,
+): Promise<WorkspaceInvitationDelivery> {
+  const payload = await parseResponse<{ delivery: WorkspaceInvitationDelivery }>(
+    await authorizedFetch(
+      `${API_BASE}/api/team/invitations/${encodeURIComponent(invitationId)}/resend`,
+      { method: "POST" },
+    ),
+  );
+  return payload.delivery;
 }
 
 export async function revokeWorkspaceInvitation(
