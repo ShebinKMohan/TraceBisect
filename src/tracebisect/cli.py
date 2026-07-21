@@ -45,6 +45,8 @@ if TYPE_CHECKING:
     from tracebisect.studio.backup import StudioBackupInspection
     from tracebisect.studio.email_delivery import StudioEmailDelivery
     from tracebisect.studio.managed_database import StudioDatabaseTarget
+    from tracebisect.studio.postgres_migration import StudioPostgresMigrationReport
+    from tracebisect.studio.postgres_storage import PostgresStudioStore
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -188,6 +190,21 @@ def build_parser() -> argparse.ArgumentParser:
         "--database",
         required=True,
         help="New database path. Existing files are never replaced.",
+    )
+
+    studio_migrate_postgres = studio_commands.add_parser(
+        "migrate-postgres",
+        help="Copy a complete SQLite Studio into an empty configured PostgreSQL database.",
+    )
+    studio_migrate_postgres.add_argument(
+        "--source",
+        required=True,
+        help="Existing TRACEBISECT_STUDIO_SQLITE_PATH to snapshot and migrate.",
+    )
+    studio_migrate_postgres.add_argument(
+        "--verify-only",
+        action="store_true",
+        help="Compare every source and destination table without changing either database.",
     )
 
     studio_keys = studio_commands.add_parser(
@@ -585,6 +602,52 @@ def run_studio_restore(backup: str, database: str) -> int:
     return 0
 
 
+def run_studio_postgres_migration(source: str, *, verify_only: bool) -> int:
+    from tracebisect.studio.postgres_migration import (
+        migrate_sqlite_to_postgres,
+        verify_sqlite_postgres_migration,
+    )
+
+    with _studio_postgres_store() as destination:
+        report = (
+            verify_sqlite_postgres_migration(source, destination)
+            if verify_only
+            else migrate_sqlite_to_postgres(source, destination)
+        )
+    _print_studio_migration_summary(report, verify_only=verify_only)
+    return 0
+
+
+def _print_studio_migration_summary(
+    report: StudioPostgresMigrationReport,
+    *,
+    verify_only: bool,
+) -> None:
+    title = (
+        "PostgreSQL migration verified"
+        if verify_only
+        else "PostgreSQL migration completed and verified"
+    )
+    print(title)
+    print(f"  Source: {report.source_path}")
+    print(f"  Studio schema: {report.schema_version}")
+    print(f"  Workspaces: {report.workspace_count}")
+    print(f"  Rows reconciled: {report.total_rows}")
+    print(f"  Content SHA-256: {report.content_sha256}")
+    print()
+    print("Security and delivery state copied")
+    print(f"  Browser sessions: {report.browser_session_count}")
+    print(f"  Human sessions: {report.identity_session_count}")
+    print(f"  Queued/retrying email: {report.queued_email_count}")
+    if not verify_only:
+        print()
+        print("Next:")
+        print("  1. Keep the old API and every email worker stopped.")
+        print("  2. Keep the existing key pepper and identity secret for this cutover.")
+        print("  3. Point Studio at PostgreSQL and start one API instance.")
+        print("  4. Check /api/ready before starting workers or adding replicas.")
+
+
 def run_studio_email_deliver(database: str | None, limit: int) -> int:
     with _studio_email_delivery(database) as delivery:
         result = delivery.deliver_due(limit=limit)
@@ -649,6 +712,29 @@ def _studio_email_delivery(database: str | None) -> Iterator[StudioEmailDelivery
         raise StudioEmailDeliveryError("configured Studio storage is not PostgreSQL")
     try:
         yield StudioEmailDelivery.from_env(env, managed_database=store)
+    finally:
+        store.close()
+
+
+@contextmanager
+def _studio_postgres_store() -> Iterator[PostgresStudioStore]:
+    """Open the configured destination without accepting its URL as a CLI argument."""
+    from tracebisect.studio.postgres_migration import StudioPostgresMigrationError
+    from tracebisect.studio.postgres_storage import PostgresStudioStore
+    from tracebisect.studio.storage import create_studio_store
+
+    env = dict(os.environ)
+    if not env.get("TRACEBISECT_STUDIO_DATABASE_URL", "").strip():
+        raise StudioPostgresMigrationError(
+            "set TRACEBISECT_STUDIO_DATABASE_URL to the empty PostgreSQL destination"
+        )
+    env["TRACEBISECT_STUDIO_STORAGE"] = "postgres"
+    env.pop("TRACEBISECT_STUDIO_SQLITE_PATH", None)
+    store = create_studio_store(env)
+    if not isinstance(store, PostgresStudioStore):
+        raise StudioPostgresMigrationError("configured migration destination is not PostgreSQL")
+    try:
+        yield store
     finally:
         store.close()
 
@@ -852,6 +938,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         from tracebisect.studio.access_keys import StudioApiKeyError
         from tracebisect.studio.backup import StudioBackupError
         from tracebisect.studio.email_delivery import StudioEmailDeliveryError
+        from tracebisect.studio.postgres_migration import StudioPostgresMigrationError
         from tracebisect.studio.storage import StudioConfigurationError
 
         try:
@@ -861,6 +948,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return run_studio_verify(args.backup)
             if args.studio_command == "restore":
                 return run_studio_restore(args.backup, args.database)
+            if args.studio_command == "migrate-postgres":
+                return run_studio_postgres_migration(
+                    args.source,
+                    verify_only=args.verify_only,
+                )
             if args.studio_command == "keys":
                 if args.studio_keys_command is None:
                     args.studio_keys_parser.print_help()
@@ -908,6 +1000,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             StudioBackupError,
             StudioConfigurationError,
             StudioEmailDeliveryError,
+            StudioPostgresMigrationError,
         ) as exc:
             failed_command = args.studio_command
             if args.studio_command == "keys" and args.studio_keys_command is not None:

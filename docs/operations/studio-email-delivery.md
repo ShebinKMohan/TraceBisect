@@ -93,6 +93,10 @@ invitations, and clear or reconcile unsafe delivery rows before restarting them.
 Rotating `TRACEBISECT_STUDIO_IDENTITY_SECRET` makes restored ciphertext
 undecryptable, so combine secret rotation with an explicit queue disposition.
 
+The SQLite-to-PostgreSQL migration command preserves outbox and webhook rows and
+keeps the identity secret stable for the cutover. Stop every worker first and
+review the reported queued/retrying count before starting the PostgreSQL worker.
+
 ## Status and recovery
 
 Settings shows one of these operator-friendly states:

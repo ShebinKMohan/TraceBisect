@@ -142,10 +142,62 @@ human sessions, pending invitation links, and recovery codes, including items
 revoked after the restored timestamp. Password hashes remain verifiable, so
 people can sign in again with their password after the rotation.
 
-There is no automatic SQLite-to-PostgreSQL migration in this milestone. Do not
-point a production deployment at an empty PostgreSQL database and assume its
-SQLite data moved. Export/import tooling and reconciliation checks remain a
-separate production gate.
+## Move an existing SQLite Studio
+
+This is a maintenance-window operation. It preserves product data, hashed
+credentials, active sessions, invitations, encrypted email payloads, and webhook
+history. Use these steps in order:
+
+1. Stop the old API and every email worker. Leave them stopped until cutover is
+   complete.
+2. Create and verify a normal SQLite backup for rollback. The migration itself
+   reads the original database because published backups deliberately omit
+   sessions and email-delivery state.
+3. Provision a PostgreSQL database containing no Studio rows. Set its URL only in
+   the environment or deployment secret manager.
+4. Run the migration command from the release that will serve PostgreSQL.
+
+```bash
+export TRACEBISECT_STUDIO_DATABASE_URL='postgresql://studio:secret@db.example/tracebisect'
+
+tracebisect studio migrate-postgres \
+  --source .tracebisect/studio.db
+```
+
+The command never writes to the SQLite source. It creates an isolated online
+snapshot, upgrades only that disposable copy, checks SQLite integrity and
+foreign-key relationships, and requires every destination product table to be
+empty. It then copies all 13 product, access, identity, session, invitation,
+outbox, and webhook tables in one destination transaction.
+
+Before commit, TraceBisect compares every table count and a canonical SHA-256 of
+every stored row. It also takes a second source snapshot and rolls back when the
+source changed during the copy. A success message therefore means the copied
+transaction reconciled; it is not merely a count of attempted inserts.
+
+5. Optionally repeat the comparison without writing anything. Run this before
+   starting PostgreSQL Studio; normal new activity will correctly make the two
+   databases differ afterward.
+
+```bash
+tracebisect studio migrate-postgres \
+  --source .tracebisect/studio.db \
+  --verify-only
+```
+
+6. Keep the existing `TRACEBISECT_STUDIO_API_KEY_PEPPER` and
+   `TRACEBISECT_STUDIO_IDENTITY_SECRET` for the cutover. Changing them would
+   invalidate migrated credential digests and make migrated email ciphertext
+   unreadable.
+7. Set `TRACEBISECT_STUDIO_STORAGE=postgres`, start one API instance, and require
+   `/api/ready` to report ready. Check sign-in, one workspace, and invitation
+   status before starting workers or adding replicas.
+
+The destination-empty rule is deliberate: this command never guesses how to
+merge identities, credentials, reports, or delivery state. If it refuses a
+destination, use a new empty database rather than deleting unknown rows. Keep the
+old SQLite file and verified backup unchanged until the PostgreSQL backup and
+restore drill succeeds.
 
 ## Verify before rollout
 
@@ -167,3 +219,7 @@ store instance, signed webhook deduplication/reconciliation, and workspace
 isolation, then removes those rows. It uses an in-process fake mail transport and
 does not contact Resend. A skipped live test is not evidence that a real provider
 connection, TLS policy, backup, restore, or provider delivery has been verified.
+The migration suite separately proves populated 13-table copies, non-empty
+destination refusal, content-drift detection, transaction rollback, live-source
+change detection, and PostgreSQL parameter translation. A real cutover should
+still be rehearsed against an isolated provider database before production.

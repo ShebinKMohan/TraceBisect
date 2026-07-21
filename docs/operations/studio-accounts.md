@@ -135,6 +135,12 @@ PostgreSQL deployments use provider backup and point-in-time recovery instead;
 rotate both the API-key pepper and identity secret after a restore before
 reopening traffic.
 
+For a planned SQLite-to-PostgreSQL cutover, do the opposite: keep the existing
+pepper and identity secret so migrated credentials, sessions, invitations, and
+encrypted email remain usable. Follow the stopped-service, empty-destination,
+and automatic reconciliation steps in
+[studio-postgres-core.md](studio-postgres-core.md#move-an-existing-sqlite-studio).
+
 ## Current hosted boundary
 
 This milestone provides invitation-only accounts, offline recovery, team roles,

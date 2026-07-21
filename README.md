@@ -100,6 +100,17 @@ SQLite backup commands. See
 [`docs/operations/studio-postgres-core.md`](docs/operations/studio-postgres-core.md)
 for pooling, least-privilege, migration, and verification guidance.
 
+Existing SQLite installations can move to an empty PostgreSQL database with one
+source-safe command. The database URL stays in the environment instead of shell
+history; the command takes two SQLite snapshots, refuses to merge into existing
+Studio rows, copies all product/security/delivery tables in one transaction, and
+compares every row count plus a canonical content digest before committing:
+
+```bash
+export TRACEBISECT_STUDIO_DATABASE_URL='postgresql://studio:secret@db.example/tracebisect'
+tracebisect studio migrate-postgres --source .tracebisect/studio.db
+```
+
 For a protected multi-workspace API, generate a server-side hashing secret and
 create an expiring workspace key. The create command initializes the database
 when needed and shows the new key exactly once:
@@ -289,6 +300,8 @@ It is deliberately not described as horizontally scalable SaaS infrastructure.
 - `tracebisect studio verify` — checks backup integrity and schema compatibility.
 - `tracebisect studio restore` — restores into a new database without replacing
   current data.
+- `tracebisect studio migrate-postgres` — atomically copies a consistent SQLite
+  snapshot into an empty PostgreSQL store and reconciles every migrated table.
 - `tracebisect studio keys generate-pepper` — creates the server secret used to
   hash managed keys.
 - `tracebisect studio keys create/list/revoke` — manages expiring workspace keys

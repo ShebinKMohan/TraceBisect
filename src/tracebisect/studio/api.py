@@ -1816,8 +1816,11 @@ def _production_readiness(
         if storage_kind == "sqlite":
             completed.append("verified local backup and non-destructive restore tooling")
         elif storage_kind == "postgres":
-            completed.append(
-                "pooled multi-instance PostgreSQL workspace and managed-security storage"
+            completed.extend(
+                [
+                    "pooled multi-instance PostgreSQL workspace and managed-security storage",
+                    "atomic reconciled SQLite-to-PostgreSQL cutover tooling",
+                ]
             )
             if EMAIL_DELIVERY.enabled and EMAIL_DELIVERY.managed_database is not None:
                 completed.append(

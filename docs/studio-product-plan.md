@@ -120,8 +120,9 @@ Later adapters can add:
 - Langfuse direct import.
 - LangSmith direct import.
 - GitHub PR/test generation.
-- SQLite-to-PostgreSQL migration tooling and reconciliation checks on top of the
-  implemented PostgreSQL identity, workspace, and invitation-delivery store.
+- Provider-rehearsed PostgreSQL cutover and recovery on top of the implemented
+  atomic SQLite migration/reconciliation command and PostgreSQL identity,
+  workspace, and invitation-delivery store.
 
 This means the public pitch can mention Langfuse/LangSmith compatibility through
 OpenTelemetry-style trace data, but the first implementation should not pretend
@@ -139,8 +140,9 @@ sign-in exchanges a workspace key for a short-lived, revocable HttpOnly session,
 and SQLite supports invitation-only accounts, recovery, team roles, and email
 delivery. PostgreSQL supports core workspace evidence, managed access, human
 identity, recovery, team roles, and encrypted invitation delivery across API and
-worker instances, but data migration, hosted monitoring/error-event retention
-wiring, and distributed rate limiting remain separate SaaS milestones. The API
+worker instances. Atomic SQLite cutover and verification tooling is implemented;
+provider rehearsal, hosted monitoring/error-event retention wiring, and
+distributed rate limiting remain separate SaaS milestones. The API
 also provides hashed expiring keys, a protected Prometheus
 scrape endpoint, starter alert rules, and an incident runbook. Admins can now
 manage role-based workspace keys inside Settings after the operator bootstraps

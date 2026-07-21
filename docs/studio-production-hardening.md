@@ -40,6 +40,12 @@ temporary files out of the web root, and throttle repeated API calls.
   and encrypted automatic delivery. API and worker processes share bounded
   retries, reclaimable leases, and signed webhook reconciliation through the
   same pool-backed store.
+- `tracebisect studio migrate-postgres` copies a consistent SQLite snapshot into
+  an empty PostgreSQL store in dependency order and one transaction. It verifies
+  SQLite integrity/relationships, refuses destination merges, reconciles every
+  table count and canonical row digest, takes a second source snapshot to detect
+  live writes, and rolls back on any mismatch. `--verify-only` repeats the
+  cross-backend reconciliation without writing.
 - Optional bearer-key authentication maps each credential to exactly one
   workspace. Client workspace headers are ignored, invalid keys fail closed,
   and comparisons cannot be read across workspace stores.
@@ -154,8 +160,9 @@ temporary files out of the web root, and throttle repeated API calls.
 These are not solved by the local MVP and must be implemented before calling
 Studio a real multi-tenant SaaS:
 
-- Tested SQLite-to-PostgreSQL export/import tooling plus provider backup,
-  point-in-time recovery, and restore-drill automation.
+- Provider backup, point-in-time recovery, and restore-drill automation. The
+  SQLite-to-PostgreSQL cutover tool and reconciliation checks are implemented,
+  but an actual provider rehearsal remains an operator gate.
 - Sender-domain/suppression automation, email ownership re-verification, and
   optional multi-factor or identity-provider sign-in.
 - Account-level scoped ingestion tokens. Admin self-service workspace-key
@@ -178,9 +185,9 @@ Studio a real multi-tenant SaaS:
 
 The current build has pooled multi-instance PostgreSQL storage for core evidence,
 managed access, human identity, and encrypted invitation delivery, but it is not
-a finished hosted SaaS. The next production step is tested
-SQLite-to-PostgreSQL migration plus provider backup/restore drills, followed by
-email-domain operations, monitoring, and error-event retention. Do not add
+a finished hosted SaaS. The next production step is a real provider migration
+rehearsal plus backup/restore drills, followed by email-domain operations,
+monitoring, and error-event retention. Do not add
 Langfuse-scale ClickHouse or queues until the comparison workflow needs them.
 
 ## References

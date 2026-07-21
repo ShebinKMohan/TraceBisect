@@ -5,11 +5,14 @@ from __future__ import annotations
 import base64
 import json
 import os
+import sqlite3
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
+from psycopg.types.json import Jsonb
 from psycopg_pool import PoolTimeout
 from svix.webhooks import Webhook
 
@@ -37,6 +40,7 @@ from tracebisect.studio.identity import (
     principal_for_studio_identity_session,
     recover_studio_identity,
 )
+from tracebisect.studio.postgres_migration import MIGRATION_TABLES, migrate_sqlite_to_postgres
 from tracebisect.studio.postgres_storage import (
     POSTGRES_SCHEMA_STATEMENTS,
     PostgresStudioStore,
@@ -48,6 +52,7 @@ from tracebisect.studio.storage import (
     StudioConfigurationError,
     StudioPersistenceError,
     create_studio_store,
+    ensure_studio_schema,
 )
 
 
@@ -670,6 +675,76 @@ def test_postgres_email_outbox_reuses_shared_pool_and_encrypts_payload() -> None
     assert not connection.executions
 
 
+def test_postgres_migration_uses_one_shared_transaction_and_parameterized_inserts(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source.db"
+    with sqlite3.connect(source) as source_connection:
+        ensure_studio_schema(source_connection)
+        source_connection.execute(
+            "INSERT INTO studio_reports VALUES (?, ?, ?, ?)",
+            (
+                "workspace-a",
+                "report-migration",
+                '{"report_id":"report-migration"}',
+                "2026-07-21T08:00:00Z",
+            ),
+        )
+        source_connection.execute(
+            "INSERT INTO studio_metadata VALUES (?, ?, ?)",
+            ("workspace-a", "migration-proof", "copied"),
+        )
+
+    executions = [_Execution("pg_advisory_xact_lock")]
+    executions.extend(
+        _Execution(f"SELECT COUNT(*) FROM {table.name}", one=(0,))
+        for table in MIGRATION_TABLES
+    )
+    executions.extend(
+        [
+            _Execution("INSERT INTO studio_reports"),
+            _Execution("INSERT INTO studio_metadata"),
+        ]
+    )
+    executions.extend(
+        _Execution(
+            f"SELECT {', '.join(table.columns)} FROM {table.name}",
+            many=(
+                (
+                    (
+                        "workspace-a",
+                        "report-migration",
+                        {"report_id": "report-migration"},
+                        "2026-07-21T08:00:00Z",
+                    ),
+                )
+                if table.name == "studio_reports"
+                else (
+                    (("workspace-a", "migration-proof", "copied"),)
+                    if table.name == "studio_metadata"
+                    else ()
+                )
+            ),
+        )
+        for table in MIGRATION_TABLES
+    )
+    store, connection, _pool = _store(executions)
+
+    report = migrate_sqlite_to_postgres(source, store)
+
+    assert report.workspace_count == 1
+    assert report.total_rows == 2
+    report_insert = next(
+        params
+        for statement, params in connection.calls
+        if "INSERT INTO studio_reports" in statement
+    )
+    assert isinstance(report_insert, list)
+    assert isinstance(report_insert[0][2], Jsonb)
+    assert all("?" not in statement for statement, _params in connection.calls)
+    assert not connection.executions
+
+
 def test_managed_postgres_auth_enables_browser_sessions_and_optional_identity() -> None:
     store, _connection, _pool = _store([])
     pepper = "managed-postgres-pepper-with-at-least-32-characters"
@@ -730,6 +805,10 @@ def test_production_readiness_does_not_claim_sqlite_backup_for_postgres(
 
     assert (
         "pooled multi-instance PostgreSQL workspace and managed-security storage"
+        in readiness["completed"]
+    )
+    assert (
+        "atomic reconciled SQLite-to-PostgreSQL cutover tooling"
         in readiness["completed"]
     )
     assert "verified local backup and non-destructive restore tooling" not in readiness["completed"]
