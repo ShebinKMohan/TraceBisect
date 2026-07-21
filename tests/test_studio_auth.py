@@ -11,6 +11,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 import tracebisect.studio.api as studio_api
+from tracebisect.studio.access_keys import (
+    create_studio_api_key,
+    revoke_studio_api_key,
+)
 from tracebisect.studio.audit import AUDIT_LOGGER_NAME
 from tracebisect.studio.auth import StudioAuthConfig
 from tracebisect.studio.storage import (
@@ -41,7 +45,11 @@ def test_auth_defaults_to_open_local_mode() -> None:
     config = StudioAuthConfig.from_env({})
 
     assert config.required is False
-    assert config.runtime_status() == {"mode": "none", "required": False}
+    assert config.runtime_status() == {
+        "mode": "none",
+        "required": False,
+        "credential_source": "none",
+    }
     assert config.workspace_for_authorization(None) is None
 
 
@@ -76,7 +84,11 @@ def test_api_key_auth_maps_credentials_to_one_workspace(tmp_path: Path) -> None:
     config = StudioAuthConfig.from_env(_secured_env(tmp_path / "studio.db"))
 
     assert config.required is True
-    assert config.runtime_status() == {"mode": "api-key", "required": True}
+    assert config.runtime_status() == {
+        "mode": "api-key",
+        "required": True,
+        "credential_source": "environment",
+    }
     assert config.workspace_for_authorization(f"Bearer {WORKSPACE_A_KEY}") == "workspace-a"
     assert config.workspace_for_authorization(f"bearer {WORKSPACE_A_KEY}") == "workspace-a"
     assert config.workspace_for_authorization(f"Bearer {WORKSPACE_B_KEY}") == "workspace-b"
@@ -84,6 +96,41 @@ def test_api_key_auth_maps_credentials_to_one_workspace(tmp_path: Path) -> None:
     assert config.workspace_for_authorization("Basic abc") is None
     assert config.workspace_for_authorization("Bearer invalid") is None
     assert WORKSPACE_A_KEY not in repr(config)
+
+
+def test_managed_api_key_auth_observes_expiry_and_immediate_revocation(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "studio.db"
+    pepper = "managed-pepper-with-at-least-32-characters"
+    issued = create_studio_api_key(
+        database_path,
+        workspace_id="workspace-a",
+        label="Browser access",
+        expires_in_days=90,
+        pepper=pepper,
+    )
+    env = {
+        "TRACEBISECT_STUDIO_STORAGE": "sqlite",
+        "TRACEBISECT_STUDIO_SQLITE_PATH": str(database_path),
+        "TRACEBISECT_STUDIO_AUTH_MODE": "api-key",
+        "TRACEBISECT_STUDIO_API_KEY_PEPPER": pepper,
+    }
+    config = StudioAuthConfig.from_env(env)
+
+    assert config.runtime_status() == {
+        "mode": "api-key",
+        "required": True,
+        "credential_source": "managed",
+    }
+    assert config.workspace_for_authorization(f"Bearer {issued.api_key}") == "workspace-a"
+    assert config.workspace_for_authorization("Bearer tbsk_bad_bad") is None
+    assert issued.api_key not in repr(config)
+    assert pepper not in repr(config)
+
+    revoke_studio_api_key(database_path, key_id=issued.record.key_id)
+
+    assert config.workspace_for_authorization(f"Bearer {issued.api_key}") is None
 
 
 @pytest.mark.parametrize(
@@ -96,6 +143,10 @@ def test_api_key_auth_maps_credentials_to_one_workspace(tmp_path: Path) -> None:
         (
             {"TRACEBISECT_STUDIO_API_KEYS": '{"secret":"workspace"}'},
             "TRACEBISECT_STUDIO_API_KEYS is set but auth mode is 'none'",
+        ),
+        (
+            {"TRACEBISECT_STUDIO_API_KEY_PEPPER": "p" * 40},
+            "TRACEBISECT_STUDIO_API_KEY_PEPPER is set but auth mode is 'none'",
         ),
         (
             {"TRACEBISECT_STUDIO_AUTH_MODE": "api-key"},
@@ -121,6 +172,33 @@ def test_api_key_auth_maps_credentials_to_one_workspace(tmp_path: Path) -> None:
                 "TRACEBISECT_STUDIO_API_KEYS": json.dumps({WORKSPACE_A_KEY: "workspace-a"}),
             },
             "api-key authentication requires TRACEBISECT_STUDIO_STORAGE=sqlite",
+        ),
+        (
+            {
+                "TRACEBISECT_STUDIO_AUTH_MODE": "api-key",
+                "TRACEBISECT_STUDIO_STORAGE": "sqlite",
+                "TRACEBISECT_STUDIO_SQLITE_PATH": "studio.db",
+                "TRACEBISECT_STUDIO_API_KEYS": json.dumps({WORKSPACE_A_KEY: "workspace-a"}),
+                "TRACEBISECT_STUDIO_API_KEY_PEPPER": "p" * 40,
+            },
+            "configure either managed API keys",
+        ),
+        (
+            {
+                "TRACEBISECT_STUDIO_AUTH_MODE": "api-key",
+                "TRACEBISECT_STUDIO_STORAGE": "sqlite",
+                "TRACEBISECT_STUDIO_SQLITE_PATH": "studio.db",
+                "TRACEBISECT_STUDIO_API_KEY_PEPPER": "short",
+            },
+            "TRACEBISECT_STUDIO_API_KEY_PEPPER must contain",
+        ),
+        (
+            {
+                "TRACEBISECT_STUDIO_AUTH_MODE": "api-key",
+                "TRACEBISECT_STUDIO_STORAGE": "sqlite",
+                "TRACEBISECT_STUDIO_API_KEY_PEPPER": "p" * 40,
+            },
+            "TRACEBISECT_STUDIO_SQLITE_PATH is required",
         ),
     ],
 )
@@ -155,7 +233,11 @@ def test_secured_api_rejects_spoofing_and_isolates_workspace_data(
     )
 
     assert health_response.status_code == 200
-    assert health_response.json()["auth"] == {"mode": "api-key", "required": True}
+    assert health_response.json()["auth"] == {
+        "mode": "api-key",
+        "required": True,
+        "credential_source": "environment",
+    }
     assert health_response.json()["runtime"]["workspace_id"] == "protected"
     assert health_response.json()["runtime"]["trace_count"] == 0
     assert health_response.json()["readiness"]["production_saas_ready"] is False
@@ -201,4 +283,56 @@ def test_secured_api_rejects_spoofing_and_isolates_workspace_data(
     assert '"workspace_id":"workspace-b"' in audit_output
     assert WORKSPACE_A_KEY not in audit_output
     assert WORKSPACE_B_KEY not in audit_output
+    registry.close()
+
+
+def test_managed_key_secures_live_api_and_revokes_without_restart(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    database_path = tmp_path / "studio.db"
+    pepper = "live-managed-pepper-with-at-least-32-characters"
+    issued = create_studio_api_key(
+        database_path,
+        workspace_id="workspace-a",
+        label="Browser access",
+        expires_in_days=90,
+        pepper=pepper,
+    )
+    env = {
+        "TRACEBISECT_STUDIO_STORAGE": "sqlite",
+        "TRACEBISECT_STUDIO_SQLITE_PATH": str(database_path),
+        "TRACEBISECT_STUDIO_WORKSPACE_ID": "health-probe",
+        "TRACEBISECT_STUDIO_AUTH_MODE": "api-key",
+        "TRACEBISECT_STUDIO_API_KEY_PEPPER": pepper,
+    }
+    registry = StudioStoreRegistry(env)
+    auth_config = StudioAuthConfig.from_env(env)
+    monkeypatch.setattr(studio_api, "AUTH_CONFIG", auth_config)
+    monkeypatch.setattr(studio_api, "STORE_REGISTRY", registry)
+    monkeypatch.setattr(studio_api, "STORE", registry.default_store)
+    asyncio.run(studio_api.RATE_LIMITER.reset())
+    caplog.set_level(logging.INFO, logger=AUDIT_LOGGER_NAME)
+    client = TestClient(studio_api.app)
+    headers = {"Authorization": f"Bearer {issued.api_key}"}
+
+    health_response = client.get("/api/health")
+    accepted_response = client.get("/api/session", headers=headers)
+
+    assert health_response.json()["auth"]["credential_source"] == "managed"
+    assert (
+        "hashed expiring workspace keys with operator revocation"
+        in health_response.json()["readiness"]["completed"]
+    )
+    assert accepted_response.status_code == 200
+    assert accepted_response.json()["workspace_id"] == "workspace-a"
+
+    revoke_studio_api_key(database_path, key_id=issued.record.key_id)
+    revoked_response = client.get("/api/session", headers=headers)
+
+    assert revoked_response.status_code == 401
+    audit_output = "\n".join(record.message for record in caplog.records)
+    assert issued.api_key not in audit_output
+    assert pepper not in audit_output
     registry.close()

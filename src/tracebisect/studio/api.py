@@ -116,10 +116,10 @@ app = FastAPI(
     description="SaaS-style API around the TraceBisect trace regression engine.",
 )
 
-AUTH_CONFIG = StudioAuthConfig.from_env()
-AUDIT = StudioAudit.from_env()
 STORE_REGISTRY = StudioStoreRegistry()
 STORE: StudioStore = STORE_REGISTRY.default_store
+AUTH_CONFIG = StudioAuthConfig.from_env()
+AUDIT = StudioAudit.from_env()
 
 
 def _request_store(request: Request) -> StudioStore:
@@ -638,7 +638,7 @@ def _production_readiness(*, storage_ok: bool) -> JsonObject:
     completed: list[str] = ["API storage health check"] if storage_ok else []
     blockers = [
         "scheduled encrypted off-site backups and recovery drills",
-        "managed user accounts and API-key lifecycle",
+        "managed user accounts, recovery, and team RBAC",
         "hosted deployment observability",
     ]
     if AUTH_CONFIG.required:
@@ -648,6 +648,10 @@ def _production_readiness(*, storage_ok: bool) -> JsonObject:
                 "request-scoped workspace authorization",
             ]
         )
+        if AUTH_CONFIG.credential_source == "managed":
+            completed.append("hashed expiring workspace keys with operator revocation")
+        else:
+            blockers.insert(0, "hashed API-key issuance, expiry, and revocation")
     else:
         blockers[:0] = [
             "authentication and authorization",

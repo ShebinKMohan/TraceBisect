@@ -65,22 +65,37 @@ multiple isolated local workspaces. `/api/health` reports the active storage
 mode and honest SaaS-readiness blockers; `/api/ready` is the process/storage
 readiness probe.
 
-For a protected multi-workspace API, map long bearer keys to workspace IDs.
-Studio validates the key before opening the dashboard and keeps it in browser
-`sessionStorage`, so closing the tab clears it:
+For a protected multi-workspace API, generate a server-side hashing secret and
+create an expiring workspace key. The create command initializes the database
+when needed and shows the new key exactly once:
 
 ```bash
+tracebisect studio keys generate-pepper
+export TRACEBISECT_STUDIO_API_KEY_PEPPER='paste-the-generated-value-here'
+
+tracebisect studio keys create \
+  --database .tracebisect/studio.db \
+  --workspace team-a \
+  --name 'Team A browser' \
+  --expires-in-days 90
+
 TRACEBISECT_STUDIO_STORAGE=sqlite \
 TRACEBISECT_STUDIO_SQLITE_PATH=.tracebisect/studio.db \
 TRACEBISECT_STUDIO_AUTH_MODE=api-key \
-TRACEBISECT_STUDIO_API_KEYS='{"replace-with-a-random-key-at-least-32-characters":"team-a"}' \
 TRACEBISECT_STUDIO_ALLOWED_ORIGINS='https://studio.example.com' \
 uvicorn tracebisect.studio.api:app --port 8000
 ```
 
+Studio stores a peppered HMAC digest—not the plaintext key—and rejects expired
+or revoked keys immediately. Use `tracebisect studio keys list` to review safe
+metadata. For zero-downtime rotation, create a replacement, update the client,
+then run `tracebisect studio keys revoke --key-id ...` for the old key.
+
 The bearer key—not a client-provided workspace header—selects the authorized
-workspace. This is a secured self-hosted foundation, not managed user accounts,
-self-service key rotation, or team RBAC.
+workspace. Studio keeps an accepted browser key in `sessionStorage`, so closing
+the tab clears it. The older `TRACEBISECT_STUDIO_API_KEYS` JSON mapping remains
+available for migration and local development, but `/api/health` reports it as
+an environment credential source without managed expiry or revocation.
 
 Studio also emits one secret-safe JSON audit event per API request. Every
 response carries `X-Request-ID`; audit events record the normalized action,
@@ -117,9 +132,10 @@ TRACEBISECT_STUDIO_SQLITE_PATH=.tracebisect/restored-studio.db \
 uvicorn tracebisect.studio.api:app --port 8000
 ```
 
-Each command reports the verified workspace/trace/comparison/guardrail counts
-and a SHA-256 checksum. Production operators must still schedule encrypted,
-off-site backups and practice recovery in their deployment environment.
+Each command reports the verified workspace, trace, comparison, guardrail, and
+managed-access-key counts plus a SHA-256 checksum. Production operators must
+still schedule encrypted, off-site backups and practice recovery in their
+deployment environment.
 
 ## Commands
 
@@ -138,6 +154,10 @@ off-site backups and practice recovery in their deployment environment.
 - `tracebisect studio verify` — checks backup integrity and schema compatibility.
 - `tracebisect studio restore` — restores into a new database without replacing
   current data.
+- `tracebisect studio keys generate-pepper` — creates the server secret used to
+  hash managed keys.
+- `tracebisect studio keys create/list/revoke` — manages expiring workspace keys
+  without persisting or redisplaying their plaintext values.
 
 Example static comparison:
 

@@ -8,6 +8,10 @@ from pathlib import Path
 import pytest
 
 from tracebisect.cli import main
+from tracebisect.studio.access_keys import (
+    create_studio_api_key,
+    workspace_for_managed_api_key,
+)
 from tracebisect.studio.backup import (
     StudioBackupError,
     create_studio_backup,
@@ -15,7 +19,7 @@ from tracebisect.studio.backup import (
     restore_studio_backup,
 )
 from tracebisect.studio.service import seed_demo_report
-from tracebisect.studio.storage import SQLiteStudioStore
+from tracebisect.studio.storage import SCHEMA_VERSION, SQLiteStudioStore
 
 
 def test_live_backup_verifies_and_restores_all_workspace_data(tmp_path: Path) -> None:
@@ -38,15 +42,24 @@ def test_live_backup_verifies_and_restores_all_workspace_data(tmp_path: Path) ->
         assertions=["tool_args", "final_output"],
         cost_threshold=1.25,
     )
+    pepper = "backup-test-pepper-with-more-than-32-characters"
+    issued_key = create_studio_api_key(
+        source_path,
+        workspace_id="workspace-a",
+        label="Restored browser",
+        expires_in_days=90,
+        pepper=pepper,
+    )
 
     inspection = create_studio_backup(source_path, backup_path)
 
     assert backup_path.exists()
-    assert inspection.schema_version == 1
+    assert inspection.schema_version == SCHEMA_VERSION
     assert inspection.workspace_count == 1
     assert inspection.trace_count == 2
     assert inspection.report_count == 2
     assert inspection.case_count == 1
+    assert inspection.api_key_count == 1
     assert len(inspection.sha256) == 64
     assert len(inspection.content_sha256) == 64
     assert inspect_studio_backup(backup_path) == inspection
@@ -60,12 +73,21 @@ def test_live_backup_verifies_and_restores_all_workspace_data(tmp_path: Path) ->
     assert restored_inspection.trace_count == 2
     assert restored_inspection.report_count == 2
     assert restored_inspection.case_count == 1
+    assert restored_inspection.api_key_count == 1
     assert restored_inspection.content_sha256 == inspection.content_sha256
 
     restored = SQLiteStudioStore(restored_path, workspace_id="workspace-a")
     assert restored.get_report(str(report["report_id"])) == report
     assert restored.get_case(str(case["case_id"])) == case
     restored.close()
+    assert (
+        workspace_for_managed_api_key(
+            restored_path,
+            api_key=issued_key.api_key,
+            pepper=pepper,
+        )
+        == "workspace-a"
+    )
 
 
 def test_backup_and_restore_never_replace_existing_files(tmp_path: Path) -> None:

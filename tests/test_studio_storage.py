@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
 import pytest
 
 from tracebisect.studio.service import seed_demo_report
 from tracebisect.studio.storage import (
+    SCHEMA_VERSION,
     SQLiteStudioStore,
     StudioConfigurationError,
     create_studio_store,
@@ -25,6 +27,14 @@ def test_store_factory_keeps_zero_configuration_memory_mode() -> None:
         "report_count": 0,
         "case_count": 0,
     }
+
+
+def test_new_sqlite_database_is_private_by_default(tmp_path: Path) -> None:
+    database_path = tmp_path / "studio.db"
+    store = SQLiteStudioStore(database_path, workspace_id="workspace-a")
+
+    assert database_path.stat().st_mode & 0o777 == 0o600
+    store.close()
 
 
 def test_memory_store_reports_configured_workspace_id() -> None:
@@ -101,6 +111,28 @@ def test_sqlite_store_survives_restart_and_restores_demo_and_cases(tmp_path: Pat
     assert restored.get_case(str(case["case_id"])) == case
     assert seed_demo_report(restored)["report_id"] == report["report_id"]
     restored.close()
+
+
+def test_sqlite_store_migrates_v1_data_to_managed_key_schema(tmp_path: Path) -> None:
+    database_path = tmp_path / "studio.sqlite3"
+    original = SQLiteStudioStore(database_path, workspace_id="workspace-a")
+    report = seed_demo_report(original)
+    original.close()
+    with sqlite3.connect(database_path) as connection:
+        connection.execute("DROP TABLE studio_api_keys")
+        connection.execute("UPDATE studio_schema SET version = 1")
+
+    migrated = SQLiteStudioStore(database_path, workspace_id="workspace-a")
+
+    assert migrated.get_report(str(report["report_id"])) == report
+    with sqlite3.connect(database_path) as connection:
+        assert connection.execute("SELECT version FROM studio_schema").fetchone() == (
+            SCHEMA_VERSION,
+        )
+        assert connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'studio_api_keys'"
+        ).fetchone() == ("studio_api_keys",)
+    migrated.close()
 
 
 def test_sqlite_store_isolates_workspaces_in_one_database(tmp_path: Path) -> None:

@@ -31,6 +31,11 @@ temporary files out of the web root, and throttle repeated API calls.
 - Optional bearer-key authentication maps each credential to exactly one
   workspace. Client workspace headers are ignored, invalid keys fail closed,
   and comparisons cannot be read across workspace stores.
+- The recommended managed-key mode stores only peppered HMAC-SHA256 digests in
+  SQLite. Operator commands issue high-entropy expiring keys, list non-secret
+  metadata, and revoke keys immediately; plaintext values are shown once.
+- The legacy plaintext `TRACEBISECT_STUDIO_API_KEYS` mapping remains supported
+  for migration/local use and is reported separately by the health endpoint.
 - Studio keeps an accepted workspace key in browser `sessionStorage`, not
   persistent `localStorage`, and offers an explicit **Lock workspace** action.
 - API keys must contain 32-256 URL-safe characters and are compared using a
@@ -64,8 +69,8 @@ Studio a real multi-tenant SaaS:
 
 - Managed user identities, account recovery, and team/project RBAC.
 - Managed multi-user database storage beyond the single-node SQLite backend.
-- Self-service API-key issuance, hashing, rotation, revocation, and scoped
-  ingestion tokens.
+- Browser self-service key rotation and scoped ingestion tokens. Operator-level
+  hashed issuance, expiry, listing, and revocation are implemented.
 - Durable background jobs for large OTel imports and comparisons.
 - Distributed rate limiting backed by Redis or the hosting provider.
 - Durable centralized retention, search, alerting, and access control for the

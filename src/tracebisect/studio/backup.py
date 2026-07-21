@@ -19,6 +19,7 @@ _REQUIRED_TABLES = frozenset(
         "studio_reports",
         "studio_cases",
         "studio_metadata",
+        "studio_api_keys",
     }
 )
 _HASH_CHUNK_BYTES = 1024 * 1024
@@ -37,6 +38,7 @@ class StudioBackupInspection:
     trace_count: int
     report_count: int
     case_count: int
+    api_key_count: int
     size_bytes: int
     sha256: str
     content_sha256: str
@@ -98,6 +100,7 @@ def inspect_studio_backup(backup_path: str | Path) -> StudioBackupInspection:
                         UNION SELECT workspace_id FROM studio_reports
                         UNION SELECT workspace_id FROM studio_cases
                         UNION SELECT workspace_id FROM studio_metadata
+                        UNION SELECT workspace_id FROM studio_api_keys
                     )
                     """
                 ).fetchone()[0]
@@ -105,6 +108,7 @@ def inspect_studio_backup(backup_path: str | Path) -> StudioBackupInspection:
             trace_count = _table_count(connection, "studio_traces")
             report_count = _table_count(connection, "studio_reports")
             case_count = _table_count(connection, "studio_cases")
+            api_key_count = _table_count(connection, "studio_api_keys")
             content_sha256 = _content_sha256(connection)
     except StudioBackupError:
         raise
@@ -117,6 +121,7 @@ def inspect_studio_backup(backup_path: str | Path) -> StudioBackupInspection:
         trace_count=trace_count,
         report_count=report_count,
         case_count=case_count,
+        api_key_count=api_key_count,
         size_bytes=backup.stat().st_size,
         sha256=_sha256(backup),
         content_sha256=content_sha256,
@@ -252,6 +257,13 @@ def _content_sha256(connection: sqlite3.Connection) -> str:
             FROM studio_metadata ORDER BY workspace_id, key
             """,
         ),
+        (
+            "api_keys",
+            """
+            SELECT key_id, workspace_id, label, key_hash, created_at, expires_at, revoked_at
+            FROM studio_api_keys ORDER BY key_id
+            """,
+        ),
     )
     for label, query in queries:
         digest.update(label.encode("ascii"))
@@ -264,12 +276,13 @@ def _content_sha256(connection: sqlite3.Connection) -> str:
 
 def _logical_signature(
     inspection: StudioBackupInspection,
-) -> tuple[int, int, int, int, int, str]:
+) -> tuple[int, int, int, int, int, int, str]:
     return (
         inspection.schema_version,
         inspection.workspace_count,
         inspection.trace_count,
         inspection.report_count,
         inspection.case_count,
+        inspection.api_key_count,
         inspection.content_sha256,
     )

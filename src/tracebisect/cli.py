@@ -184,6 +184,72 @@ def build_parser() -> argparse.ArgumentParser:
         help="New database path. Existing files are never replaced.",
     )
 
+    studio_keys = studio_commands.add_parser(
+        "keys",
+        help="Create, list, and revoke hashed workspace access keys.",
+    )
+    studio_keys_commands = studio_keys.add_subparsers(
+        dest="studio_keys_command",
+        metavar="<key-command>",
+    )
+    studio_keys.set_defaults(studio_keys_parser=studio_keys)
+
+    studio_keys_commands.add_parser(
+        "generate-pepper",
+        help="Generate the server secret used to hash managed keys.",
+    )
+
+    studio_keys_create = studio_keys_commands.add_parser(
+        "create",
+        help="Issue one expiring workspace key and show it once.",
+    )
+    studio_keys_create.add_argument(
+        "--database",
+        required=True,
+        help="Current TRACEBISECT_STUDIO_SQLITE_PATH value.",
+    )
+    studio_keys_create.add_argument(
+        "--workspace",
+        required=True,
+        help="Workspace this key can access.",
+    )
+    studio_keys_create.add_argument(
+        "--name",
+        required=True,
+        help="Human-readable owner or purpose, such as 'CI upload'.",
+    )
+    studio_keys_create.add_argument(
+        "--expires-in-days",
+        type=int,
+        default=90,
+        help="Key lifetime from today (default: 90, maximum: 3650).",
+    )
+
+    studio_keys_list = studio_keys_commands.add_parser(
+        "list",
+        help="Show key IDs, owners, expiry, and revocation status—never secrets.",
+    )
+    studio_keys_list.add_argument(
+        "--database",
+        required=True,
+        help="Current TRACEBISECT_STUDIO_SQLITE_PATH value.",
+    )
+
+    studio_keys_revoke = studio_keys_commands.add_parser(
+        "revoke",
+        help="Immediately disable one key by its non-secret key ID.",
+    )
+    studio_keys_revoke.add_argument(
+        "--database",
+        required=True,
+        help="Current TRACEBISECT_STUDIO_SQLITE_PATH value.",
+    )
+    studio_keys_revoke.add_argument(
+        "--key-id",
+        required=True,
+        help="12-character key ID shown by the list command.",
+    )
+
     return parser
 
 
@@ -432,8 +498,76 @@ def _print_studio_backup_summary(
     print(f"  Traces: {inspection.trace_count}")
     print(f"  Comparisons: {inspection.report_count}")
     print(f"  Guardrails: {inspection.case_count}")
+    print(f"  Access keys: {inspection.api_key_count}")
     print(f"  Size: {inspection.size_bytes} bytes")
     print(f"  SHA-256: {inspection.sha256}")
+
+
+def run_studio_keys_generate_pepper() -> int:
+    from tracebisect.studio.access_keys import API_KEY_PEPPER_ENV, generate_api_key_pepper
+
+    print("Managed-key server secret generated")
+    print("Store this value in your deployment secret manager. Do not commit it.")
+    print(f"  {API_KEY_PEPPER_ENV}={generate_api_key_pepper()}")
+    print()
+    print("Next: export that variable, then create a workspace key with:")
+    print("  tracebisect studio keys create --database studio.db --workspace team-a --name you")
+    return 0
+
+
+def run_studio_keys_create(
+    database: str,
+    workspace: str,
+    name: str,
+    expires_in_days: int,
+) -> int:
+    from tracebisect.studio.access_keys import api_key_pepper, create_studio_api_key
+
+    issued = create_studio_api_key(
+        database,
+        workspace_id=workspace,
+        label=name,
+        expires_in_days=expires_in_days,
+        pepper=api_key_pepper(),
+    )
+    print("Workspace access key created")
+    print(f"  Key ID: {issued.record.key_id}")
+    print(f"  Workspace: {issued.record.workspace_id}")
+    print(f"  Name: {issued.record.label}")
+    print(f"  Expires: {issued.record.expires_at}")
+    print()
+    print("Copy this key now. TraceBisect stores only its hash and cannot show it again:")
+    print(f"  {issued.api_key}")
+    print()
+    print("To rotate safely: create a replacement, update the client, then revoke this key ID.")
+    return 0
+
+
+def run_studio_keys_list(database: str) -> int:
+    from tracebisect.studio.access_keys import list_studio_api_keys
+
+    records = list_studio_api_keys(database)
+    if not records:
+        print("No managed workspace keys exist yet.")
+        print("Create one with: tracebisect studio keys create --help")
+        return 0
+    print("Managed workspace keys")
+    for record in records:
+        print(f"- {record.key_id} · {record.status} · {record.workspace_id} · {record.label}")
+        print(f"  expires {record.expires_at}")
+    return 0
+
+
+def run_studio_keys_revoke(database: str, key_id: str) -> int:
+    from tracebisect.studio.access_keys import revoke_studio_api_key
+
+    record = revoke_studio_api_key(database, key_id=key_id)
+    print("Workspace access key revoked")
+    print(f"  Key ID: {record.key_id}")
+    print(f"  Workspace: {record.workspace_id}")
+    print(f"  Name: {record.label}")
+    print(f"  Revoked: {record.revoked_at}")
+    return 0
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -481,7 +615,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.studio_parser.print_help()
             return 0
 
+        from tracebisect.studio.access_keys import StudioApiKeyError
         from tracebisect.studio.backup import StudioBackupError
+        from tracebisect.studio.storage import StudioConfigurationError
 
         try:
             if args.studio_command == "backup":
@@ -490,8 +626,28 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return run_studio_verify(args.backup)
             if args.studio_command == "restore":
                 return run_studio_restore(args.backup, args.database)
-        except StudioBackupError as exc:
-            print(f"tracebisect studio {args.studio_command} failed: {exc}", file=sys.stderr)
+            if args.studio_command == "keys":
+                if args.studio_keys_command is None:
+                    args.studio_keys_parser.print_help()
+                    return 0
+                if args.studio_keys_command == "generate-pepper":
+                    return run_studio_keys_generate_pepper()
+                if args.studio_keys_command == "create":
+                    return run_studio_keys_create(
+                        args.database,
+                        args.workspace,
+                        args.name,
+                        args.expires_in_days,
+                    )
+                if args.studio_keys_command == "list":
+                    return run_studio_keys_list(args.database)
+                if args.studio_keys_command == "revoke":
+                    return run_studio_keys_revoke(args.database, args.key_id)
+        except (StudioApiKeyError, StudioBackupError, StudioConfigurationError) as exc:
+            failed_command = args.studio_command
+            if args.studio_command == "keys" and args.studio_keys_command is not None:
+                failed_command = f"keys {args.studio_keys_command}"
+            print(f"tracebisect studio {failed_command} failed: {exc}", file=sys.stderr)
             return 2
 
     parser.print_help()

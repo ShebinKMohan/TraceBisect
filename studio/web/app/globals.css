@@ -5359,7 +5359,7 @@ html[data-theme="dark"] .sidebar {
 
 .setup-facts {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 12px;
 }
 
@@ -5392,6 +5392,15 @@ html[data-theme="dark"] .sidebar {
   padding: 20px;
   border-left: 3px solid var(--warning);
   background: var(--warning-soft);
+}
+
+.setup-operations {
+  border-left-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.setup-operations .setup-command + .setup-command {
+  margin-top: 10px;
 }
 
 .mobile-nav,

@@ -14,6 +14,7 @@ export type StudioHealth = {
   auth: {
     mode: "none" | "api-key";
     required: boolean;
+    credential_source: "none" | "environment" | "managed";
   };
   audit: {
     enabled: boolean;

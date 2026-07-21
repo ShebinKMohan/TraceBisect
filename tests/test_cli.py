@@ -76,6 +76,7 @@ def test_demo_writes_artifacts(capsys: pytest.CaptureFixture[str]) -> None:
         (["diff", "b.tbtrace", "c.tbtrace"], "diff"),
         (["export-pytest", "b.tbtrace", "out.py"], "export-pytest"),
         (["studio", "verify", "--backup", "backup.db"], "studio"),
+        (["studio", "keys", "list", "--database", "studio.db"], "studio"),
     ],
 )
 def test_parser_exposes_all_subcommands(argv: list[str], expected_command: str) -> None:
@@ -110,6 +111,22 @@ def test_studio_parser_exposes_beginner_safe_recovery_commands() -> None:
     assert backup.studio_command == "backup"
     assert verify.studio_command == "verify"
     assert restore.studio_command == "restore"
+
+    keys = parser.parse_args(
+        [
+            "studio",
+            "keys",
+            "create",
+            "--database",
+            "studio.db",
+            "--workspace",
+            "team-a",
+            "--name",
+            "Browser",
+        ]
+    )
+    assert keys.studio_command == "keys"
+    assert keys.studio_keys_command == "create"
 
 
 def test_studio_command_without_action_shows_recovery_help(

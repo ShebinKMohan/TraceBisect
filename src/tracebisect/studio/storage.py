@@ -26,7 +26,7 @@ from tracebisect.studio.service import (
     StudioStore,
 )
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 _WORKSPACE_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 _STORAGE_SETTING_NAMES = (
     "TRACEBISECT_STUDIO_STORAGE",
@@ -69,6 +69,7 @@ class SQLiteStudioStore(StudioStore):
         )
         self.database_path = Path(database_path).expanduser().resolve()
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
+        database_was_created = not self.database_path.exists()
         try:
             self._connection = sqlite3.connect(
                 self.database_path,
@@ -78,6 +79,8 @@ class SQLiteStudioStore(StudioStore):
             self._connection.execute("PRAGMA journal_mode = WAL")
             self._connection.execute("PRAGMA synchronous = NORMAL")
             self._connection.execute("PRAGMA busy_timeout = 5000")
+            if database_was_created:
+                self.database_path.chmod(0o600)
             self._initialize_schema()
             self._load_workspace()
         except (OSError, sqlite3.DatabaseError, ValueError) as exc:
@@ -274,68 +277,7 @@ class SQLiteStudioStore(StudioStore):
             self._connection.close()
 
     def _initialize_schema(self) -> None:
-        with self._connection:
-            self._connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS studio_schema (
-                    version INTEGER NOT NULL
-                )
-                """
-            )
-            row = self._connection.execute("SELECT version FROM studio_schema LIMIT 1").fetchone()
-            if row is None:
-                self._connection.execute(
-                    "INSERT INTO studio_schema (version) VALUES (?)",
-                    (SCHEMA_VERSION,),
-                )
-            elif row[0] != SCHEMA_VERSION:
-                raise StudioPersistenceError(
-                    f"unsupported Studio database schema version {row[0]!r}"
-                )
-            self._connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS studio_traces (
-                    workspace_id TEXT NOT NULL,
-                    trace_key TEXT NOT NULL,
-                    display_name TEXT NOT NULL,
-                    trace_jsonl TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    PRIMARY KEY (workspace_id, trace_key)
-                )
-                """
-            )
-            self._connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS studio_reports (
-                    workspace_id TEXT NOT NULL,
-                    report_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    PRIMARY KEY (workspace_id, report_id)
-                )
-                """
-            )
-            self._connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS studio_cases (
-                    workspace_id TEXT NOT NULL,
-                    case_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    PRIMARY KEY (workspace_id, case_id)
-                )
-                """
-            )
-            self._connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS studio_metadata (
-                    workspace_id TEXT NOT NULL,
-                    key TEXT NOT NULL,
-                    value TEXT NOT NULL,
-                    PRIMARY KEY (workspace_id, key)
-                )
-                """
-            )
+        ensure_studio_schema(self._connection)
 
     def _load_workspace(self) -> None:
         with self._lock:
@@ -404,6 +346,94 @@ class SQLiteStudioStore(StudioStore):
                 )
         except sqlite3.DatabaseError as exc:
             raise StudioPersistenceError("could not save regression case to SQLite") from exc
+
+
+def ensure_studio_schema(connection: sqlite3.Connection) -> None:
+    """Create the current Studio schema and migrate supported older databases."""
+    with connection:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS studio_schema (
+                version INTEGER NOT NULL
+            )
+            """
+        )
+        row = connection.execute("SELECT version FROM studio_schema LIMIT 1").fetchone()
+        if row is None:
+            database_version = SCHEMA_VERSION
+            connection.execute(
+                "INSERT INTO studio_schema (version) VALUES (?)",
+                (SCHEMA_VERSION,),
+            )
+        elif not isinstance(row[0], int) or row[0] not in {1, SCHEMA_VERSION}:
+            raise StudioPersistenceError(f"unsupported Studio database schema version {row[0]!r}")
+        else:
+            database_version = row[0]
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS studio_traces (
+                workspace_id TEXT NOT NULL,
+                trace_key TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                trace_jsonl TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (workspace_id, trace_key)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS studio_reports (
+                workspace_id TEXT NOT NULL,
+                report_id TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (workspace_id, report_id)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS studio_cases (
+                workspace_id TEXT NOT NULL,
+                case_id TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (workspace_id, case_id)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS studio_metadata (
+                workspace_id TEXT NOT NULL,
+                key TEXT NOT NULL,
+                value TEXT NOT NULL,
+                PRIMARY KEY (workspace_id, key)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS studio_api_keys (
+                key_id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                label TEXT NOT NULL,
+                key_hash TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                revoked_at TEXT
+            )
+            """,
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS studio_api_keys_workspace_idx
+            ON studio_api_keys (workspace_id)
+            """,
+        )
+        if database_version < SCHEMA_VERSION:
+            connection.execute("UPDATE studio_schema SET version = ?", (SCHEMA_VERSION,))
 
 
 class StudioStoreRegistry:

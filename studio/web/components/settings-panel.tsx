@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Clipboard, FileJson2, PlayCircle, TerminalSquare, UploadCloud } from "lucide-react";
+import { Check, Clipboard, FileJson2, PlayCircle, ShieldCheck, TerminalSquare, UploadCloud } from "lucide-react";
 import { useState } from "react";
 import type { StudioHealth } from "@/lib/types";
 
@@ -8,6 +8,8 @@ const demoCommand = "tracebisect demo";
 const uploadCommand = "curl -X POST http://127.0.0.1:8000/api/traces/upload -F 'file=@run.tbtrace'";
 const recordCommand = "tracebisect record --output run.tbtrace -- python your_agent.py";
 const durableCommand = "TRACEBISECT_STUDIO_STORAGE=sqlite TRACEBISECT_STUDIO_SQLITE_PATH=.tracebisect/studio.db uvicorn tracebisect.studio.api:app --port 8000";
+const listKeysCommand = "tracebisect studio keys list --database .tracebisect/studio.db";
+const createKeyCommand = "tracebisect studio keys create --database .tracebisect/studio.db --workspace team-a --name 'Browser access'";
 
 function CopyCommand({ command, label }: { command: string; label: string }) {
   const [copied, setCopied] = useState(false);
@@ -42,6 +44,7 @@ function CopyCommand({ command, label }: { command: string; label: string }) {
 export function SettingsPanel({ health }: { health: StudioHealth | null }) {
   const durable = health?.runtime.durable ?? false;
   const authRequired = health?.auth.required ?? false;
+  const credentialSource = health?.auth.credential_source ?? "none";
   return (
     <section className="setup-guide" data-testid="setup-section">
       <div className="setup-mode-banner">
@@ -123,6 +126,19 @@ export function SettingsPanel({ health }: { health: StudioHealth | null }) {
             </span>
           </div>
         </article>
+        <article>
+          <ShieldCheck size={19} aria-hidden />
+          <div>
+            <strong>Workspace access</strong>
+            <span>
+              {credentialSource === "managed"
+                ? "Hashed, expiring keys with operator revocation"
+                : credentialSource === "environment"
+                  ? "Static environment keys; managed rotation is not enabled"
+                  : "Open local mode; no workspace key required"}
+            </span>
+          </div>
+        </article>
       </div>
 
       <div className="setup-boundary">
@@ -135,11 +151,24 @@ export function SettingsPanel({ health }: { health: StudioHealth | null }) {
         {!durable ? <CopyCommand command={durableCommand} label="durable storage command" /> : null}
       </div>
 
+      {credentialSource === "managed" ? (
+        <div className="setup-boundary setup-operations">
+          <h2>Manage workspace access safely</h2>
+          <p>
+            List key IDs and expiry dates without revealing secrets. For rotation, create a replacement, update the user or integration, and only then revoke the old key ID.
+          </p>
+          <CopyCommand command={listKeysCommand} label="list workspace keys command" />
+          <CopyCommand command={createKeyCommand} label="create workspace key command" />
+        </div>
+      ) : null}
+
       <div className="setup-boundary">
         <h2>What is not enabled yet</h2>
         <p>
           {authRequired
-            ? "Managed user accounts, self-service key rotation, hosted ingestion, team administration, and billing are future production milestones—not active features in this build."
+            ? credentialSource === "managed"
+              ? "User accounts, account recovery, team roles, browser self-service, hosted ingestion, and billing are future production milestones—not active features in this build."
+              : "Managed user accounts, hashed key rotation, hosted ingestion, team administration, and billing are future production milestones—not active features in this build."
             : "Authentication, request-scoped workspace access, hosted ingestion, team access, billing, and API keys are future production milestones—not active features in this build."}
         </p>
       </div>
