@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import logging
 from dataclasses import replace
 from io import BytesIO
 from pathlib import Path
@@ -10,6 +12,7 @@ from fastapi.testclient import TestClient
 
 import tracebisect.studio.api as studio_api
 from tracebisect.studio.api import RATE_LIMITER, STORE, app
+from tracebisect.studio.audit import AUDIT_LOGGER_NAME
 from tracebisect.studio.service import build_demo_report, load_trace_from_path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -254,18 +257,25 @@ def test_studio_api_replaces_duplicate_trace_uploads() -> None:
     ]
 
 
-def test_studio_api_sets_security_headers() -> None:
+def test_studio_api_sets_security_headers(caplog: pytest.LogCaptureFixture) -> None:
     reset_studio_state()
+    caplog.set_level(logging.INFO, logger=AUDIT_LOGGER_NAME)
     client = TestClient(app)
 
-    response = client.get("/api/health")
+    response = client.get("/api/health", headers={"X-Request-ID": "request-1234"})
 
     assert response.status_code == 200
     assert response.headers["x-content-type-options"] == "nosniff"
     assert response.headers["x-frame-options"] == "DENY"
     assert response.headers["referrer-policy"] == "no-referrer"
     assert response.headers["cache-control"] == "no-store"
+    assert response.headers["x-request-id"] == "request-1234"
     assert response.json()["limits"]["max_upload_bytes"] == studio_api.MAX_UPLOAD_BYTES
+    assert response.json()["audit"] == {
+        "enabled": True,
+        "format": "json",
+        "request_id_header": "X-Request-ID",
+    }
     assert response.json()["runtime"] == {
         "kind": "memory",
         "durable": False,
@@ -276,6 +286,10 @@ def test_studio_api_sets_security_headers() -> None:
     }
     assert response.json()["readiness"]["production_saas_ready"] is False
     assert "restart-safe durable storage" in response.json()["readiness"]["blockers"]
+    audit_payload = json.loads(caplog.records[-1].message)
+    assert audit_payload["request_id"] == "request-1234"
+    assert audit_payload["action"] == "health_check"
+    assert audit_payload["auth_outcome"] == "not_required"
 
 
 def test_studio_api_readiness_checks_storage() -> None:

@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 from starlette.responses import JSONResponse
 
 from tracebisect.schema import JsonObject, JsonValue, TraceBisectSchemaError
+from tracebisect.studio.audit import AuditAuthOutcome, StudioAudit
 from tracebisect.studio.auth import StudioAuthConfig
 from tracebisect.studio.service import (
     DEFAULT_SCENARIO_CMD,
@@ -116,6 +117,7 @@ app = FastAPI(
 )
 
 AUTH_CONFIG = StudioAuthConfig.from_env()
+AUDIT = StudioAudit.from_env()
 STORE_REGISTRY = StudioStoreRegistry()
 STORE: StudioStore = STORE_REGISTRY.default_store
 
@@ -196,6 +198,11 @@ async def apply_api_guardrails(
     request: Request,
     call_next: Callable[[Request], Awaitable[Response]],
 ) -> Response:
+    started_at = time.perf_counter()
+    request_id = AUDIT.request_id(request.headers.get("X-Request-ID"))
+    request.state.request_id = request_id
+    auth_outcome: AuditAuthOutcome = "not_checked"
+    audit_workspace_id: str | None = None
     if request.method != "OPTIONS":
         limit = (
             RATE_LIMIT_UPLOAD_REQUESTS
@@ -213,27 +220,88 @@ async def apply_api_guardrails(
                 content={"detail": "Too many requests. Please wait before retrying."},
                 headers={"Retry-After": str(retry_after)},
             )
-            _apply_security_headers(limited_response)
-            return limited_response
+            return _finalize_audited_response(
+                request=request,
+                response=limited_response,
+                started_at=started_at,
+                request_id=request_id,
+                auth_outcome=auth_outcome,
+                workspace_id=audit_workspace_id,
+            )
 
         if AUTH_CONFIG.required and request.url.path not in PUBLIC_API_PATHS:
             workspace_id = AUTH_CONFIG.workspace_for_authorization(
                 request.headers.get("Authorization")
             )
             if workspace_id is None:
+                auth_outcome = "rejected"
                 unauthorized_response = JSONResponse(
                     status_code=401,
                     content={"detail": "A valid Studio workspace API key is required."},
                     headers={"WWW-Authenticate": "Bearer"},
                 )
-                _apply_security_headers(unauthorized_response)
-                return unauthorized_response
+                return _finalize_audited_response(
+                    request=request,
+                    response=unauthorized_response,
+                    started_at=started_at,
+                    request_id=request_id,
+                    auth_outcome=auth_outcome,
+                    workspace_id=audit_workspace_id,
+                )
             request.state.workspace_id = workspace_id
+            auth_outcome = "authenticated"
+            audit_workspace_id = workspace_id
         else:
             request.state.workspace_id = STORE.workspace_id
+            if AUTH_CONFIG.required:
+                auth_outcome = "public"
+            else:
+                auth_outcome = "not_required"
+                audit_workspace_id = STORE.workspace_id
 
-    response = await call_next(request)
+    try:
+        response = await call_next(request)
+    except Exception:
+        AUDIT.emit_request(
+            request_id=request_id,
+            method=request.method,
+            path=request.url.path,
+            status_code=500,
+            duration_ms=(time.perf_counter() - started_at) * 1000,
+            auth_outcome=auth_outcome,
+            workspace_id=audit_workspace_id,
+        )
+        raise
+    return _finalize_audited_response(
+        request=request,
+        response=response,
+        started_at=started_at,
+        request_id=request_id,
+        auth_outcome=auth_outcome,
+        workspace_id=audit_workspace_id,
+    )
+
+
+def _finalize_audited_response(
+    *,
+    request: Request,
+    response: Response,
+    started_at: float,
+    request_id: str,
+    auth_outcome: AuditAuthOutcome,
+    workspace_id: str | None,
+) -> Response:
+    response.headers["X-Request-ID"] = request_id
     _apply_security_headers(response)
+    AUDIT.emit_request(
+        request_id=request_id,
+        method=request.method,
+        path=request.url.path,
+        status_code=response.status_code,
+        duration_ms=(time.perf_counter() - started_at) * 1000,
+        auth_outcome=auth_outcome,
+        workspace_id=workspace_id,
+    )
     return response
 
 
@@ -253,6 +321,11 @@ def health() -> JsonObject:
         "ok": storage_ok,
         "product": "TraceBisect Studio",
         "auth": cast(JsonValue, AUTH_CONFIG.runtime_status()),
+        "audit": {
+            "enabled": AUDIT.enabled,
+            "format": "json",
+            "request_id_header": "X-Request-ID",
+        },
         "runtime": _public_runtime_status(),
         "readiness": _production_readiness(storage_ok=storage_ok),
         "limits": {
@@ -580,6 +653,10 @@ def _production_readiness(*, storage_ok: bool) -> JsonObject:
             "authentication and authorization",
             "request-scoped workspace isolation",
         ]
+    if AUDIT.enabled:
+        completed.append("secret-safe structured request audit logs")
+    else:
+        blockers.insert(0, "structured request audit logs")
     if durable:
         completed.append("restart-safe workspace storage")
     else:

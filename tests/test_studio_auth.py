@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 import tracebisect.studio.api as studio_api
+from tracebisect.studio.audit import AUDIT_LOGGER_NAME
 from tracebisect.studio.auth import StudioAuthConfig
 from tracebisect.studio.storage import (
     StudioConfigurationError,
@@ -130,6 +132,7 @@ def test_auth_configuration_fails_closed(env: dict[str, str], message: str) -> N
 def test_secured_api_rejects_spoofing_and_isolates_workspace_data(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     env = _secured_env(tmp_path / "studio.db")
     auth_config = StudioAuthConfig.from_env(env)
@@ -138,6 +141,7 @@ def test_secured_api_rejects_spoofing_and_isolates_workspace_data(
     monkeypatch.setattr(studio_api, "STORE_REGISTRY", registry)
     monkeypatch.setattr(studio_api, "STORE", registry.default_store)
     asyncio.run(studio_api.RATE_LIMITER.reset())
+    caplog.set_level(logging.INFO, logger=AUDIT_LOGGER_NAME)
     client = TestClient(studio_api.app)
 
     health_response = client.get("/api/health")
@@ -187,4 +191,10 @@ def test_secured_api_rejects_spoofing_and_isolates_workspace_data(
     assert cross_workspace_response.status_code == 404
     assert registry.get("workspace-a").runtime_status()["report_count"] == 1
     assert registry.get("workspace-b").runtime_status()["report_count"] == 1
+    audit_output = "\n".join(record.message for record in caplog.records)
+    assert '"auth_outcome":"rejected"' in audit_output
+    assert '"workspace_id":"workspace-a"' in audit_output
+    assert '"workspace_id":"workspace-b"' in audit_output
+    assert WORKSPACE_A_KEY not in audit_output
+    assert WORKSPACE_B_KEY not in audit_output
     registry.close()

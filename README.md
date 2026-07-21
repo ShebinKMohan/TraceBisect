@@ -82,6 +82,13 @@ The bearer key—not a client-provided workspace header—selects the authorized
 workspace. This is a secured self-hosted foundation, not managed user accounts,
 self-service key rotation, or team RBAC.
 
+Studio also emits one secret-safe JSON audit event per API request. Every
+response carries `X-Request-ID`; audit events record the normalized action,
+status, latency, authentication outcome, and authorized workspace while omitting
+keys, headers, request bodies, query values, filenames, and resource IDs. Set
+`TRACEBISECT_STUDIO_AUDIT_LOG_ENABLED=false` only when another layer provides an
+equivalent request audit trail.
+
 ## Commands
 
 - `tracebisect --version` — prints the package version.

@@ -116,7 +116,12 @@ export function SettingsPanel({ health }: { health: StudioHealth | null }) {
         </article>
         <article>
           <TerminalSquare size={19} aria-hidden />
-          <div><strong>Local API</strong><span><code>http://127.0.0.1:8000</code></span></div>
+          <div>
+            <strong>API &amp; audit</strong>
+            <span>
+              <code>http://127.0.0.1:8000</code> · JSON request audit {health?.audit.enabled ? "on" : "off"}
+            </span>
+          </div>
         </article>
       </div>
 

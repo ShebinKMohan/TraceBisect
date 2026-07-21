@@ -15,6 +15,11 @@ export type StudioHealth = {
     mode: "none" | "api-key";
     required: boolean;
   };
+  audit: {
+    enabled: boolean;
+    format: "json";
+    request_id_header: "X-Request-ID";
+  };
   runtime: {
     kind: "memory" | "sqlite";
     durable: boolean;

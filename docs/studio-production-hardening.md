@@ -38,6 +38,10 @@ temporary files out of the web root, and throttle repeated API calls.
 - Browser origins are allow-listed with
   `TRACEBISECT_STUDIO_ALLOWED_ORIGINS`; wildcard, credential-bearing, and
   path-bearing origins fail startup validation.
+- Every API response receives a bounded `X-Request-ID`, and Studio emits one
+  versioned JSON audit event per request. Events normalize resource paths into
+  actions and omit credentials, headers, bodies, query values, filenames, and
+  resource IDs.
 - `/api/ready` checks the configured store, while `/api/health` separates
   process readiness from full production-SaaS readiness.
 - Compare requests reject identical baseline/candidate IDs.
@@ -61,7 +65,8 @@ Studio a real multi-tenant SaaS:
   ingestion tokens.
 - Durable background jobs for large OTel imports and comparisons.
 - Distributed rate limiting backed by Redis or the hosting provider.
-- Audit logs for uploads, comparisons, and generated tests.
+- Durable centralized retention, search, alerting, and access control for the
+  structured audit stream.
 - Object storage and antivirus/sandbox scanning for untrusted uploads.
 - Real observability for Studio itself: structured logs, metrics, alerts, and
   error tracking.

@@ -1,5 +1,6 @@
 """TraceBisect Studio backend package."""
 
+from tracebisect.studio.audit import StudioAudit
 from tracebisect.studio.auth import StudioAuthConfig
 from tracebisect.studio.service import StudioStore, build_comparison_report, build_demo_report
 from tracebisect.studio.storage import (
@@ -11,6 +12,7 @@ from tracebisect.studio.storage import (
 __all__ = [
     "SQLiteStudioStore",
     "StudioAuthConfig",
+    "StudioAudit",
     "StudioStore",
     "StudioStoreRegistry",
     "build_comparison_report",
