@@ -48,7 +48,7 @@ from tracebisect.studio.storage import (
     validate_workspace_id,
 )
 
-POSTGRES_SCHEMA_VERSION = 4
+POSTGRES_SCHEMA_VERSION = 5
 _SCHEMA_LOCK_ID = 882_014_771
 _WORKSPACE_LOCK_SEED = 882_014_771
 _MANAGED_SECURITY_LOCK_ID = 882_014_772
@@ -338,6 +338,21 @@ POSTGRES_SCHEMA_STATEMENTS = (
     """
     CREATE INDEX IF NOT EXISTS studio_email_webhook_provider_idx
     ON studio_email_webhook_events (provider_message_id, event_created_at)
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS studio_rate_limit_buckets (
+        bucket_key_hash text NOT NULL CHECK (length(bucket_key_hash) = 64),
+        window_seconds integer NOT NULL CHECK (window_seconds > 0),
+        hit_times timestamptz[] NOT NULL DEFAULT ARRAY[]::timestamptz[],
+        updated_at timestamptz NOT NULL,
+        expires_at timestamptz NOT NULL,
+        PRIMARY KEY (bucket_key_hash, window_seconds),
+        CHECK (expires_at >= updated_at)
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS studio_rate_limit_buckets_expiry_idx
+    ON studio_rate_limit_buckets (expires_at)
     """,
 )
 

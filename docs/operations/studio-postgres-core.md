@@ -4,8 +4,9 @@ PostgreSQL mode is the first multi-instance persistence milestone for
 TraceBisect Studio. It stores traces, comparison reports, regression cases, demo
 metadata, managed workspace keys, browser sessions, human accounts, recovery
 codes, team membership, invitations, the encrypted email outbox, delivery
-webhook history, and human sessions in one shared database. It does **not** yet
-make the complete product a hosted multi-tenant SaaS.
+webhook history, human sessions, and short-lived request-limit buckets in one
+shared database. It does **not** yet make the complete product a hosted
+multi-tenant SaaS.
 
 ## Current boundary
 
@@ -15,6 +16,10 @@ Supported in PostgreSQL mode:
 - workspace-scoped traces, reports, regression cases, and demo metadata;
 - bounded connection pooling with startup connection and schema checks;
 - serialized workspace capacity, retention, case-update, and demo-seed writes;
+- exact sliding-window request limits shared by every API process, with only
+  SHA-256 client-bucket identifiers stored, PostgreSQL as the shared clock, and
+  expired rows removed in bounded in-band batches; request paths are normalized
+  to fixed actions so random paths cannot evade limits or create unbounded rows;
 - digest-only managed workspace keys with expiry, roles, and immediate revocation;
 - short-lived, digest-only HttpOnly browser sessions that cannot outlive a key;
 - Argon2id human accounts, saved recovery codes, workspace team roles, manual
@@ -86,12 +91,13 @@ Each worker owns a delivery through a 90-second database lease. Multiple workers
 may poll the shared outbox, but each process consumes its own bounded connection
 pool; include worker pools when calculating the provider connection budget.
 
-The API installs its versioned workspace, access, identity, and email-delivery
-tables under an advisory transaction lock.
+The API installs its versioned workspace, access, identity, email-delivery, and
+request-limit tables under an advisory transaction lock.
 Startup fails if the pool cannot connect, the schema cannot be installed, or a
 newer unsupported schema is present. `/api/ready` returns `503` when the database
-is unavailable; `/api/health` remains readable and reports the failed storage
-check without exposing the database URL or workspace counts.
+or shared request protection is unavailable. The failure response remains
+secret-safe and never exposes the database URL, raw bucket keys, or workspace
+counts.
 
 ## Database role and network
 
@@ -202,22 +208,29 @@ restore drill succeeds.
 ## Verify before rollout
 
 Run the contract suite on every change. When an isolated disposable PostgreSQL
-database is available, also run the opt-in live parity test:
+database is available, also run the opt-in live parity and cross-instance rate
+limit tests:
 
 ```bash
-pytest -q tests/test_studio_postgres_storage.py
+pytest -q tests/test_studio_postgres_storage.py tests/test_studio_rate_limit.py
 
 TRACEBISECT_TEST_POSTGRES_URL='postgresql://...' \
 pytest -q tests/test_studio_postgres_storage.py \
   -k live_postgres_store_shares_fresh_data_and_isolates_workspaces
+
+TRACEBISECT_TEST_POSTGRES_URL='postgresql://...' \
+pytest -q tests/test_studio_rate_limit.py \
+  -k live_postgres_rate_limit_is_shared_across_store_instances
 ```
 
 The live test creates random workspaces, proves fresh cross-pool reads, managed
 key/session revocation, invitation acceptance, password sign-in, saved-code
 recovery, human-session invalidation, encrypted outbox delivery through another
 store instance, signed webhook deduplication/reconciliation, and workspace
-isolation, then removes those rows. It uses an in-process fake mail transport and
-does not contact Resend. A skipped live test is not evidence that a real provider
+isolation, then removes those rows. The rate-limit test proves that requests
+through separate connection pools consume the same bucket and cleans up that
+bucket. The suite uses an in-process fake mail transport and does not contact
+Resend. A skipped live test is not evidence that a real provider
 connection, TLS policy, backup, restore, or provider delivery has been verified.
 The migration suite separately proves populated 13-table copies, non-empty
 destination refusal, content-drift detection, transaction rollback, live-source

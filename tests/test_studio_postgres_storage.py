@@ -47,6 +47,7 @@ from tracebisect.studio.postgres_storage import (
     create_postgres_pool,
     ensure_postgres_schema,
 )
+from tracebisect.studio.rate_limit import PostgresStudioRateLimiter
 from tracebisect.studio.service import StudioStore, build_demo_report
 from tracebisect.studio.storage import (
     StudioConfigurationError,
@@ -197,10 +198,13 @@ def test_postgres_schema_uses_jsonb_timestamps_constraints_and_workspace_indexes
     assert "studio_email_outbox_due_idx" in schema
     assert "create table if not exists studio_email_webhook_events" in schema
     assert "studio_email_webhook_provider_idx" in schema
+    assert "create table if not exists studio_rate_limit_buckets" in schema
+    assert "timestamptz[] not null" in schema
+    assert "studio_rate_limit_buckets_expiry_idx" in schema
     assert "where revoked_at is null" in schema
 
 
-def test_postgres_schema_upgrades_core_v1_to_email_delivery_v4() -> None:
+def test_postgres_schema_upgrades_core_v1_to_rate_limiting_v5() -> None:
     statements = [" ".join(statement.split()) for statement in POSTGRES_SCHEMA_STATEMENTS]
     connection = _Connection(
         [
@@ -813,6 +817,34 @@ def test_production_readiness_does_not_claim_sqlite_backup_for_postgres(
     )
     assert "verified local backup and non-destructive restore tooling" not in readiness["completed"]
     assert "PostgreSQL invitation email outbox" in readiness["blockers"][0]
+
+
+def test_production_readiness_claims_shared_postgres_rate_limiting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    managed_store, _connection, _pool = _store([])
+    monkeypatch.setattr(
+        studio_api,
+        "RATE_LIMITER",
+        PostgresStudioRateLimiter(managed_store),
+    )
+
+    readiness = studio_api._production_readiness(
+        storage_ok=True,
+        runtime={
+            "kind": "postgres",
+            "durable": True,
+            "workspace_id": "protected",
+            "trace_count": 0,
+            "report_count": 0,
+            "case_count": 0,
+        },
+    )
+
+    assert "shared PostgreSQL sliding-window rate limiting" in readiness["completed"]
+    assert (
+        "distributed rate limiting across API replicas" not in readiness["blockers"]
+    )
 
 
 def test_production_readiness_reports_postgres_human_identity_without_email_claim(

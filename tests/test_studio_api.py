@@ -292,6 +292,12 @@ def test_studio_api_sets_security_headers(caplog: pytest.LogCaptureFixture) -> N
         "format": "json",
         "request_id_header": "X-Request-ID",
     }
+    assert response.json()["rate_limiting"] == {
+        "kind": "memory",
+        "distributed": False,
+        "algorithm": "sliding_window",
+        "stores_raw_client_keys": False,
+    }
     assert response.json()["runtime"] == {
         "kind": "memory",
         "durable": False,
@@ -302,6 +308,10 @@ def test_studio_api_sets_security_headers(caplog: pytest.LogCaptureFixture) -> N
     }
     assert response.json()["readiness"]["production_saas_ready"] is False
     assert "restart-safe durable storage" in response.json()["readiness"]["blockers"]
+    assert (
+        "distributed rate limiting across API replicas"
+        in response.json()["readiness"]["blockers"]
+    )
     assert (
         "verified local backup and non-destructive restore tooling"
         not in response.json()["readiness"]["completed"]
@@ -424,6 +434,52 @@ def test_studio_api_rate_limits_repeated_requests(monkeypatch: pytest.MonkeyPatc
     assert response.headers["x-content-type-options"] == "nosniff"
     assert response.headers["retry-after"]
     assert response.json()["detail"] == "Too many requests. Please wait before retrying."
+
+
+def test_studio_api_random_paths_cannot_bypass_the_shared_action_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reset_studio_state()
+    monkeypatch.setattr(studio_api, "RATE_LIMIT_REQUESTS", 2)
+    monkeypatch.setattr(studio_api, "RATE_LIMIT_WINDOW_SECONDS", 60)
+    client = TestClient(app)
+
+    assert client.get("/api/missing-one").status_code == 404
+    assert client.get("/api/missing-two").status_code == 404
+    response = client.get("/api/missing-three")
+
+    assert response.status_code == 429
+    assert response.json()["detail"] == "Too many requests. Please wait before retrying."
+
+
+def test_studio_api_fails_closed_when_request_protection_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reset_studio_state()
+
+    class _UnavailableLimiter:
+        async def allow(
+            self,
+            _key: str,
+            *,
+            limit: int,
+            window_seconds: int,
+        ) -> tuple[bool, int]:
+            assert limit > 0
+            assert window_seconds > 0
+            raise studio_api.StudioPersistenceError("private database detail")
+
+    monkeypatch.setattr(studio_api, "RATE_LIMITER", _UnavailableLimiter())
+    client = TestClient(app)
+
+    response = client.get("/api/health")
+
+    assert response.status_code == 503
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.json() == {
+        "detail": "Request protection is temporarily unavailable. Please retry."
+    }
+    assert "private database detail" not in response.text
 
 
 def test_studio_api_rejects_same_trace_compare() -> None:

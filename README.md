@@ -67,9 +67,11 @@ readiness probe.
 
 For multiple API instances, Studio now shares core workspace data, managed
 access keys, browser sessions, human accounts, recovery codes, team membership,
-manual invitations, and human sessions through PostgreSQL. Generate both
-server-side hashing secrets, save the database URL in your secret manager, and
-create the first admin key before starting the API:
+manual invitations, human sessions, and exact sliding-window request limits
+through PostgreSQL. Rate-limit rows contain only SHA-256 bucket identifiers, not
+raw client or account keys. Generate both server-side hashing secrets, save the
+database URL in your secret manager, and create the first admin key before
+starting the API:
 
 ```bash
 tracebisect studio keys generate-pepper

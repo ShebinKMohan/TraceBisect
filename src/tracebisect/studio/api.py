@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import os
 import tempfile
 import time
-from collections import deque
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from pathlib import Path
@@ -43,7 +41,7 @@ from tracebisect.studio.access_sessions import (
     SECURE_BROWSER_SESSION_COOKIE_NAME,
     StudioBrowserSessionError,
 )
-from tracebisect.studio.audit import AuditAuthOutcome, StudioAudit
+from tracebisect.studio.audit import AuditAuthOutcome, StudioAudit, request_action
 from tracebisect.studio.auth import StudioAuthConfig
 from tracebisect.studio.email_delivery import (
     MAX_EMAIL_DELIVERY_ATTEMPTS,
@@ -80,6 +78,7 @@ from tracebisect.studio.metrics import (
     StudioMetrics,
     StudioMetricsAccess,
 )
+from tracebisect.studio.rate_limit import create_studio_rate_limiter
 from tracebisect.studio.service import (
     DEFAULT_SCENARIO_CMD,
     StudioStore,
@@ -260,6 +259,9 @@ ERROR_REPORTER = StudioErrorReporter.from_env()
 EMAIL_DELIVERY = StudioEmailDelivery.from_env(
     managed_database=STORE if isinstance(STORE, StudioManagedDatabase) else None,
 )
+RATE_LIMITER = create_studio_rate_limiter(
+    STORE if isinstance(STORE, StudioManagedDatabase) else None,
+)
 METRICS = StudioMetrics()
 METRICS_ACCESS = StudioMetricsAccess.from_env()
 
@@ -345,33 +347,6 @@ class MembershipUpdateRequest(BaseModel):
     role: WorkspaceRole
 
 
-class RateLimiter:
-    """Small per-process sliding-window limiter for the local Studio API."""
-
-    def __init__(self) -> None:
-        self._hits: dict[str, deque[float]] = {}
-        self._lock = asyncio.Lock()
-
-    async def allow(self, key: str, *, limit: int, window_seconds: int) -> tuple[bool, int]:
-        now = time.monotonic()
-        async with self._lock:
-            bucket = self._hits.setdefault(key, deque())
-            while bucket and now - bucket[0] >= window_seconds:
-                bucket.popleft()
-            if len(bucket) >= limit:
-                retry_after = max(1, int(window_seconds - (now - bucket[0])))
-                return False, retry_after
-            bucket.append(now)
-            return True, 0
-
-    async def reset(self) -> None:
-        async with self._lock:
-            self._hits.clear()
-
-
-RATE_LIMITER = RateLimiter()
-
-
 @app.exception_handler(StudioPersistenceError)
 async def handle_persistence_error(
     _request: Request,
@@ -401,11 +376,29 @@ async def apply_api_guardrails(
             if request.url.path == "/api/traces/upload"
             else RATE_LIMIT_REQUESTS
         )
-        allowed, retry_after = await RATE_LIMITER.allow(
-            _rate_limit_key(request),
-            limit=limit,
-            window_seconds=RATE_LIMIT_WINDOW_SECONDS,
-        )
+        try:
+            allowed, retry_after = await RATE_LIMITER.allow(
+                _rate_limit_key(request),
+                limit=limit,
+                window_seconds=RATE_LIMIT_WINDOW_SECONDS,
+            )
+        except StudioPersistenceError:
+            unavailable_response = JSONResponse(
+                status_code=503,
+                content={
+                    "detail": (
+                        "Request protection is temporarily unavailable. Please retry."
+                    )
+                },
+            )
+            return _finalize_audited_response(
+                request=request,
+                response=unavailable_response,
+                started_at=started_at,
+                request_id=request_id,
+                auth_outcome=auth_outcome,
+                workspace_id=audit_workspace_id,
+            )
         if not allowed:
             limited_response = JSONResponse(
                 status_code=429,
@@ -646,6 +639,7 @@ def health() -> JsonObject:
         },
         "errors": cast(JsonValue, ERROR_REPORTER.runtime_status()),
         "email": cast(JsonValue, EMAIL_DELIVERY.runtime_status()),
+        "rate_limiting": cast(JsonValue, RATE_LIMITER.runtime_status()),
         "metrics": {
             "format": "prometheus_text_0.0.4",
             "path": METRICS_API_PATH,
@@ -1729,6 +1723,7 @@ def _production_readiness(
     storage_kind = runtime["kind"]
     completed: list[str] = ["API storage health check"] if storage_ok else []
     blockers = [
+        "distributed rate limiting across API replicas",
         "scheduled encrypted off-site backups and recovery drills",
         "managed user accounts, recovery, and team membership administration",
         "hosted deployment observability",
@@ -1833,6 +1828,9 @@ def _production_readiness(
                 )
     else:
         blockers.insert(0, "restart-safe durable storage")
+    if RATE_LIMITER.runtime_status()["distributed"] is True:
+        completed.append("shared PostgreSQL sliding-window rate limiting")
+        blockers.remove("distributed rate limiting across API replicas")
     return {
         "api_ready": storage_ok,
         "production_saas_ready": False,
@@ -1914,7 +1912,8 @@ def _key_error_detail(exc: KeyError) -> str:
 
 def _rate_limit_key(request: Request) -> str:
     host = request.client.host if request.client is not None else "unknown"
-    return f"{host}:{request.method}:{request.url.path}"
+    action = request_action(request.method, request.url.path)
+    return f"{host}:{request.method}:{action}"
 
 
 def _origin_is_allowed(origin: str | None) -> bool:
