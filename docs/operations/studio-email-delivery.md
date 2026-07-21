@@ -24,7 +24,9 @@ export RESEND_WEBHOOK_SECRET='whsec_...'
 
 Automatic delivery also requires SQLite storage and
 `TRACEBISECT_STUDIO_IDENTITY_SECRET`. Startup fails with a safe configuration
-error if a required setting is absent. Non-loopback public URLs must use HTTPS.
+error if a required setting is absent. The PostgreSQL core-data mode does not
+yet host this outbox; see [studio-postgres-core.md](studio-postgres-core.md).
+Non-loopback public URLs must use HTTPS.
 
 In the Resend dashboard, register
 `https://studio.example.com/api/webhooks/resend` and subscribe to
@@ -101,7 +103,8 @@ This release proves encrypted queueing, bounded retries, lease-safe workers,
 provider request acceptance, signed webhook verification, deduplication, and
 ordered delivery/bounce reconciliation. It does not automatically manage
 sender-domain health or provider suppression lists, verify recipient ownership
-again after an email change, or provide a managed multi-node job/database layer.
+again after an email change, or provide a PostgreSQL-backed multi-node delivery
+worker.
 
 Provider reference: [Resend send-email API](https://resend.com/docs/api-reference/emails/send-email)
 and [Resend idempotency keys](https://resend.com/docs/dashboard/emails/idempotency-keys).

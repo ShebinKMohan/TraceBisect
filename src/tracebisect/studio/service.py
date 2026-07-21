@@ -11,7 +11,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import RLock
-from typing import cast
+from typing import ClassVar, cast
 
 from tracebisect.align import align
 from tracebisect.cli import _pytest_template
@@ -45,6 +45,9 @@ class StudioStoreFullError(RuntimeError):
 class StudioStore:
     """In-memory Studio store used by the zero-configuration local mode."""
 
+    runtime_kind: ClassVar[str] = "memory"
+    runtime_durable: ClassVar[bool] = False
+
     traces: dict[str, Trace] = field(default_factory=dict)
     trace_names: dict[str, str] = field(default_factory=dict)
     reports: dict[str, JsonObject] = field(default_factory=dict)
@@ -71,6 +74,14 @@ class StudioStore:
         with self._lock:
             try:
                 return self.traces[trace_key]
+            except KeyError as exc:
+                raise KeyError(f"unknown trace id: {trace_key}") from exc
+
+    def get_trace_name(self, trace_key: str) -> str:
+        """Return the user-facing name without exposing the store implementation."""
+        with self._lock:
+            try:
+                return self.trace_names[trace_key]
             except KeyError as exc:
                 raise KeyError(f"unknown trace id: {trace_key}") from exc
 
@@ -123,8 +134,8 @@ class StudioStore:
             report = build_comparison_report(
                 baseline,
                 candidate,
-                baseline_name=self.trace_names[baseline_trace_id],
-                candidate_name=self.trace_names[candidate_trace_id],
+                baseline_name=self.get_trace_name(baseline_trace_id),
+                candidate_name=self.get_trace_name(candidate_trace_id),
                 scenario_cmd=scenario_cmd,
                 assertions=assertions,
                 cost_threshold=cost_threshold,
@@ -177,8 +188,8 @@ class StudioStore:
             report = build_comparison_report(
                 baseline,
                 candidate,
-                baseline_name=self.trace_names[baseline_trace_id],
-                candidate_name=self.trace_names[candidate_trace_id],
+                baseline_name=self.get_trace_name(baseline_trace_id),
+                candidate_name=self.get_trace_name(candidate_trace_id),
                 scenario_cmd=scenario_cmd,
                 assertions=assertions,
                 cost_threshold=cost_threshold,
@@ -222,6 +233,29 @@ class StudioStore:
         with self._lock:
             self.demo_report_id = report_id
 
+    def seed_demo_report(self) -> JsonObject:
+        """Seed and return the built-in demo idempotently for this store."""
+        with self._lock:
+            if self.demo_report_id is not None:
+                try:
+                    return self.get_report(self.demo_report_id)
+                except KeyError:
+                    self.set_demo_report_id(None)
+
+            baseline = build_refund_baseline_trace()
+            candidate = build_refund_candidate_trace()
+            baseline_id = self.add_trace(baseline, name="Refund baseline")
+            candidate_id = self.add_trace(candidate, name="Refund regression")
+            report = build_comparison_report(
+                self.get_trace(baseline_id),
+                self.get_trace(candidate_id),
+                baseline_name=self.get_trace_name(baseline_id),
+                candidate_name=self.get_trace_name(candidate_id),
+                scenario_cmd=DEFAULT_SCENARIO_CMD,
+            )
+            self.set_demo_report_id(self.add_report(report))
+            return report
+
     def check_health(self) -> bool:
         """Return whether the backing store can currently serve requests."""
         return True
@@ -230,8 +264,8 @@ class StudioStore:
         """Describe storage behavior without exposing secrets or filesystem paths."""
         with self._lock:
             return {
-                "kind": "memory",
-                "durable": False,
+                "kind": self.runtime_kind,
+                "durable": self.runtime_durable,
                 "workspace_id": self.workspace_id,
                 "trace_count": len(self.traces),
                 "report_count": len(self.reports),
@@ -252,26 +286,7 @@ def build_demo_report() -> JsonObject:
 
 def seed_demo_report(store: StudioStore) -> JsonObject:
     """Seed demo traces and report into the store idempotently."""
-    with store._lock:
-        if store.demo_report_id is not None:
-            try:
-                return store.get_report(store.demo_report_id)
-            except KeyError:
-                store.set_demo_report_id(None)
-
-        baseline = build_refund_baseline_trace()
-        candidate = build_refund_candidate_trace()
-        baseline_id = store.add_trace(baseline, name="Refund baseline")
-        candidate_id = store.add_trace(candidate, name="Refund regression")
-        report = build_comparison_report(
-            store.get_trace(baseline_id),
-            store.get_trace(candidate_id),
-            baseline_name=store.trace_names[baseline_id],
-            candidate_name=store.trace_names[candidate_id],
-            scenario_cmd=DEFAULT_SCENARIO_CMD,
-        )
-        store.set_demo_report_id(store.add_report(report))
-        return report
+    return store.seed_demo_report()
 
 
 def load_trace_from_path(path: str | Path) -> Trace:

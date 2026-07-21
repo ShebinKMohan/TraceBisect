@@ -50,7 +50,7 @@ export type StudioHealth = {
     resets_on_restart: true;
   };
   runtime: {
-    kind: "memory" | "sqlite";
+    kind: "memory" | "sqlite" | "postgres";
     durable: boolean;
     workspace_id: string;
     trace_count: number;

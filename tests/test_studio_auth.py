@@ -206,7 +206,7 @@ def test_managed_api_key_auth_observes_expiry_and_immediate_revocation(
                 "TRACEBISECT_STUDIO_AUTH_MODE": "api-key",
                 "TRACEBISECT_STUDIO_API_KEYS": json.dumps({WORKSPACE_A_KEY: "workspace-a"}),
             },
-            "api-key authentication requires TRACEBISECT_STUDIO_STORAGE=sqlite",
+            "api-key authentication requires durable SQLite or PostgreSQL storage",
         ),
         (
             {

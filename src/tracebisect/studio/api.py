@@ -616,6 +616,14 @@ app.add_middleware(
 @app.get("/api/health", response_model=None)
 def health() -> JsonObject:
     storage_ok = STORE.check_health()
+    if not storage_ok:
+        runtime = _unavailable_runtime_status()
+    else:
+        try:
+            runtime = STORE.runtime_status()
+        except StudioPersistenceError:
+            storage_ok = False
+            runtime = _unavailable_runtime_status()
     return {
         "ok": storage_ok,
         "product": "TraceBisect Studio",
@@ -640,8 +648,8 @@ def health() -> JsonObject:
             "scope": "process",
             "resets_on_restart": True,
         },
-        "runtime": _public_runtime_status(),
-        "readiness": _production_readiness(storage_ok=storage_ok),
+        "runtime": _public_runtime_status(runtime),
+        "readiness": _production_readiness(storage_ok=storage_ok, runtime=runtime),
         "limits": {
             "max_upload_bytes": MAX_UPLOAD_BYTES,
             "max_stored_traces": STORE.max_traces,
@@ -1373,8 +1381,8 @@ def compare_traces(request: CompareRequest, store: StudioStoreDependency) -> Jso
     report = build_comparison_report(
         baseline,
         candidate,
-        baseline_name=store.trace_names[request.baseline_trace_id],
-        candidate_name=store.trace_names[request.candidate_trace_id],
+        baseline_name=store.get_trace_name(request.baseline_trace_id),
+        candidate_name=store.get_trace_name(request.candidate_trace_id),
         scenario_cmd=scenario,
     )
     store.add_report(report)
@@ -1706,9 +1714,14 @@ def _access_key_payload(record: StudioApiKeyRecord) -> JsonObject:
     }
 
 
-def _production_readiness(*, storage_ok: bool) -> JsonObject:
-    runtime = STORE.runtime_status()
+def _production_readiness(
+    *,
+    storage_ok: bool,
+    runtime: JsonObject | None = None,
+) -> JsonObject:
+    runtime = STORE.runtime_status() if runtime is None else runtime
     durable = runtime["durable"] is True
+    storage_kind = runtime["kind"]
     completed: list[str] = ["API storage health check"] if storage_ok else []
     blockers = [
         "scheduled encrypted off-site backups and recovery drills",
@@ -1794,12 +1807,15 @@ def _production_readiness(*, storage_ok: bool) -> JsonObject:
     else:
         blockers.insert(0, "dedicated production metrics scrape access")
     if durable:
-        completed.extend(
-            [
-                "restart-safe workspace storage",
-                "verified local backup and non-destructive restore tooling",
-            ]
-        )
+        completed.append("restart-safe workspace storage")
+        if storage_kind == "sqlite":
+            completed.append("verified local backup and non-destructive restore tooling")
+        elif storage_kind == "postgres":
+            completed.append("pooled multi-instance PostgreSQL core workspace storage")
+            blockers.insert(
+                0,
+                "PostgreSQL repositories for managed identity and invitation delivery",
+            )
     else:
         blockers.insert(0, "restart-safe durable storage")
     return {
@@ -1810,13 +1826,25 @@ def _production_readiness(*, storage_ok: bool) -> JsonObject:
     }
 
 
-def _public_runtime_status() -> JsonObject:
-    runtime = STORE.runtime_status()
+def _public_runtime_status(runtime: JsonObject | None = None) -> JsonObject:
+    runtime = STORE.runtime_status() if runtime is None else runtime
     if not AUTH_CONFIG.required:
         return runtime
     return {
         **runtime,
         "workspace_id": "protected",
+        "trace_count": 0,
+        "report_count": 0,
+        "case_count": 0,
+    }
+
+
+def _unavailable_runtime_status() -> JsonObject:
+    """Describe configured storage without retrying an unavailable backend."""
+    return {
+        "kind": STORE.runtime_kind,
+        "durable": STORE.runtime_durable,
+        "workspace_id": STORE.workspace_id,
         "trace_count": 0,
         "report_count": 0,
         "case_count": 0,

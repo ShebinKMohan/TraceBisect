@@ -131,7 +131,13 @@ class StudioAuthConfig:
             )
         if raw_identity_secret and not raw_pepper:
             raise StudioConfigurationError(f"{IDENTITY_SECRET_ENV} requires managed API keys")
+        storage_kind = values.get("TRACEBISECT_STUDIO_STORAGE", "memory").strip().lower()
         if raw_pepper:
+            if storage_kind != "sqlite":
+                raise StudioConfigurationError(
+                    "managed API keys, browser sessions, and human identity currently require "
+                    "TRACEBISECT_STUDIO_STORAGE=sqlite"
+                )
             pepper = api_key_pepper(values)
             browser_session_ttl_seconds = _browser_session_ttl(raw_browser_session_ttl)
             raw_database_path = values.get("TRACEBISECT_STUDIO_SQLITE_PATH", "").strip()
@@ -158,10 +164,9 @@ class StudioAuthConfig:
                 credential_source="environment",
                 _credentials=credentials,
             )
-        storage_kind = values.get("TRACEBISECT_STUDIO_STORAGE", "memory").strip().lower()
-        if storage_kind != "sqlite":
+        if storage_kind not in {"sqlite", "postgres"}:
             raise StudioConfigurationError(
-                "api-key authentication requires TRACEBISECT_STUDIO_STORAGE=sqlite"
+                "api-key authentication requires durable SQLite or PostgreSQL storage"
             )
         return config
 

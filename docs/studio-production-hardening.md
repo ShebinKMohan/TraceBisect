@@ -28,6 +28,14 @@ temporary files out of the web root, and throttle repeated API calls.
   regression cases, and demo metadata across API restarts.
 - Every SQLite row is scoped by a validated workspace identifier so storage
   isolation exists before request-level multi-tenancy is introduced.
+- An opt-in PostgreSQL backend persists the same core workspace evidence through
+  a bounded, startup-verified connection pool. Workspace transaction locks keep
+  trace capacity, report retention, case updates, and demo seeding consistent
+  across API instances; composite workspace/time indexes serve list paths.
+- PostgreSQL mode intentionally accepts only static environment API keys today.
+  Managed keys, browser sessions, human accounts, and invitation delivery remain
+  SQLite-only and fail startup rather than splitting one security boundary
+  across incompatible repositories.
 - Optional bearer-key authentication maps each credential to exactly one
   workspace. Client workspace headers are ignored, invalid keys fail closed,
   and comparisons cannot be read across workspace stores.
@@ -142,7 +150,12 @@ temporary files out of the web root, and throttle repeated API calls.
 These are not solved by the local MVP and must be implemented before calling
 Studio a real multi-tenant SaaS:
 
-- Managed multi-user database storage beyond the single-node SQLite backend.
+- PostgreSQL repositories and migrations for managed keys, browser sessions,
+  human identity, team membership, and invitation delivery. Core traces,
+  comparisons, regression cases, and demo metadata already support pooled
+  multi-instance PostgreSQL storage.
+- Tested SQLite-to-PostgreSQL export/import tooling plus provider backup,
+  point-in-time recovery, and restore-drill automation.
 - Sender-domain/suppression automation, email ownership re-verification, and
   optional multi-factor or identity-provider sign-in.
 - Account-level scoped ingestion tokens. Admin self-service workspace-key
@@ -163,12 +176,12 @@ Studio a real multi-tenant SaaS:
   Caddy/Compose bundle is an operator-run single-host topology, not a managed
   multi-region platform.
 
-The current build has restart-safe single-node persistence plus fail-closed
-workspace API-key authorization, not a finished hosted SaaS. The next
-production step is a managed multi-user database plus deployment-level email
-domain/suppression operations, monitoring, backup, and error-event retention
-wiring; do not add Langfuse-scale ClickHouse or queues until the comparison
-workflow needs them.
+The current build has pooled multi-instance PostgreSQL storage for core evidence
+and a complete managed identity/email path on single-node SQLite, not a finished
+hosted SaaS. The next production step is migrating that identity and delivery
+security boundary to PostgreSQL, then wiring provider backups, email-domain
+operations, monitoring, and error-event retention. Do not add Langfuse-scale
+ClickHouse or queues until the comparison workflow needs them.
 
 ## References
 

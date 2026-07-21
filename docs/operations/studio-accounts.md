@@ -8,7 +8,9 @@ remain available for integrations, initial bootstrap, and operator recovery.
 
 Human accounts require managed workspace keys, SQLite storage, and a separate
 identity secret. Generate both server secrets once and store them in the
-deployment secret manager:
+deployment secret manager. PostgreSQL currently stores core workspace evidence
+only; it rejects managed identity configuration until these repositories migrate
+together. See [studio-postgres-core.md](studio-postgres-core.md).
 
 ```bash
 tracebisect studio keys generate-pepper
@@ -136,4 +138,4 @@ revocable human sessions, optional encrypted Resend invitation delivery, and
 signed delivery/bounce reconciliation for the single-node SQLite deployment. It
 does not yet provide automated sender-domain/suppression operations, email
 ownership re-verification, multi-factor or identity-provider sign-in, a managed
-multi-user database, distributed rate limiting, or billing.
+PostgreSQL identity/delivery repository, distributed rate limiting, or billing.

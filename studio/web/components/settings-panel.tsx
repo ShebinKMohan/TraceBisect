@@ -45,6 +45,7 @@ function CopyCommand({ command, label }: { command: string; label: string }) {
 
 export function SettingsPanel({ health, workspaceRole }: { health: StudioHealth | null; workspaceRole: WorkspaceRole | null }) {
   const durable = health?.runtime.durable ?? false;
+  const postgres = health?.runtime.kind === "postgres";
   const authRequired = health?.auth.required ?? false;
   const credentialSource = health?.auth.credential_source ?? "none";
   const browserSessions = health?.auth.browser_sessions ?? false;
@@ -60,7 +61,9 @@ export function SettingsPanel({ health, workspaceRole }: { health: StudioHealth 
           <strong>
             {health
               ? durable
-                ? authRequired
+                ? postgres
+                  ? "Running with managed PostgreSQL core storage"
+                  : authRequired
                   ? "Running with protected durable storage"
                   : "Running with durable workspace storage"
                 : "Running as a local workspace"
@@ -69,7 +72,9 @@ export function SettingsPanel({ health, workspaceRole }: { health: StudioHealth 
           <p>
             {health
               ? durable
-                ? authRequired
+                ? postgres
+                  ? `Traces, comparisons, and guardrails for ${health.runtime.workspace_id} are stored in PostgreSQL and can be shared by multiple API instances. Managed sign-in and email jobs are not on this backend yet.`
+                  : authRequired
                   ? browserSessions
                     ? `Your short-lived browser session grants ${workspaceRole ?? "workspace"} access to ${health.runtime.workspace_id}. Its traces, comparisons, and guardrails are saved across API restarts.`
                     : `Your ${workspaceRole ?? "workspace"} key grants access to ${health.runtime.workspace_id}. Its traces, comparisons, and guardrails are saved across API restarts.`
@@ -151,9 +156,11 @@ export function SettingsPanel({ health, workspaceRole }: { health: StudioHealth 
       </div>
 
       <div className="setup-boundary">
-        <h2>{durable ? "Durable storage is enabled" : "Keep your work after restarts"}</h2>
+        <h2>{postgres ? "Managed PostgreSQL core storage is enabled" : durable ? "Durable storage is enabled" : "Keep your work after restarts"}</h2>
         <p>
-          {durable
+          {postgres
+            ? "Core workspace data is restart-safe and multi-instance aware. Keep this API private until managed keys, human accounts, and invitation delivery use PostgreSQL too. Backups and point-in-time recovery belong to your database provider."
+            : durable
             ? "This API is using the workspace-scoped SQLite store. Keep the database file backed up like any other application data."
             : "Switch the API to the built-in SQLite store when you want traces, comparisons, and guardrails to survive a restart."}
         </p>

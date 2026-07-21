@@ -23,8 +23,11 @@ const glossary = [
 export function HomePanel({ authRequired, canEdit, cases, report, runtime, traces, onSectionChange }: HomePanelProps) {
   const first = report?.first_divergence ?? null;
   const durable = runtime?.durable ?? false;
+  const postgres = runtime?.kind === "postgres";
   const workspaceTitle = runtime
-    ? durable
+    ? postgres
+      ? "Your managed workspace"
+      : durable
       ? "Your durable workspace"
       : "Your local workspace"
     : "Your workspace";
@@ -130,9 +133,11 @@ export function HomePanel({ authRequired, canEdit, cases, report, runtime, trace
             <p>
               <strong>
                 {runtime
-                  ? authRequired
-                    ? "Protected workspace:"
-                    : durable
+                ? authRequired
+                  ? "Protected workspace:"
+                  : postgres
+                    ? "Managed core storage:"
+                  : durable
                       ? "Durable local mode:"
                       : "Local MVP:"
                   : "Checking storage mode:"}
@@ -140,6 +145,8 @@ export function HomePanel({ authRequired, canEdit, cases, report, runtime, trace
               {runtime
                 ? authRequired
                   ? "your signed-in access is limited to this workspace, and its data survives API restarts."
+                  : postgres
+                    ? "core workspace data is shared through PostgreSQL; managed sign-in is not enabled on this backend yet."
                   : durable
                     ? "traces, comparisons, and guardrails survive API restarts."
                     : "no account is required and data resets when the API restarts."

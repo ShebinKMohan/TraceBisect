@@ -74,8 +74,9 @@ studio/web/
 Backend:
 
 - FastAPI, served locally with `uvicorn tracebisect.studio.api:app`.
-- In-memory storage for zero-setup demos, with opt-in workspace-scoped SQLite
-  storage for restart-safe local and single-node deployments.
+- In-memory storage for zero-setup demos, opt-in workspace-scoped SQLite for the
+  complete single-node product, and pooled PostgreSQL for multi-instance core
+  traces, reports, cases, and demo metadata.
 - Upload endpoint parses `.tbtrace` through `read_trace`.
 - Upload endpoint parses OTel JSON through `import_otel_json`.
 - Compare endpoint calls `align`, `detect_divergences`, and export helpers.
@@ -85,9 +86,10 @@ Frontend:
 - Next.js 16 App Router in `studio/web`.
 - Standardized palette: `#2C6975`, `#68B2A0`, `#CDE0C9`, `#E0ECDE`, `#FFFFFF`.
 - Light and dark dashboard modes with the same component structure.
-- A zero-setup local mode plus an opt-in access-key unlock flow for protected
-  request-scoped SQLite workspaces. Managed accounts, billing, and teams remain
-  future phases.
+- A zero-setup local mode plus protected workspace unlock, managed accounts,
+  saved-code recovery, team roles, and optional invitation delivery on SQLite.
+  PostgreSQL currently supports the core evidence path with static environment
+  keys; its managed identity/email repositories and billing remain future work.
 - Show the seeded demo immediately on first load.
 - UI must look like a product dashboard, not a docs page.
 
@@ -118,7 +120,8 @@ Later adapters can add:
 - Langfuse direct import.
 - LangSmith direct import.
 - GitHub PR/test generation.
-- Persistent Postgres projects and comparison history.
+- Managed identity, invitation delivery, and migration tooling on top of the
+  implemented PostgreSQL core workspace store.
 
 This means the public pitch can mention Langfuse/LangSmith compatibility through
 OpenTelemetry-style trace data, but the first implementation should not pretend
@@ -132,17 +135,20 @@ Langfuse wholesale.
 See `docs/studio-production-hardening.md` for the current API, upload,
 throttling, and security boundary. The local MVP is hardened against obvious
 bad inputs and now supports durable API-key-scoped workspaces. Managed browser
-sign-in now exchanges a workspace key for a short-lived, revocable HttpOnly
-session. Managed identity/account recovery, hosted monitoring/error-event
-retention wiring, and distributed rate limiting remain separate SaaS
-milestones. The API also provides hashed expiring keys, a protected Prometheus
+sign-in exchanges a workspace key for a short-lived, revocable HttpOnly session,
+and SQLite supports invitation-only accounts, recovery, team roles, and email
+delivery. PostgreSQL supports core workspace evidence across API instances, but
+managed identity/email migration, hosted monitoring/error-event retention
+wiring, and distributed rate limiting remain separate SaaS milestones. The API
+also provides hashed expiring keys, a protected Prometheus
 scrape endpoint, starter alert rules, and an incident runbook. Admins can now
 manage role-based workspace keys inside Settings after the operator bootstraps
 the first admin; hosting-platform collection and delivery are still required.
 
 ## Out Of Scope For This Slice
 
-Do not add these in the first Studio MVP:
+These were deliberately excluded from the first Studio MVP; some now exist in
+later milestones, while the rest remain roadmap items:
 
 - Managed human identities, account recovery, and email invitations.
 - Billing.

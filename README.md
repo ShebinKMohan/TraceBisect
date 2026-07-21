@@ -65,6 +65,26 @@ multiple isolated local workspaces. `/api/health` reports the active storage
 mode and honest SaaS-readiness blockers; `/api/ready` is the process/storage
 readiness probe.
 
+For multiple API instances, Studio now has a managed PostgreSQL **core-data**
+mode for traces, comparisons, regression cases, and demo metadata:
+
+```bash
+TRACEBISECT_STUDIO_STORAGE=postgres \
+TRACEBISECT_STUDIO_DATABASE_URL='postgresql://studio:secret@db.example/tracebisect' \
+TRACEBISECT_STUDIO_AUTH_MODE=api-key \
+TRACEBISECT_STUDIO_API_KEYS='{"replace-with-a-long-random-workspace-key":"team-a"}' \
+uvicorn tracebisect.studio.api:app --port 8000
+```
+
+This is a deliberate compatibility milestone, not the finished hosted product.
+Managed keys, browser sessions, human accounts, and invitation email still use
+the SQLite repositories and therefore fail startup in PostgreSQL mode. Keep the
+API private or use the static environment-key boundary above until those
+security repositories migrate together. Provider backups and point-in-time
+recovery replace the local SQLite backup commands. See
+[`docs/operations/studio-postgres-core.md`](docs/operations/studio-postgres-core.md)
+for pooling, least-privilege, migration, and verification guidance.
+
 For a protected multi-workspace API, generate a server-side hashing secret and
 create an expiring workspace key. The create command initializes the database
 when needed and shows the new key exactly once:
@@ -329,7 +349,9 @@ V1 will ship:
 V1 Studio is still intentionally narrow: it has opt-in role-scoped workspace
 keys plus invitation-only human accounts, saved-code recovery, browser team
 membership administration, and optional encrypted Resend invitation delivery.
-It does not yet include automated sender-domain/suppression operations,
+It also has pooled PostgreSQL storage for core workspace evidence, while managed
+identity and invitation delivery remain on the single-node SQLite path. It does
+not yet include automated sender-domain/suppression operations,
 multi-factor or identity-provider sign-in, billing, vendor-native direct
 importers, or git-history bisection.
 

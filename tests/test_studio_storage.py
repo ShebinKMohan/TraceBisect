@@ -47,8 +47,8 @@ def test_memory_store_reports_configured_workspace_id() -> None:
     ("env", "message"),
     [
         (
-            {"TRACEBISECT_STUDIO_STORAGE": "postgres"},
-            "TRACEBISECT_STUDIO_STORAGE must be either 'memory' or 'sqlite'",
+            {"TRACEBISECT_STUDIO_STORAGE": "redis"},
+            "TRACEBISECT_STUDIO_STORAGE must be 'memory', 'sqlite', or 'postgres'",
         ),
         (
             {"TRACEBISECT_STUDIO_STORAGE": "sqlite"},

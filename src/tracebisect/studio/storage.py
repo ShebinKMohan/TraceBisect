@@ -1,9 +1,10 @@
 """Durable, workspace-scoped storage for TraceBisect Studio.
 
 The browser product still defaults to an in-memory store so a first-time user
-can run it without configuration. Setting ``TRACEBISECT_STUDIO_STORAGE=sqlite``
-and an explicit database path enables restart-safe local or single-node
-self-hosted storage.
+can run it without configuration. SQLite enables restart-safe local or
+single-node storage. PostgreSQL enables multi-instance-safe core workspace
+data, while managed identity and email operations remain explicitly gated to
+SQLite until their repositories are migrated together.
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ import sqlite3
 from collections.abc import Mapping
 from pathlib import Path
 from threading import RLock
-from typing import cast
+from typing import Protocol, cast, runtime_checkable
 
 from tracebisect.jsonl import dumps_trace, loads_trace
 from tracebisect.schema import JsonObject, JsonValue, Trace
@@ -31,6 +32,14 @@ _WORKSPACE_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 _STORAGE_SETTING_NAMES = (
     "TRACEBISECT_STUDIO_STORAGE",
     "TRACEBISECT_STUDIO_SQLITE_PATH",
+    "TRACEBISECT_STUDIO_DATABASE_URL",
+    "TRACEBISECT_STUDIO_POSTGRES_POOL_MIN",
+    "TRACEBISECT_STUDIO_POSTGRES_POOL_MAX",
+    "TRACEBISECT_STUDIO_POSTGRES_POOL_TIMEOUT_SECONDS",
+    "TRACEBISECT_STUDIO_POSTGRES_POOL_MAX_WAITING",
+    "TRACEBISECT_STUDIO_POSTGRES_CONNECT_TIMEOUT_SECONDS",
+    "TRACEBISECT_STUDIO_POSTGRES_STATEMENT_TIMEOUT_SECONDS",
+    "TRACEBISECT_STUDIO_POSTGRES_IDLE_TRANSACTION_TIMEOUT_SECONDS",
     "TRACEBISECT_STUDIO_WORKSPACE_ID",
     "TRACEBISECT_STUDIO_MAX_STORED_TRACES",
     "TRACEBISECT_STUDIO_MAX_STORED_REPORTS",
@@ -46,9 +55,21 @@ class StudioPersistenceError(RuntimeError):
     """Raised when the durable store cannot read or commit Studio data."""
 
 
+@runtime_checkable
+class _WorkspaceStoreFactory(Protocol):
+    def for_workspace(self, workspace_id: str) -> StudioStore: ...
+
+
+@runtime_checkable
+class _ClosableStore(Protocol):
+    def close(self) -> None: ...
+
+
 class SQLiteStudioStore(StudioStore):
     """Restart-safe Studio store isolated to one configured workspace."""
 
+    runtime_kind = "sqlite"
+    runtime_durable = True
     __slots__ = ("database_path", "_connection")
 
     def __init__(
@@ -263,8 +284,8 @@ class SQLiteStudioStore(StudioStore):
     def runtime_status(self) -> JsonObject:
         with self._lock:
             return {
-                "kind": "sqlite",
-                "durable": True,
+                "kind": self.runtime_kind,
+                "durable": self.runtime_durable,
                 "workspace_id": self.workspace_id,
                 "trace_count": len(self.traces),
                 "report_count": len(self.reports),
@@ -671,7 +692,10 @@ class StudioStoreRegistry:
                 **self._settings,
                 "TRACEBISECT_STUDIO_WORKSPACE_ID": validated_workspace_id,
             }
-            store = create_studio_store(workspace_settings)
+            if isinstance(self.default_store, _WorkspaceStoreFactory):
+                store = self.default_store.for_workspace(validated_workspace_id)
+            else:
+                store = create_studio_store(workspace_settings)
             self._stores[validated_workspace_id] = store
             return store
 
@@ -679,7 +703,7 @@ class StudioStoreRegistry:
         """Close every cached durable store connection."""
         with self._lock:
             for store in self._stores.values():
-                if isinstance(store, SQLiteStudioStore):
+                if isinstance(store, _ClosableStore):
                     store.close()
             self._stores.clear()
 
@@ -711,9 +735,78 @@ def create_studio_store(env: Mapping[str, str] | None = None) -> StudioStore:
             max_reports=max_reports,
             max_cases=max_cases,
         )
+    if kind == "postgres":
+        raw_database_url = values.get("TRACEBISECT_STUDIO_DATABASE_URL", "").strip()
+        if not raw_database_url:
+            raise StudioConfigurationError(
+                "TRACEBISECT_STUDIO_DATABASE_URL is required when storage is 'postgres'"
+            )
+        if not raw_database_url.startswith(("postgresql://", "postgres://")):
+            raise StudioConfigurationError(
+                "TRACEBISECT_STUDIO_DATABASE_URL must be a PostgreSQL URL"
+            )
+        if values.get("TRACEBISECT_STUDIO_SQLITE_PATH", "").strip():
+            raise StudioConfigurationError(
+                "do not configure TRACEBISECT_STUDIO_SQLITE_PATH with PostgreSQL storage"
+            )
+        pool_min_size = _positive_int_setting(
+            values,
+            "TRACEBISECT_STUDIO_POSTGRES_POOL_MIN",
+            1,
+        )
+        pool_max_size = _positive_int_setting(
+            values,
+            "TRACEBISECT_STUDIO_POSTGRES_POOL_MAX",
+            10,
+        )
+        if pool_min_size > pool_max_size:
+            raise StudioConfigurationError(
+                "TRACEBISECT_STUDIO_POSTGRES_POOL_MIN cannot exceed "
+                "TRACEBISECT_STUDIO_POSTGRES_POOL_MAX"
+            )
+        from tracebisect.studio.postgres_storage import PostgresStudioStore
+
+        return PostgresStudioStore(
+            raw_database_url,
+            workspace_id=workspace_id,
+            max_traces=max_traces,
+            max_reports=max_reports,
+            max_cases=max_cases,
+            pool_min_size=pool_min_size,
+            pool_max_size=pool_max_size,
+            pool_timeout_seconds=_positive_int_setting(
+                values,
+                "TRACEBISECT_STUDIO_POSTGRES_POOL_TIMEOUT_SECONDS",
+                5,
+            ),
+            pool_max_waiting=_positive_int_setting(
+                values,
+                "TRACEBISECT_STUDIO_POSTGRES_POOL_MAX_WAITING",
+                32,
+            ),
+            connect_timeout_seconds=_positive_int_setting(
+                values,
+                "TRACEBISECT_STUDIO_POSTGRES_CONNECT_TIMEOUT_SECONDS",
+                5,
+            ),
+            statement_timeout_seconds=_positive_int_setting(
+                values,
+                "TRACEBISECT_STUDIO_POSTGRES_STATEMENT_TIMEOUT_SECONDS",
+                30,
+            ),
+            idle_transaction_timeout_seconds=_positive_int_setting(
+                values,
+                "TRACEBISECT_STUDIO_POSTGRES_IDLE_TRANSACTION_TIMEOUT_SECONDS",
+                30,
+            ),
+        )
     if kind != "sqlite":
         raise StudioConfigurationError(
-            "TRACEBISECT_STUDIO_STORAGE must be either 'memory' or 'sqlite'"
+            "TRACEBISECT_STUDIO_STORAGE must be 'memory', 'sqlite', or 'postgres'"
+        )
+    if values.get("TRACEBISECT_STUDIO_DATABASE_URL", "").strip():
+        raise StudioConfigurationError(
+            "do not configure TRACEBISECT_STUDIO_DATABASE_URL with SQLite storage"
         )
     raw_path = values.get("TRACEBISECT_STUDIO_SQLITE_PATH", "").strip()
     if not raw_path:
