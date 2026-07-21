@@ -232,6 +232,11 @@ Production operators must
 still schedule encrypted, off-site backups and practice recovery in their
 deployment environment.
 
+For a TLS-terminated, non-root, single-host SQLite deployment with private
+backend networking and an optional supervised email worker, follow
+[`docs/operations/studio-single-node-deployment.md`](docs/operations/studio-single-node-deployment.md).
+It is deliberately not described as horizontally scalable SaaS infrastructure.
+
 ## Commands
 
 - `tracebisect --version` — prints the package version.
@@ -257,6 +262,8 @@ deployment environment.
   secret for invitation-only human accounts, recovery, and sessions.
 - `tracebisect studio email deliver` — sends a bounded batch from the encrypted
   invitation outbox and records safe retry/failure state.
+- `tracebisect studio email work` — continuously drains that outbox for a
+  supervised single-node deployment and exits cleanly on `SIGTERM`.
 
 Example static comparison:
 

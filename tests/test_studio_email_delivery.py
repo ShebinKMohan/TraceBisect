@@ -19,6 +19,7 @@ from tracebisect.cli import main
 from tracebisect.studio.access_keys import create_studio_api_key
 from tracebisect.studio.auth import StudioAuthConfig
 from tracebisect.studio.email_delivery import (
+    StudioEmailBatchResult,
     StudioEmailDelivery,
     StudioEmailDeliveryConflict,
     StudioEmailMessage,
@@ -106,6 +107,21 @@ class _RetryThenSuccessTransport(_SuccessfulTransport):
 class _PermanentFailureTransport:
     def send(self, message: StudioEmailMessage, *, idempotency_key: str) -> str:
         raise email_delivery._PermanentProviderError("resend_http_422")
+
+
+class _OneCycleEvent:
+    def __init__(self) -> None:
+        self.stopped = False
+
+    def is_set(self) -> bool:
+        return self.stopped
+
+    def set(self) -> None:
+        self.stopped = True
+
+    def wait(self, _seconds: int) -> bool:
+        self.stopped = True
+        return True
 
 
 def test_email_configuration_is_explicit_and_https_safe(tmp_path: Path) -> None:
@@ -433,3 +449,42 @@ def test_email_worker_cli_reports_an_empty_successful_batch(
     output = capsys.readouterr().out
     assert "Studio invitation email delivery finished" in output
     assert "Examined: 0" in output
+
+
+def test_supervised_email_worker_runs_one_cycle_and_stops_cleanly(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import tracebisect.cli as cli
+
+    class FakeDelivery:
+        def deliver_due(self, *, limit: int) -> StudioEmailBatchResult:
+            assert limit == 12
+            return StudioEmailBatchResult(examined=1, sent=1, retrying=0, failed=0)
+
+    monkeypatch.setattr(cli, "Event", _OneCycleEvent)
+    monkeypatch.setattr(cli.signal, "signal", lambda *_args: None)
+    monkeypatch.setattr(
+        StudioEmailDelivery,
+        "from_env",
+        classmethod(lambda cls, env: FakeDelivery()),
+    )
+
+    assert main(
+        [
+            "studio",
+            "email",
+            "work",
+            "--database",
+            str(tmp_path / "studio.db"),
+            "--limit",
+            "12",
+            "--poll-seconds",
+            "5",
+        ]
+    ) == 0
+    output = capsys.readouterr().out
+    assert "Studio email worker started" in output
+    assert "examined=1 accepted=1" in output
+    assert "Studio email worker stopped" in output

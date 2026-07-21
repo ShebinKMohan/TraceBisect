@@ -1,0 +1,151 @@
+name: tracebisect-studio
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/docker/api.Dockerfile
+    restart: unless-stopped
+    environment:
+      TRACEBISECT_STUDIO_STORAGE: sqlite
+      TRACEBISECT_STUDIO_SQLITE_PATH: /data/studio.db
+      TRACEBISECT_STUDIO_WORKSPACE_ID: health-probe
+      TRACEBISECT_STUDIO_AUTH_MODE: api-key
+      TRACEBISECT_STUDIO_API_KEY_PEPPER: ${TRACEBISECT_STUDIO_API_KEY_PEPPER:?set the generated managed-key secret}
+      TRACEBISECT_STUDIO_IDENTITY_SECRET: ${TRACEBISECT_STUDIO_IDENTITY_SECRET:?set the generated identity secret}
+      TRACEBISECT_STUDIO_METRICS_TOKEN: ${TRACEBISECT_STUDIO_METRICS_TOKEN:?set the generated metrics token}
+      TRACEBISECT_STUDIO_ALLOWED_ORIGINS: https://${TRACEBISECT_STUDIO_DOMAIN:?set the public Studio hostname}
+      TRACEBISECT_STUDIO_BROWSER_SESSION_COOKIE_SECURE: "true"
+      TRACEBISECT_STUDIO_AUDIT_LOG_ENABLED: "true"
+      TRACEBISECT_STUDIO_ERROR_LOG_ENABLED: "true"
+      TRACEBISECT_STUDIO_EMAIL_PROVIDER: ${TRACEBISECT_STUDIO_EMAIL_PROVIDER:-none}
+      TRACEBISECT_STUDIO_EMAIL_FROM: ${TRACEBISECT_STUDIO_EMAIL_FROM:-}
+      TRACEBISECT_STUDIO_EMAIL_REPLY_TO: ${TRACEBISECT_STUDIO_EMAIL_REPLY_TO:-}
+      TRACEBISECT_STUDIO_PUBLIC_URL: https://${TRACEBISECT_STUDIO_DOMAIN}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_WEBHOOK_SECRET: ${RESEND_WEBHOOK_SECRET:-}
+    volumes:
+      - studio-data:/data
+    networks:
+      - backend
+      - egress
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/ready', timeout=3).read()"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  email-worker:
+    profiles: ["email"]
+    build:
+      context: ..
+      dockerfile: deploy/docker/api.Dockerfile
+    restart: unless-stopped
+    command:
+      - tracebisect
+      - studio
+      - email
+      - work
+      - --database
+      - /data/studio.db
+      - --limit
+      - "20"
+      - --poll-seconds
+      - "60"
+    environment:
+      TRACEBISECT_STUDIO_STORAGE: sqlite
+      TRACEBISECT_STUDIO_SQLITE_PATH: /data/studio.db
+      TRACEBISECT_STUDIO_IDENTITY_SECRET: ${TRACEBISECT_STUDIO_IDENTITY_SECRET:?set the generated identity secret}
+      TRACEBISECT_STUDIO_EMAIL_PROVIDER: ${TRACEBISECT_STUDIO_EMAIL_PROVIDER:-none}
+      TRACEBISECT_STUDIO_EMAIL_FROM: ${TRACEBISECT_STUDIO_EMAIL_FROM:-}
+      TRACEBISECT_STUDIO_EMAIL_REPLY_TO: ${TRACEBISECT_STUDIO_EMAIL_REPLY_TO:-}
+      TRACEBISECT_STUDIO_PUBLIC_URL: https://${TRACEBISECT_STUDIO_DOMAIN:?set the public Studio hostname}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+    volumes:
+      - studio-data:/data
+    networks:
+      - egress
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      api:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/docker/web.Dockerfile
+      args:
+        NEXT_PUBLIC_TRACEBISECT_API_URL: ""
+    restart: unless-stopped
+    networks:
+      - backend
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+      - /app/.next/cache:size=64m,uid=1000,gid=1000,mode=0755
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/').then(r=>{if(!r.ok)process.exit(1)})"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    environment:
+      TRACEBISECT_STUDIO_DOMAIN: ${TRACEBISECT_STUDIO_DOMAIN:?set the public Studio hostname}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - backend
+      - edge
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+
+volumes:
+  studio-data:
+  caddy-data:
+  caddy-config:
+
+networks:
+  backend:
+    internal: true
+  egress:
+  edge:

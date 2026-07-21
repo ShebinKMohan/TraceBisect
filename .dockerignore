@@ -1,0 +1,16 @@
+.git
+.github
+.grove
+.venv
+.mypy_cache
+.pytest_cache
+.ruff_cache
+.tracebisect
+**/__pycache__
+**/.next
+**/node_modules
+build
+dist
+htmlcov
+.coverage
+AGENTS.md

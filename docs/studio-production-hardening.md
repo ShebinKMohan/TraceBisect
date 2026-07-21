@@ -123,6 +123,10 @@ temporary files out of the web root, and throttle repeated API calls.
   restore refuses to overwrite an existing database.
 - `/api/ready` checks the configured store, while `/api/health` separates
   process readiness from full production-SaaS readiness.
+- A production-style single-node Compose bundle keeps the API and web services
+  private behind Caddy-managed TLS, runs them as read-only non-root containers,
+  persists SQLite on one volume, and can supervise the invitation-email worker.
+  It deliberately supports only one API replica.
 - Compare requests reject identical baseline/candidate IDs.
 - Custom `scenario_cmd` payloads are length-limited.
 - API responses include security headers:
@@ -155,15 +159,16 @@ Studio a real multi-tenant SaaS:
   dashboards, and durable error-event retention/search. The process now exposes
   scrapeable metrics, starter alerts, and structured error events, but does not
   configure the hosting platform around them.
-- Deployment-specific TLS, reverse-proxy, and extended security-header
-  configuration.
+- A managed hosting target and automated deployment workflow. The included
+  Caddy/Compose bundle is an operator-run single-host topology, not a managed
+  multi-region platform.
 
 The current build has restart-safe single-node persistence plus fail-closed
 workspace API-key authorization, not a finished hosted SaaS. The next
 production step is a managed multi-user database plus deployment-level email
-domain/suppression operations, monitoring, backup, and error-event retention wiring;
-do not add Langfuse-scale
-ClickHouse or queues until the comparison workflow needs them.
+domain/suppression operations, monitoring, backup, and error-event retention
+wiring; do not add Langfuse-scale ClickHouse or queues until the comparison
+workflow needs them.
 
 ## References
 

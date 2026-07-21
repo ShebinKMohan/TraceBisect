@@ -9,8 +9,8 @@ downstream tooling can be written against stable shapes:
 - ``diff`` renders a terminal comparison of two canonical traces.
 - ``export-pytest`` writes a live-capture regression test file.
 - ``record`` runs a scenario command with the V1 capture environment contract.
-- ``studio`` provides safe backup, verification, and non-destructive restore
-  commands for the durable Studio database.
+- ``studio`` provides safe storage recovery, managed access, monitoring, and
+  supervised invitation-delivery commands for a durable Studio deployment.
 """
 
 from __future__ import annotations
@@ -19,11 +19,13 @@ import argparse
 import json
 import os
 import shlex
+import signal
 import subprocess
 import sys
 import tempfile
 from collections.abc import Sequence
 from pathlib import Path
+from threading import Event
 from typing import TYPE_CHECKING, Literal
 
 from colorama import init as colorama_init
@@ -312,6 +314,27 @@ def build_parser() -> argparse.ArgumentParser:
         default=20,
         help="Maximum due messages to examine (default: 20, maximum: 100).",
     )
+    studio_email_work = studio_email_commands.add_parser(
+        "work",
+        help="Continuously drain invitation email for a supervised deployment.",
+    )
+    studio_email_work.add_argument(
+        "--database",
+        required=True,
+        help="Current TRACEBISECT_STUDIO_SQLITE_PATH value.",
+    )
+    studio_email_work.add_argument(
+        "--limit",
+        type=int,
+        default=20,
+        help="Maximum due messages per cycle (default: 20, maximum: 100).",
+    )
+    studio_email_work.add_argument(
+        "--poll-seconds",
+        type=int,
+        default=60,
+        help="Seconds between cycles (default: 60, range: 5-3600).",
+    )
 
     return parser
 
@@ -564,6 +587,39 @@ def run_studio_email_deliver(database: str, limit: int) -> int:
     return 2 if result.failed else 0
 
 
+def run_studio_email_worker(database: str, limit: int, poll_seconds: int) -> int:
+    from tracebisect.studio.email_delivery import (
+        StudioEmailDelivery,
+        StudioEmailDeliveryError,
+    )
+
+    if not 5 <= poll_seconds <= 3600:
+        raise StudioEmailDeliveryError("email worker poll seconds must be between 5 and 3600")
+    env = dict(os.environ)
+    env["TRACEBISECT_STUDIO_STORAGE"] = "sqlite"
+    env["TRACEBISECT_STUDIO_SQLITE_PATH"] = database
+    delivery = StudioEmailDelivery.from_env(env)
+    stop = Event()
+
+    def request_stop(_signum: int, _frame: object) -> None:
+        stop.set()
+
+    signal.signal(signal.SIGINT, request_stop)
+    signal.signal(signal.SIGTERM, request_stop)
+    print(f"Studio email worker started; polling every {poll_seconds} seconds", flush=True)
+    while not stop.is_set():
+        result = delivery.deliver_due(limit=limit)
+        print(
+            "Studio email cycle: "
+            f"examined={result.examined} accepted={result.sent} "
+            f"retrying={result.retrying} failed={result.failed}",
+            flush=True,
+        )
+        stop.wait(poll_seconds)
+    print("Studio email worker stopped", flush=True)
+    return 0
+
+
 def _print_studio_backup_summary(
     title: str,
     path: Path,
@@ -772,6 +828,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                     return 0
                 if args.studio_email_command == "deliver":
                     return run_studio_email_deliver(args.database, args.limit)
+                if args.studio_email_command == "work":
+                    return run_studio_email_worker(
+                        args.database,
+                        args.limit,
+                        args.poll_seconds,
+                    )
         except (
             StudioApiKeyError,
             StudioBackupError,

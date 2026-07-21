@@ -140,6 +140,20 @@ def test_studio_parser_exposes_beginner_safe_recovery_commands() -> None:
     assert email.studio_email_command == "deliver"
     assert email.limit == 12
 
+    email_worker = parser.parse_args(
+        [
+            "studio",
+            "email",
+            "work",
+            "--database",
+            "studio.db",
+            "--poll-seconds",
+            "30",
+        ]
+    )
+    assert email_worker.studio_email_command == "work"
+    assert email_worker.poll_seconds == 30
+
 
 def test_studio_command_without_action_shows_recovery_help(
     capsys: pytest.CaptureFixture[str],
