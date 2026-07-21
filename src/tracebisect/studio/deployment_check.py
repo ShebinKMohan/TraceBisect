@@ -80,7 +80,7 @@ _BLOCKER_GUIDANCE = {
         "Share rate limits before running more than one API instance."
     ),
     "scheduled encrypted off-site backups and recovery drills": (
-        "Schedule encrypted off-site backups and practise restoring them."
+        "Copy encrypted backups off site on a schedule and practise provider recovery."
     ),
     "managed user accounts, recovery, and team membership administration": (
         "Finish managed accounts, recovery, and team access."

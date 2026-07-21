@@ -169,6 +169,10 @@ temporary files out of the web root, and throttle repeated API calls.
 - `tracebisect studio backup`, `verify`, and `restore` provide an integrity-
   checked recovery workflow. Backups use SQLite's online snapshot API, and
   restore refuses to overwrite an existing database.
+- Portable SQLite backups can be streamed through authenticated AES-256-GCM
+  encryption with a fresh nonce. The separate owner-only key file is never
+  printed, encrypted artifacts and restores are authenticated before use, and
+  existing files are never replaced.
 - `tracebisect studio recovery-drill` turns those steps into one non-destructive
   rehearsal. It verifies stripped ephemeral state, restores into a temporary
   database, starts the restored SQLite store, checks logical content, removes
@@ -209,10 +213,11 @@ Studio a real multi-tenant SaaS:
 - Durable centralized retention, search, alerting, and access control for the
   high-volume structured request-audit stream. Server-error events now have
   bounded SQLite/PostgreSQL retention and operator-only request-ID search.
-- Scheduled encrypted off-site backups, retention policy, and deployment-level
-  recovery drills from the real backup source. The local CLI now automates and
-  records an isolated SQLite recovery rehearsal, but it does not test host loss,
-  off-site access, encryption, or provider recovery.
+- Scheduled off-site backup copies, retention policy, and deployment-level
+  recovery drills from the real backup source. The CLI now creates and verifies
+  authenticated encrypted SQLite artifacts and automates a local isolated
+  recovery rehearsal, but it does not schedule transfers or test host loss,
+  off-site access, secret-manager recovery, or provider recovery.
 - Object storage plus sandboxed or asynchronous scanning for future large
   imports. Current bounded synchronous uploads are ClamAV-scanned before
   parsing, but raw upload objects are not retained for quarantine or re-scan.

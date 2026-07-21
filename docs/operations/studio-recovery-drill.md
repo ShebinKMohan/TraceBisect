@@ -58,7 +58,11 @@ file permissions, and correct the cause before rerunning with a new report path.
 
 ## What this does not prove
 
-This local drill does not prove encryption, off-site transfer, host-loss
-recovery, PostgreSQL provider backups, point-in-time recovery, external secret
-access, or an agreed recovery-time objective. A hosted launch still needs a
-restore from the actual off-site or provider backup into an isolated environment.
+This local drill does not prove off-site transfer, host-loss recovery,
+PostgreSQL provider backups, point-in-time recovery, external secret access, or
+an agreed recovery-time objective. Authenticated encrypted SQLite artifacts are
+available through `studio backup --encryption-key-file`, but this drill does not
+fetch one from its real off-site location. A hosted launch still needs a restore
+from the actual off-site or provider backup into an isolated environment. See
+[studio-encrypted-backups.md](studio-encrypted-backups.md) for that operator
+flow.

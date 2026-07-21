@@ -44,6 +44,7 @@ from tracebisect.version import __version__
 if TYPE_CHECKING:
     from tracebisect.studio.backup import StudioBackupInspection, StudioRecoveryDrillReport
     from tracebisect.studio.email_delivery import StudioEmailDelivery
+    from tracebisect.studio.encrypted_backup import StudioEncryptedBackupInspection
     from tracebisect.studio.managed_database import StudioDatabaseTarget
     from tracebisect.studio.postgres_migration import StudioPostgresMigrationReport
     from tracebisect.studio.postgres_storage import PostgresStudioStore
@@ -152,6 +153,25 @@ def build_parser() -> argparse.ArgumentParser:
     )
     studio.set_defaults(studio_parser=studio)
 
+    studio_backup_key = studio_commands.add_parser(
+        "backup-key",
+        help="Create the separate secret used to encrypt portable backups.",
+    )
+    studio_backup_key_commands = studio_backup_key.add_subparsers(
+        dest="studio_backup_key_command",
+        metavar="<backup-key-command>",
+    )
+    studio_backup_key.set_defaults(studio_backup_key_parser=studio_backup_key)
+    studio_backup_key_generate = studio_backup_key_commands.add_parser(
+        "generate",
+        help="Write one new owner-only AES-256 backup key file.",
+    )
+    studio_backup_key_generate.add_argument(
+        "--output",
+        required=True,
+        help="New key-file path. Existing files are never replaced.",
+    )
+
     studio_deployment_check = studio_commands.add_parser(
         "deployment-check",
         help="Explain whether a live Studio is safe for hosted traffic.",
@@ -182,6 +202,10 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="New backup file path. Existing files are never replaced.",
     )
+    studio_backup.add_argument(
+        "--encryption-key-file",
+        help="Create an encrypted portable backup using this owner-only key file.",
+    )
 
     studio_verify = studio_commands.add_parser(
         "verify",
@@ -191,6 +215,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--backup",
         required=True,
         help="Backup file to verify.",
+    )
+    studio_verify.add_argument(
+        "--encryption-key-file",
+        help="Authenticate and verify an encrypted backup using this key file.",
     )
 
     studio_restore = studio_commands.add_parser(
@@ -206,6 +234,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--database",
         required=True,
         help="New database path. Existing files are never replaced.",
+    )
+    studio_restore.add_argument(
+        "--encryption-key-file",
+        help="Authenticate and restore an encrypted backup using this key file.",
     )
 
     studio_recovery_drill = studio_commands.add_parser(
@@ -752,30 +784,117 @@ def run_studio_deployment_check(base_url: str, timeout_seconds: float) -> int:
     return 0 if report.hosted_core_ready else 2
 
 
-def run_studio_backup(database: str, output: str) -> int:
+def run_studio_backup_key_generate(output: str) -> int:
+    from tracebisect.studio.encrypted_backup import create_studio_backup_encryption_key
+
+    key = create_studio_backup_encryption_key(output)
+    print("Studio backup encryption key created")
+    print(f"  File: {key.path}")
+    print(f"  Encryption: {key.algorithm}")
+    print(f"  Key ID: {key.key_id}")
+    print("  Secret printed: no")
+    print()
+    print("Store this key separately from encrypted backups. Do not commit it.")
+    print("Next: create an encrypted backup with:")
+    print("  tracebisect studio backup --database studio.db --output studio.db.enc \\")
+    print(f"    --encryption-key-file {shlex.quote(str(key.path))}")
+    return 0
+
+
+def run_studio_backup(
+    database: str,
+    output: str,
+    encryption_key_file: str | None = None,
+) -> int:
     from tracebisect.studio.backup import create_studio_backup
 
-    inspection = create_studio_backup(database, output)
-    _print_studio_backup_summary("Studio backup created", Path(output), inspection)
+    if encryption_key_file is not None:
+        from tracebisect.studio.encrypted_backup import create_encrypted_studio_backup
+
+        encrypted_inspection = create_encrypted_studio_backup(
+            database,
+            output,
+            encryption_key_file,
+        )
+        _print_encrypted_studio_backup_summary(
+            "Encrypted Studio backup created",
+            Path(output),
+            encrypted_inspection,
+        )
+        print()
+        print("Next: copy this encrypted backup off the Studio server, then verify it with:")
+        print(
+            "  tracebisect studio verify "
+            f"--backup {shlex.quote(str(Path(output)))} "
+            f"--encryption-key-file {shlex.quote(encryption_key_file)}"
+        )
+        print("Keep the key in a separate secret manager or recovery location.")
+        return 0
+
+    backup_inspection = create_studio_backup(database, output)
+    _print_studio_backup_summary("Studio backup created", Path(output), backup_inspection)
     print()
     print("Next: copy this backup away from the Studio server, then verify it with:")
     print(f"  tracebisect studio verify --backup {shlex.quote(str(Path(output)))}")
     return 0
 
 
-def run_studio_verify(backup: str) -> int:
-    from tracebisect.studio.backup import inspect_studio_backup
+def run_studio_verify(backup: str, encryption_key_file: str | None = None) -> int:
+    from tracebisect.studio.backup import StudioBackupError, inspect_studio_backup
 
-    inspection = inspect_studio_backup(backup)
-    _print_studio_backup_summary("Studio backup is healthy", Path(backup), inspection)
+    if encryption_key_file is not None:
+        from tracebisect.studio.encrypted_backup import inspect_encrypted_studio_backup
+
+        encrypted_inspection = inspect_encrypted_studio_backup(backup, encryption_key_file)
+        _print_encrypted_studio_backup_summary(
+            "Encrypted Studio backup is healthy",
+            Path(backup),
+            encrypted_inspection,
+        )
+        return 0
+    from tracebisect.studio.encrypted_backup import is_encrypted_studio_backup
+
+    if is_encrypted_studio_backup(backup):
+        raise StudioBackupError(
+            "this backup is encrypted; provide --encryption-key-file to verify it"
+        )
+    backup_inspection = inspect_studio_backup(backup)
+    _print_studio_backup_summary("Studio backup is healthy", Path(backup), backup_inspection)
     return 0
 
 
-def run_studio_restore(backup: str, database: str) -> int:
-    from tracebisect.studio.backup import restore_studio_backup
+def run_studio_restore(
+    backup: str,
+    database: str,
+    encryption_key_file: str | None = None,
+) -> int:
+    from tracebisect.studio.backup import StudioBackupError, restore_studio_backup
 
-    inspection = restore_studio_backup(backup, database)
-    _print_studio_backup_summary("Studio backup restored", Path(database), inspection)
+    if encryption_key_file is not None:
+        from tracebisect.studio.encrypted_backup import restore_encrypted_studio_backup
+
+        encrypted_inspection = restore_encrypted_studio_backup(
+            backup,
+            database,
+            encryption_key_file,
+        )
+        _print_encrypted_studio_backup_summary(
+            "Encrypted Studio backup restored",
+            Path(backup),
+            encrypted_inspection,
+        )
+        print(f"  Restored database: {Path(database).expanduser().resolve()}")
+        print()
+        print("Next: point TRACEBISECT_STUDIO_SQLITE_PATH at the restored file and restart Studio.")
+        return 0
+    from tracebisect.studio.encrypted_backup import is_encrypted_studio_backup
+
+    if is_encrypted_studio_backup(backup):
+        raise StudioBackupError(
+            "this backup is encrypted; provide --encryption-key-file to restore it"
+        )
+    backup_inspection = restore_studio_backup(backup, database)
+    _print_studio_backup_summary("Studio backup restored", Path(database), backup_inspection)
     print()
     print("Next: set TRACEBISECT_STUDIO_SQLITE_PATH to this new file and restart Studio.")
     return 0
@@ -952,6 +1071,32 @@ def _print_studio_backup_summary(
     print(f"  Memberships: {inspection.membership_count}")
     print(f"  Size: {inspection.size_bytes} bytes")
     print(f"  SHA-256: {inspection.sha256}")
+
+
+def _print_encrypted_studio_backup_summary(
+    title: str,
+    path: Path,
+    inspection: StudioEncryptedBackupInspection,
+) -> None:
+    print(title)
+    print(f"  File: {path.expanduser().resolve()}")
+    print(f"  Format: {inspection.format_version}")
+    print(f"  Encryption: {inspection.algorithm}")
+    print(f"  Key ID: {inspection.key_id}")
+    print(f"  Encrypted size: {inspection.encrypted_size_bytes} bytes")
+    print(f"  Encrypted SHA-256: {inspection.encrypted_sha256}")
+    print("  Authentication: passed")
+    print("Verified backup contents")
+    print(f"  Schema: {inspection.backup.schema_version}")
+    print(f"  Workspaces: {inspection.backup.workspace_count}")
+    print(f"  Traces: {inspection.backup.trace_count}")
+    print(f"  Comparisons: {inspection.backup.report_count}")
+    print(f"  Guardrails: {inspection.backup.case_count}")
+    print(f"  Access keys: {inspection.backup.api_key_count}")
+    print(f"  Ingestion tokens: {inspection.backup.ingestion_token_count}")
+    print(f"  People: {inspection.backup.user_count}")
+    print(f"  Memberships: {inspection.backup.membership_count}")
+    print(f"  Content SHA-256: {inspection.backup.content_sha256}")
 
 
 def _print_studio_recovery_drill_summary(
@@ -1270,14 +1415,28 @@ def main(argv: Sequence[str] | None = None) -> int:
         from tracebisect.studio.storage import StudioConfigurationError
 
         try:
+            if args.studio_command == "backup-key":
+                if args.studio_backup_key_command is None:
+                    args.studio_backup_key_parser.print_help()
+                    return 0
+                if args.studio_backup_key_command == "generate":
+                    return run_studio_backup_key_generate(args.output)
             if args.studio_command == "deployment-check":
                 return run_studio_deployment_check(args.url, args.timeout_seconds)
             if args.studio_command == "backup":
-                return run_studio_backup(args.database, args.output)
+                return run_studio_backup(
+                    args.database,
+                    args.output,
+                    args.encryption_key_file,
+                )
             if args.studio_command == "verify":
-                return run_studio_verify(args.backup)
+                return run_studio_verify(args.backup, args.encryption_key_file)
             if args.studio_command == "restore":
-                return run_studio_restore(args.backup, args.database)
+                return run_studio_restore(
+                    args.backup,
+                    args.database,
+                    args.encryption_key_file,
+                )
             if args.studio_command == "recovery-drill":
                 return run_studio_recovery_drill(
                     args.database,
@@ -1368,6 +1527,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             StudioPostgresMigrationError,
         ) as exc:
             failed_command = args.studio_command
+            if (
+                args.studio_command == "backup-key"
+                and args.studio_backup_key_command is not None
+            ):
+                failed_command = f"backup-key {args.studio_backup_key_command}"
             if args.studio_command == "keys" and args.studio_keys_command is not None:
                 failed_command = f"keys {args.studio_keys_command}"
             if (

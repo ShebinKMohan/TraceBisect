@@ -155,6 +155,11 @@ and next-action output without giving the command product credentials. This is
 a verified deployment gate, not a claim that the remaining provider work is
 complete.
 
+SQLite operators can create authenticated encrypted portable backups with a
+separate owner-only key and verify or restore them without overwriting existing
+files. Scheduling, off-site retention, secret-manager recovery, and a real
+off-site restore drill remain deployment responsibilities.
+
 ## Out Of Scope For This Slice
 
 These were deliberately excluded from the first Studio MVP; some now exist in

@@ -152,9 +152,10 @@ does not need a workspace key or access product data. **Hosted core: READY**
 requires both endpoints plus durable storage, required access control, secure
 browser sessions, fail-closed upload scanning, safe audit/error records, and a
 dedicated metrics token. **Full SaaS** will continue to report
-`production_saas_ready: false`; this topology still needs scheduled encrypted
-off-site backups, centralized request-log retention, external alert delivery,
-off-host metrics retention, and recovery drills.
+`production_saas_ready: false`; this topology still needs scheduled off-site
+backup copies and retention, centralized request-log retention, external alert
+delivery, off-host metrics retention, and recovery drills from the real backup
+source.
 
 The command ends with one `Next:` action when a safeguard fails. See
 [studio-deployment-check.md](studio-deployment-check.md) for every result and
@@ -195,25 +196,50 @@ remaining off-site/provider boundary.
 
 ## Back up before every upgrade
 
+Generate a recovery key inside the container's private temporary filesystem,
+then copy the key and artifact into separate restricted operator locations:
+
 ```bash
+docker compose \
+  --env-file deploy/.env.production \
+  -f deploy/compose.production.yml \
+  exec api tracebisect studio backup-key generate \
+  --output /tmp/studio-backup.key
+
 docker compose \
   --env-file deploy/.env.production \
   -f deploy/compose.production.yml \
   exec api tracebisect studio backup \
   --database /data/studio.db \
-  --output /tmp/studio-before-upgrade.db
+  --output /tmp/studio-before-upgrade.db.enc \
+  --encryption-key-file /tmp/studio-backup.key
 
 docker compose \
   --env-file deploy/.env.production \
   -f deploy/compose.production.yml \
-  cp api:/tmp/studio-before-upgrade.db ./studio-before-upgrade.db
+  cp api:/tmp/studio-before-upgrade.db.enc \
+  ./backups/studio-before-upgrade.db.enc
 
-tracebisect studio verify --backup ./studio-before-upgrade.db
+docker compose \
+  --env-file deploy/.env.production \
+  -f deploy/compose.production.yml \
+  cp api:/tmp/studio-backup.key \
+  ./recovery-secrets/studio-before-upgrade.key
+
+chmod 600 ./recovery-secrets/studio-before-upgrade.key
+
+tracebisect studio verify \
+  --backup ./backups/studio-before-upgrade.db.enc \
+  --encryption-key-file ./recovery-secrets/studio-before-upgrade.key
 ```
 
-Encrypt and move the verified file away from the Docker host. Then rebuild and
-restart. Never scale the `api` service above one replica: process metrics,
-rate limits, and SQLite are intentionally single-node in this release.
+Move the verified `.enc` file away from the Docker host and remove both
+temporary container files. Move the key to a separate secret manager or
+recovery location; its local directory is only a handoff point. Then rebuild
+and restart. Never scale the `api` service above one replica: process metrics,
+rate limits, and SQLite are intentionally single-node in this release. The
+complete rotation and restore procedure is in
+[studio-encrypted-backups.md](studio-encrypted-backups.md).
 
 For restore steps and incident decisions, use
 [studio-alert-runbook.md](studio-alert-runbook.md) and

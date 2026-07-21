@@ -95,7 +95,7 @@ def test_deployment_check_proves_the_hosted_core_without_overclaiming_saas() -> 
         "rate_limits": "pass",
     }
     assert report.remaining_saas_work == (
-        "Schedule encrypted off-site backups and practise restoring them.",
+        "Copy encrypted backups off site on a schedule and practise provider recovery.",
         "Send metrics, alerts, and operational history to managed off-host services.",
     )
 
@@ -297,7 +297,7 @@ def test_deployment_check_cli_prints_plain_result_and_one_next_action(
     assert "Full SaaS: NOT READY" in output
     assert "[PASS] Uploads fail closed" in output
     assert output.count("Next:") == 1
-    assert "Schedule encrypted off-site backups" in output
+    assert "Copy encrypted backups off site" in output
 
 
 def test_deployment_check_cli_returns_failure_for_an_unsafe_hosted_core(

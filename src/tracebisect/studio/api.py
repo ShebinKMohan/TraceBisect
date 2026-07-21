@@ -1910,7 +1910,12 @@ def _production_readiness(
     if durable:
         completed.append("restart-safe workspace storage")
         if storage_kind == "sqlite":
-            completed.append("verified local backup and non-destructive restore tooling")
+            completed.extend(
+                [
+                    "verified local backup and non-destructive restore tooling",
+                    "authenticated AES-256-GCM portable backup encryption",
+                ]
+            )
         elif storage_kind == "postgres":
             completed.extend(
                 [

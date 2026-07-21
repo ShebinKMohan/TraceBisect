@@ -289,17 +289,30 @@ or monitoring provider.
 
 ### Back up and restore Studio data
 
-No SQLite knowledge is required. Create a consistent snapshot—even while Studio
-is running—then verify it before moving it to off-site storage:
+No SQLite or cryptography knowledge is required. Generate one private recovery
+key, then use it to create an authenticated encrypted snapshot—even while
+Studio is running:
 
 ```bash
+tracebisect studio backup-key generate \
+  --output /secure/studio-backup.key
+
 tracebisect studio backup \
   --database .tracebisect/studio.db \
-  --output backups/studio-2026-07-21.db
+  --output backups/studio-2026-07-21.db.enc \
+  --encryption-key-file /secure/studio-backup.key
 
 tracebisect studio verify \
-  --backup backups/studio-2026-07-21.db
+  --backup backups/studio-2026-07-21.db.enc \
+  --encryption-key-file /secure/studio-backup.key
 ```
+
+Copy the `.enc` artifact off the Studio host, but keep the key in a separate
+secret manager or recovery location. Losing the key makes the backup
+unrecoverable. The command never prints the key or replaces an existing key or
+backup file. Follow the beginner-readable key, rotation, verification, and
+restore guide in
+[`docs/operations/studio-encrypted-backups.md`](docs/operations/studio-encrypted-backups.md).
 
 Practice the complete local recovery path with one non-destructive command:
 
@@ -320,8 +333,9 @@ restart the API:
 
 ```bash
 tracebisect studio restore \
-  --backup backups/studio-2026-07-21.db \
-  --database .tracebisect/restored-studio.db
+  --backup backups/studio-2026-07-21.db.enc \
+  --database .tracebisect/restored-studio.db \
+  --encryption-key-file /secure/studio-backup.key
 
 TRACEBISECT_STUDIO_STORAGE=sqlite \
 TRACEBISECT_STUDIO_SQLITE_PATH=.tracebisect/restored-studio.db \
@@ -337,11 +351,11 @@ error history. Restoring an older backup also restores older credential state,
 so production recovery must include a security review and credential rotation
 decision.
 
-Each command reports the verified workspace, trace, comparison, guardrail,
-managed-access-key, person, and membership counts plus a SHA-256 checksum.
-Production operators must
-still schedule encrypted, off-site backups and rehearse recovery from that real
-backup source in their deployment environment.
+Each command reports authentication status, the non-secret key ID, verified
+workspace, trace, comparison, guardrail, managed-access-key, person, and
+membership counts, plus encrypted and logical SHA-256 checksums. Production
+operators must still schedule the off-site copies, define retention, and
+rehearse recovery from that real backup source in their deployment environment.
 
 For a TLS-terminated, non-root, single-host SQLite deployment with private
 backend networking and an optional supervised email worker, follow
@@ -376,6 +390,8 @@ for the result contract and safe local usage.
 - `tracebisect export-pytest` — writes a live-capture pytest regression test
   using the public `tracebisect.testing` runtime API.
 - `tracebisect studio backup` — creates a consistent durable-database snapshot.
+- `tracebisect studio backup-key generate` — creates an owner-only AES-256 key
+  file without printing or replacing the secret.
 - `tracebisect studio verify` — checks backup integrity and schema compatibility.
 - `tracebisect studio restore` — restores into a new database without replacing
   current data.
