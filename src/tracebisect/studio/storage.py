@@ -14,6 +14,7 @@ import re
 import sqlite3
 from collections.abc import Mapping
 from pathlib import Path
+from threading import RLock
 from typing import cast
 
 from tracebisect.jsonl import dumps_trace, loads_trace
@@ -27,6 +28,14 @@ from tracebisect.studio.service import (
 
 SCHEMA_VERSION = 1
 _WORKSPACE_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+_STORAGE_SETTING_NAMES = (
+    "TRACEBISECT_STUDIO_STORAGE",
+    "TRACEBISECT_STUDIO_SQLITE_PATH",
+    "TRACEBISECT_STUDIO_WORKSPACE_ID",
+    "TRACEBISECT_STUDIO_MAX_STORED_TRACES",
+    "TRACEBISECT_STUDIO_MAX_STORED_REPORTS",
+    "TRACEBISECT_STUDIO_MAX_STORED_CASES",
+)
 
 
 class StudioConfigurationError(ValueError):
@@ -51,7 +60,7 @@ class SQLiteStudioStore(StudioStore):
         max_reports: int = DEFAULT_MAX_STORED_REPORTS,
         max_cases: int = DEFAULT_MAX_STORED_CASES,
     ) -> None:
-        validated_workspace_id = _validated_workspace_id(workspace_id)
+        validated_workspace_id = validate_workspace_id(workspace_id)
         super().__init__(
             workspace_id=validated_workspace_id,
             max_traces=max_traces,
@@ -397,11 +406,48 @@ class SQLiteStudioStore(StudioStore):
             raise StudioPersistenceError("could not save regression case to SQLite") from exc
 
 
+class StudioStoreRegistry:
+    """Create and cache one isolated store per validated request workspace."""
+
+    def __init__(self, env: Mapping[str, str] | None = None) -> None:
+        values = os.environ if env is None else env
+        self._settings = {name: values[name] for name in _STORAGE_SETTING_NAMES if name in values}
+        self._lock = RLock()
+        default_store = create_studio_store(self._settings)
+        self._stores: dict[str, StudioStore] = {
+            default_store.workspace_id: default_store,
+        }
+        self.default_store = default_store
+
+    def get(self, workspace_id: str) -> StudioStore:
+        """Return the cached store for ``workspace_id``, creating it atomically."""
+        validated_workspace_id = validate_workspace_id(workspace_id)
+        with self._lock:
+            existing = self._stores.get(validated_workspace_id)
+            if existing is not None:
+                return existing
+            workspace_settings = {
+                **self._settings,
+                "TRACEBISECT_STUDIO_WORKSPACE_ID": validated_workspace_id,
+            }
+            store = create_studio_store(workspace_settings)
+            self._stores[validated_workspace_id] = store
+            return store
+
+    def close(self) -> None:
+        """Close every cached durable store connection."""
+        with self._lock:
+            for store in self._stores.values():
+                if isinstance(store, SQLiteStudioStore):
+                    store.close()
+            self._stores.clear()
+
+
 def create_studio_store(env: Mapping[str, str] | None = None) -> StudioStore:
     """Build the configured Studio store, failing fast on unsafe configuration."""
     values = os.environ if env is None else env
     kind = values.get("TRACEBISECT_STUDIO_STORAGE", "memory").strip().lower()
-    workspace_id = _validated_workspace_id(values.get("TRACEBISECT_STUDIO_WORKSPACE_ID", "local"))
+    workspace_id = validate_workspace_id(values.get("TRACEBISECT_STUDIO_WORKSPACE_ID", "local"))
     max_traces = _positive_int_setting(
         values,
         "TRACEBISECT_STUDIO_MAX_STORED_TRACES",
@@ -442,7 +488,8 @@ def create_studio_store(env: Mapping[str, str] | None = None) -> StudioStore:
     )
 
 
-def _validated_workspace_id(value: str) -> str:
+def validate_workspace_id(value: str) -> str:
+    """Validate and normalize an externally configured workspace identifier."""
     workspace_id = value.strip()
     if not _WORKSPACE_ID_PATTERN.fullmatch(workspace_id):
         raise StudioConfigurationError(

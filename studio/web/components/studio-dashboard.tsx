@@ -9,9 +9,14 @@ import {
   fetchRegressionCases,
   fetchRunReport,
   fetchRuns,
+  fetchStudioSession,
   fetchStudioHealth,
   fetchTraces,
+  forgetStudioApiKey,
+  hasStoredStudioApiKey,
+  isUnauthorizedStudioError,
   runRegressionCase,
+  unlockStudioWorkspace,
   uploadTrace,
 } from "@/lib/api";
 import type { RegressionCase, Report, RunSummary, StudioHealth, StudioSection, TraceEvent, TraceSummary } from "@/lib/types";
@@ -32,6 +37,7 @@ import { TraceList } from "@/components/trace-list";
 import { TraceWorkbench } from "@/components/trace-workbench";
 import { UploadComparePanel } from "@/components/upload-compare-panel";
 import { WorkflowSteps } from "@/components/workflow-steps";
+import { WorkspaceConnecting, WorkspaceUnlock } from "@/components/workspace-unlock";
 import { friendlyTraceName } from "@/lib/format";
 
 export function StudioDashboard() {
@@ -57,13 +63,15 @@ export function StudioDashboard() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [locked, setLocked] = useState(false);
+  const [unlockError, setUnlockError] = useState<string | null>(null);
 
   useEffect(() => {
     const stored = window.localStorage.getItem("tracebisect-theme");
     const nextTheme = stored === "dark" ? "dark" : "light";
     setTheme(nextTheme);
     document.documentElement.dataset.theme = nextTheme;
-    void loadDemo();
+    void initializeStudio();
   }, []);
 
   const first = report?.first_divergence ?? null;
@@ -90,7 +98,10 @@ export function StudioDashboard() {
 
   useEffect(() => {
     if (loading) return;
-    void refreshRuns();
+    if (locked) return;
+    void refreshRuns().catch((err: unknown) => {
+      presentApiError(err, "Failed to refresh comparison history.");
+    });
   }, [loading, searchQuery, severityFilter, statusFilter]);
 
   function toggleTheme() {
@@ -106,30 +117,115 @@ export function StudioDashboard() {
     setActiveSection(section);
   }
 
-  async function loadDemo() {
+  async function initializeStudio() {
     setLoading(true);
     setError(null);
     try {
-      const demoReport = await fetchDemoReport();
-      const [traceList, caseList, runList, studioHealth] = await Promise.all([
-        fetchTraces(),
-        fetchRegressionCases(),
-        fetchRuns(),
-        fetchStudioHealth(),
-      ]);
-      setReport(demoReport);
-      setSelectedReportId(demoReport.report_id);
-      setTraces(traceList);
-      setCases(caseList);
-      setRuns(runList);
+      const studioHealth = await fetchStudioHealth();
       setHealth(studioHealth);
-      setBaselineId(demoReport.baseline.id);
-      setCandidateId(demoReport.candidate.id);
+      if (studioHealth.auth.required) {
+        if (!hasStoredStudioApiKey()) {
+          setLocked(true);
+          return;
+        }
+        try {
+          const session = await fetchStudioSession();
+          setHealth({ ...studioHealth, runtime: session.runtime });
+        } catch (err) {
+          if (isUnauthorizedStudioError(err)) {
+            forgetStudioApiKey();
+            setLocked(true);
+            setUnlockError("Your saved workspace key is no longer valid. Enter a current key.");
+            return;
+          }
+          throw err;
+        }
+      }
+      await loadWorkspaceData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load the demo report.");
+      presentApiError(err, "Failed to load the Studio workspace.");
     } finally {
       setLoading(false);
     }
+  }
+
+  async function loadWorkspaceData() {
+    const demoReport = await fetchDemoReport();
+    const [traceList, caseList, runList] = await Promise.all([
+      fetchTraces(),
+      fetchRegressionCases(),
+      fetchRuns(),
+    ]);
+    setReport(demoReport);
+    setSelectedReportId(demoReport.report_id);
+    setTraces(traceList);
+    setCases(caseList);
+    setRuns(runList);
+    setBaselineId(demoReport.baseline.id);
+    setCandidateId(demoReport.candidate.id);
+  }
+
+  async function handleUnlock(apiKey: string) {
+    setBusy(true);
+    setUnlockError(null);
+    try {
+      const session = await unlockStudioWorkspace(apiKey);
+      setHealth((current) => current ? { ...current, runtime: session.runtime } : current);
+      await loadWorkspaceData();
+      setLocked(false);
+    } catch (err) {
+      if (isUnauthorizedStudioError(err)) {
+        forgetStudioApiKey();
+        setUnlockError("That workspace key was not accepted. Check it and try again.");
+      } else {
+        setUnlockError(err instanceof Error ? err.message : "Could not open the workspace.");
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function handleLock() {
+    forgetStudioApiKey();
+    clearWorkspaceData();
+    setUnlockError(null);
+    setLocked(true);
+  }
+
+  function clearWorkspaceData() {
+    setReport(null);
+    setTraces([]);
+    setRuns([]);
+    setCases([]);
+    setBaselineId("");
+    setCandidateId("");
+    setError(null);
+    setNotice(null);
+    setHealth((current) =>
+      current?.auth.required
+        ? {
+            ...current,
+            runtime: {
+              ...current.runtime,
+              workspace_id: "protected",
+              trace_count: 0,
+              report_count: 0,
+              case_count: 0,
+            },
+          }
+        : current,
+    );
+  }
+
+  function presentApiError(err: unknown, fallback: string) {
+    if (health?.auth.required && isUnauthorizedStudioError(err)) {
+      forgetStudioApiKey();
+      clearWorkspaceData();
+      setUnlockError("Your workspace key expired or was revoked. Enter a current key.");
+      setLocked(true);
+      return;
+    }
+    setError(err instanceof Error ? err.message : fallback);
   }
 
   async function refreshTraces() {
@@ -160,7 +256,7 @@ export function StudioDashboard() {
       if (role === "baseline") setBaselineId(uploaded.id);
       if (role === "candidate") setCandidateId(uploaded.id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Upload failed.");
+      presentApiError(err, "Upload failed.");
     } finally {
       setBusy(false);
     }
@@ -177,7 +273,7 @@ export function StudioDashboard() {
       setActiveSection("runs");
       await refreshRuns();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Comparison failed.");
+      presentApiError(err, "Comparison failed.");
     } finally {
       setBusy(false);
     }
@@ -199,7 +295,7 @@ export function StudioDashboard() {
       setNotice("Guardrail saved. Its generated pytest test is ready to copy.");
       await refreshRuns();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save regression case.");
+      presentApiError(err, "Failed to save regression case.");
     } finally {
       setBusy(false);
     }
@@ -215,7 +311,7 @@ export function StudioDashboard() {
       await refreshCases();
       await refreshRuns();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to rerun regression case.");
+      presentApiError(err, "Failed to recheck regression case.");
     } finally {
       setBusy(false);
     }
@@ -234,10 +330,24 @@ export function StudioDashboard() {
       setSelectedReportId(selectedReport.report_id);
       setActiveSide("candidate");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load run history item.");
+      presentApiError(err, "Failed to load comparison history item.");
     } finally {
       setBusy(false);
     }
+  }
+
+  if (loading && health === null) {
+    return <WorkspaceConnecting />;
+  }
+
+  if (locked) {
+    return (
+      <WorkspaceUnlock
+        busy={busy}
+        error={unlockError}
+        onUnlock={(apiKey) => void handleUnlock(apiKey)}
+      />
+    );
   }
 
   return (
@@ -247,7 +357,9 @@ export function StudioDashboard() {
           activeSection={activeSection}
           collapsed={sidebarCollapsed}
           onPrimaryAction={() => handleSectionChange("sources")}
+          authRequired={health?.auth.required ?? false}
           onSectionChange={handleSectionChange}
+          onLock={handleLock}
           onThemeToggle={toggleTheme}
           onToggleCollapsed={() => setSidebarCollapsed((current) => !current)}
           runtime={health?.runtime ?? null}
@@ -256,6 +368,7 @@ export function StudioDashboard() {
         <div className="dashboard-main">
           <Topbar
             activeSection={activeSection}
+            authRequired={health?.auth.required ?? false}
             onHelp={() => handleSectionChange("home")}
             searchValue={searchQuery}
             onSearchChange={setSearchQuery}
@@ -312,7 +425,7 @@ export function StudioDashboard() {
           />
 
           {activeSection === "home" ? (
-            <HomePanel cases={cases} onSectionChange={handleSectionChange} report={report} runtime={health?.runtime ?? null} traces={traces} />
+            <HomePanel authRequired={health?.auth.required ?? false} cases={cases} onSectionChange={handleSectionChange} report={report} runtime={health?.runtime ?? null} traces={traces} />
           ) : null}
 
           {activeSection === "runs" ? (

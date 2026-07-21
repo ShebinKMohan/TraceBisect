@@ -1,8 +1,16 @@
-import type { RegressionCase, Report, RunSummary, StudioHealth, TraceSummary } from "@/lib/types";
+import type { RegressionCase, Report, RunSummary, StudioHealth, StudioSession, TraceSummary } from "@/lib/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_TRACEBISECT_API_URL ?? "http://127.0.0.1:8000";
 const MAX_TRACE_UPLOAD_BYTES = 5 * 1024 * 1024;
 const ALLOWED_TRACE_UPLOAD_EXTENSIONS = [".tbtrace", ".json"];
+const STUDIO_API_KEY_STORAGE = "tracebisect-workspace-api-key";
+
+export class StudioApiError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "StudioApiError";
+  }
+}
 
 type ApiErrorDetail =
   | string
@@ -19,29 +27,72 @@ type ApiErrorPayload = {
 
 async function parseResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
-    throw new Error(await responseErrorMessage(response));
+    throw new StudioApiError(await responseErrorMessage(response), response.status);
   }
   return (await response.json()) as T;
 }
 
+function storedStudioApiKey(): string | null {
+  if (typeof window === "undefined") return null;
+  return window.sessionStorage.getItem(STUDIO_API_KEY_STORAGE);
+}
+
+async function authorizedFetch(
+  input: string,
+  init: RequestInit = {},
+  explicitApiKey?: string,
+): Promise<Response> {
+  const headers = new Headers(init.headers);
+  const apiKey = explicitApiKey ?? storedStudioApiKey();
+  if (apiKey) headers.set("Authorization", `Bearer ${apiKey}`);
+  return fetch(input, { ...init, headers });
+}
+
+export function hasStoredStudioApiKey(): boolean {
+  return Boolean(storedStudioApiKey());
+}
+
+export function forgetStudioApiKey(): void {
+  if (typeof window !== "undefined") {
+    window.sessionStorage.removeItem(STUDIO_API_KEY_STORAGE);
+  }
+}
+
+export function isUnauthorizedStudioError(error: unknown): boolean {
+  return error instanceof StudioApiError && error.status === 401;
+}
+
 export async function fetchDemoReport(): Promise<Report> {
-  return parseResponse<Report>(await fetch(`${API_BASE}/api/demo-report`));
+  return parseResponse<Report>(await authorizedFetch(`${API_BASE}/api/demo-report`));
 }
 
 export async function fetchStudioHealth(): Promise<StudioHealth> {
   return parseResponse<StudioHealth>(await fetch(`${API_BASE}/api/health`));
 }
 
+export async function fetchStudioSession(apiKey?: string): Promise<StudioSession> {
+  return parseResponse<StudioSession>(
+    await authorizedFetch(`${API_BASE}/api/session`, {}, apiKey),
+  );
+}
+
+export async function unlockStudioWorkspace(apiKey: string): Promise<StudioSession> {
+  const normalizedApiKey = apiKey.trim();
+  const session = await fetchStudioSession(normalizedApiKey);
+  window.sessionStorage.setItem(STUDIO_API_KEY_STORAGE, normalizedApiKey);
+  return session;
+}
+
 export async function fetchTraces(): Promise<TraceSummary[]> {
   const payload = await parseResponse<{ traces: TraceSummary[] }>(
-    await fetch(`${API_BASE}/api/traces`),
+    await authorizedFetch(`${API_BASE}/api/traces`),
   );
   return payload.traces;
 }
 
 export async function fetchRegressionCases(): Promise<RegressionCase[]> {
   const payload = await parseResponse<{ cases: RegressionCase[] }>(
-    await fetch(`${API_BASE}/api/regression-cases`),
+    await authorizedFetch(`${API_BASE}/api/regression-cases`),
   );
   return payload.cases;
 }
@@ -61,13 +112,15 @@ export async function fetchRuns(filters: RunHistoryFilters = {}): Promise<RunSum
   }
   const suffix = query.size > 0 ? `?${query.toString()}` : "";
   const payload = await parseResponse<{ runs: RunSummary[] }>(
-    await fetch(`${API_BASE}/api/runs${suffix}`),
+    await authorizedFetch(`${API_BASE}/api/runs${suffix}`),
   );
   return payload.runs;
 }
 
 export async function fetchRunReport(reportId: string): Promise<Report> {
-  return parseResponse<Report>(await fetch(`${API_BASE}/api/runs/${encodeURIComponent(reportId)}`));
+  return parseResponse<Report>(
+    await authorizedFetch(`${API_BASE}/api/runs/${encodeURIComponent(reportId)}`),
+  );
 }
 
 export async function uploadTrace(file: File): Promise<TraceSummary> {
@@ -75,7 +128,7 @@ export async function uploadTrace(file: File): Promise<TraceSummary> {
   const body = new FormData();
   body.append("file", file);
   const payload = await parseResponse<{ trace: TraceSummary }>(
-    await fetch(`${API_BASE}/api/traces/upload`, {
+    await authorizedFetch(`${API_BASE}/api/traces/upload`, {
       method: "POST",
       body,
     }),
@@ -95,7 +148,7 @@ export async function createRegressionCase(
   payload: CreateRegressionCasePayload,
 ): Promise<RegressionCase> {
   const response = await parseResponse<{ case: RegressionCase }>(
-    await fetch(`${API_BASE}/api/regression-cases`, {
+    await authorizedFetch(`${API_BASE}/api/regression-cases`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -109,7 +162,7 @@ export async function runRegressionCase(
   candidateTraceId: string,
 ): Promise<{ case: RegressionCase; report: Report }> {
   return parseResponse<{ case: RegressionCase; report: Report }>(
-    await fetch(`${API_BASE}/api/regression-cases/${caseId}/run`, {
+    await authorizedFetch(`${API_BASE}/api/regression-cases/${encodeURIComponent(caseId)}/run`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ candidate_trace_id: candidateTraceId }),
@@ -122,7 +175,7 @@ export async function compareTraces(
   candidateTraceId: string,
 ): Promise<Report> {
   return parseResponse<Report>(
-    await fetch(`${API_BASE}/api/compare`, {
+    await authorizedFetch(`${API_BASE}/api/compare`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

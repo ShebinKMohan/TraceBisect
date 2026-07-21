@@ -65,6 +65,23 @@ multiple isolated local workspaces. `/api/health` reports the active storage
 mode and honest SaaS-readiness blockers; `/api/ready` is the process/storage
 readiness probe.
 
+For a protected multi-workspace API, map long bearer keys to workspace IDs.
+Studio validates the key before opening the dashboard and keeps it in browser
+`sessionStorage`, so closing the tab clears it:
+
+```bash
+TRACEBISECT_STUDIO_STORAGE=sqlite \
+TRACEBISECT_STUDIO_SQLITE_PATH=.tracebisect/studio.db \
+TRACEBISECT_STUDIO_AUTH_MODE=api-key \
+TRACEBISECT_STUDIO_API_KEYS='{"replace-with-a-random-key-at-least-32-characters":"team-a"}' \
+TRACEBISECT_STUDIO_ALLOWED_ORIGINS='https://studio.example.com' \
+uvicorn tracebisect.studio.api:app --port 8000
+```
+
+The bearer key—not a client-provided workspace header—selects the authorized
+workspace. This is a secured self-hosted foundation, not managed user accounts,
+self-service key rotation, or team RBAC.
+
 ## Commands
 
 - `tracebisect --version` — prints the package version.
@@ -140,8 +157,9 @@ V1 will ship:
 - pytest regression-test export with fresh CI capture
 - Studio web dashboard for upload, compare, visual report, and pytest copy flow
 
-V1 Studio is still intentionally narrow: no auth, billing, team RBAC,
-vendor-native direct importers, or git-history bisection.
+V1 Studio is still intentionally narrow: it has opt-in workspace API-key
+protection, but no managed user accounts, billing, team RBAC, vendor-native
+direct importers, or git-history bisection.
 
 See [spec/production-spec.md](spec/production-spec.md) for the locked product
 specification.

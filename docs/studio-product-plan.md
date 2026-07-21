@@ -85,7 +85,9 @@ Frontend:
 - Next.js 16 App Router in `studio/web`.
 - Standardized palette: `#2C6975`, `#68B2A0`, `#CDE0C9`, `#E0ECDE`, `#FFFFFF`.
 - Light and dark dashboard modes with the same component structure.
-- No auth, billing, teams, or database in the first slice.
+- A zero-setup local mode plus an opt-in access-key unlock flow for protected
+  request-scoped SQLite workspaces. Managed accounts, billing, and teams remain
+  future phases.
 - Show the seeded demo immediately on first load.
 - UI must look like a product dashboard, not a docs page.
 
@@ -129,14 +131,15 @@ Langfuse wholesale.
 
 See `docs/studio-production-hardening.md` for the current API, upload,
 throttling, and security boundary. The local MVP is hardened against obvious
-bad inputs, but auth, persistence, API keys, and distributed rate limiting are
-still separate SaaS milestones.
+bad inputs and now supports durable API-key-scoped workspaces. Managed identity,
+key lifecycle, deployment observability, and distributed rate limiting remain
+separate SaaS milestones.
 
 ## Out Of Scope For This Slice
 
 Do not add these in the first Studio MVP:
 
-- Authentication.
+- Managed authentication, account recovery, and self-service key lifecycle.
 - Billing.
 - Team RBAC.
 - Multi-tenant production isolation.

@@ -7,6 +7,7 @@ import {
   Database,
   GitCompare,
   Home,
+  LockKeyhole,
   MessagesSquare,
   Moon,
   PanelLeftClose,
@@ -30,7 +31,9 @@ const navItems = [
 
 type SidebarProps = {
   activeSection: StudioSection;
+  authRequired: boolean;
   collapsed: boolean;
+  onLock: () => void;
   onPrimaryAction: () => void;
   onSectionChange: (section: StudioSection) => void;
   onThemeToggle: () => void;
@@ -41,7 +44,9 @@ type SidebarProps = {
 
 export function Sidebar({
   activeSection,
+  authRequired,
   collapsed,
+  onLock,
   onPrimaryAction,
   onSectionChange,
   onThemeToggle,
@@ -57,7 +62,9 @@ export function Sidebar({
       : "Local workspace"
     : "Checking workspace";
   const workspaceDetail = runtime
-    ? durable
+    ? authRequired
+      ? `Workspace · ${runtime.workspace_id}`
+      : durable
       ? "Saved across API restarts"
       : "Data resets with the API"
     : "Reading API storage mode";
@@ -122,6 +129,18 @@ export function Sidebar({
             <small>{workspaceDetail}</small>
           </div>
         </div>
+        {authRequired ? (
+          <button
+            aria-label="Lock this workspace"
+            className="theme-footer-button"
+            data-testid="lock-workspace"
+            onClick={onLock}
+            type="button"
+          >
+            <LockKeyhole size={16} aria-hidden />
+            <span>Lock workspace</span>
+          </button>
+        ) : null}
         <button
           aria-label={`Switch to ${theme === "light" ? "dark" : "light"} mode`}
           className="theme-footer-button"

@@ -5724,3 +5724,225 @@ html[data-theme="dark"] .sidebar {
     justify-self: start;
   }
 }
+
+.unlock-page {
+  display: grid;
+  min-height: 100vh;
+  padding: 32px 20px;
+  place-items: center;
+  background:
+    radial-gradient(circle at 50% 4%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 34%),
+    linear-gradient(145deg, #07100d 0%, #0b1713 52%, #0e1e18 100%);
+}
+
+.unlock-card {
+  display: grid;
+  width: min(100%, 440px);
+  gap: 22px;
+  padding: 28px;
+  border: 1px solid color-mix(in srgb, var(--accent-line) 64%, #ffffff 10%);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--shell) 97%, transparent);
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.35);
+}
+
+.unlock-brand {
+  display: flex;
+  gap: 11px;
+  align-items: center;
+}
+
+.unlock-brand > span {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 10px;
+  background: #07100d;
+  color: #ffffff;
+}
+
+.unlock-brand strong,
+.unlock-brand small {
+  display: block;
+}
+
+.unlock-brand strong {
+  color: var(--text);
+  font-size: 16px;
+  letter-spacing: -0.02em;
+}
+
+.unlock-brand small {
+  margin-top: 1px;
+  color: var(--text-subtle);
+  font-size: 11px;
+}
+
+.unlock-icon {
+  display: grid;
+  width: 50px;
+  height: 50px;
+  place-items: center;
+  border: 1px solid var(--accent-line);
+  border-radius: 13px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.unlock-copy {
+  display: grid;
+  gap: 8px;
+}
+
+.unlock-eyebrow {
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.unlock-copy h1 {
+  color: var(--text);
+  font-size: 29px;
+  line-height: 1.05;
+  letter-spacing: -0.045em;
+}
+
+.unlock-copy > p:last-child {
+  max-width: 38rem;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.unlock-card form {
+  display: grid;
+  gap: 10px;
+}
+
+.unlock-card form > label {
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.unlock-input-wrap {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 9px;
+  align-items: center;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  background: var(--surface-soft);
+  color: var(--text-subtle);
+}
+
+.unlock-input-wrap:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.unlock-input-wrap input {
+  width: 100%;
+  min-width: 0;
+  height: 44px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+}
+
+.unlock-input-wrap input::placeholder {
+  color: var(--text-subtle);
+}
+
+.unlock-card form > button {
+  min-height: 44px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--accent);
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.unlock-card form > button:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.unlock-card form > button:disabled {
+  opacity: 0.5;
+}
+
+.unlock-error {
+  padding: 9px 11px;
+  border: 1px solid color-mix(in srgb, var(--danger) 34%, transparent);
+  border-radius: 8px;
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 11px;
+}
+
+.unlock-privacy-note {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 9px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+  color: var(--text-subtle);
+}
+
+.unlock-privacy-note p {
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+
+.unlock-privacy-note strong {
+  color: var(--text-muted);
+}
+
+.unlock-connecting {
+  min-height: 310px;
+  align-content: center;
+}
+
+.unlock-spinner {
+  width: 34px;
+  height: 34px;
+  border: 3px solid var(--accent-soft);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: unlock-spin 800ms linear infinite;
+}
+
+@keyframes unlock-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .unlock-spinner {
+    animation: none;
+    border-color: var(--accent-line);
+  }
+}
+
+@media (max-width: 520px) {
+  .unlock-page {
+    align-items: start;
+    padding: max(22px, env(safe-area-inset-top)) 14px 24px;
+  }
+
+  .unlock-card {
+    gap: 18px;
+    padding: 22px;
+    border-radius: 15px;
+  }
+
+  .unlock-copy h1 {
+    font-size: 26px;
+  }
+}

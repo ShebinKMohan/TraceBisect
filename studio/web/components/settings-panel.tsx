@@ -41,6 +41,7 @@ function CopyCommand({ command, label }: { command: string; label: string }) {
 
 export function SettingsPanel({ health }: { health: StudioHealth | null }) {
   const durable = health?.runtime.durable ?? false;
+  const authRequired = health?.auth.required ?? false;
   return (
     <section className="setup-guide" data-testid="setup-section">
       <div className="setup-mode-banner">
@@ -49,14 +50,18 @@ export function SettingsPanel({ health }: { health: StudioHealth | null }) {
           <strong>
             {health
               ? durable
-                ? "Running with durable workspace storage"
+                ? authRequired
+                  ? "Running with protected durable storage"
+                  : "Running with durable workspace storage"
                 : "Running as a local workspace"
               : "Checking workspace storage"}
           </strong>
           <p>
             {health
               ? durable
-                ? `Traces, comparisons, and guardrails for ${health.runtime.workspace_id} are saved across API restarts.`
+                ? authRequired
+                  ? `Your session key grants access to ${health.runtime.workspace_id}. Its traces, comparisons, and guardrails are saved across API restarts.`
+                  : `Traces, comparisons, and guardrails for ${health.runtime.workspace_id} are saved across API restarts.`
                 : "No account or API key is required. Uploaded data is held in memory and resets with the API process."
               : "Waiting for the API to confirm whether this workspace is temporary or durable."}
           </p>
@@ -127,7 +132,11 @@ export function SettingsPanel({ health }: { health: StudioHealth | null }) {
 
       <div className="setup-boundary">
         <h2>What is not enabled yet</h2>
-        <p>Authentication, request-scoped workspace access, hosted ingestion, team access, billing, and API keys are future production milestones—not active features in this build.</p>
+        <p>
+          {authRequired
+            ? "Managed user accounts, self-service key rotation, hosted ingestion, team administration, and billing are future production milestones—not active features in this build."
+            : "Authentication, request-scoped workspace access, hosted ingestion, team access, billing, and API keys are future production milestones—not active features in this build."}
+        </p>
       </div>
     </section>
   );

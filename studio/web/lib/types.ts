@@ -11,6 +11,10 @@ export type JsonObject = { [key: string]: JsonValue };
 export type StudioHealth = {
   ok: boolean;
   product: string;
+  auth: {
+    mode: "none" | "api-key";
+    required: boolean;
+  };
   runtime: {
     kind: "memory" | "sqlite";
     durable: boolean;
@@ -34,6 +38,12 @@ export type StudioHealth = {
     rate_limit_requests: number;
     rate_limit_upload_requests: number;
   };
+};
+
+export type StudioSession = {
+  authenticated: boolean;
+  workspace_id: string;
+  runtime: StudioHealth["runtime"];
 };
 
 export type TraceSummary = {

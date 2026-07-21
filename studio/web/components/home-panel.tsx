@@ -3,6 +3,7 @@ import type { RegressionCase, Report, StudioHealth, StudioSection, TraceSummary 
 import { friendlyDivergenceType, friendlyTraceName } from "@/lib/format";
 
 type HomePanelProps = {
+  authRequired: boolean;
   cases: RegressionCase[];
   report: Report | null;
   runtime: StudioHealth["runtime"] | null;
@@ -18,7 +19,7 @@ const glossary = [
   ["Guardrail", "A saved pytest check that helps stop the same bug returning."],
 ];
 
-export function HomePanel({ cases, report, runtime, traces, onSectionChange }: HomePanelProps) {
+export function HomePanel({ authRequired, cases, report, runtime, traces, onSectionChange }: HomePanelProps) {
   const first = report?.first_divergence ?? null;
   const durable = runtime?.durable ?? false;
   const workspaceTitle = runtime
@@ -124,11 +125,21 @@ export function HomePanel({ cases, report, runtime, traces, onSectionChange }: H
           <div className="local-boundary-note">
             <Braces size={17} aria-hidden />
             <p>
-              <strong>{runtime ? (durable ? "Durable local mode:" : "Local MVP:") : "Checking storage mode:"}</strong>{" "}
+              <strong>
+                {runtime
+                  ? authRequired
+                    ? "Protected workspace:"
+                    : durable
+                      ? "Durable local mode:"
+                      : "Local MVP:"
+                  : "Checking storage mode:"}
+              </strong>{" "}
               {runtime
-                ? durable
-                  ? "traces, comparisons, and guardrails survive API restarts."
-                  : "no account is required and data resets when the API restarts."
+                ? authRequired
+                  ? "your session key grants access only to this workspace, and its data survives API restarts."
+                  : durable
+                    ? "traces, comparisons, and guardrails survive API restarts."
+                    : "no account is required and data resets when the API restarts."
                 : "the API will report whether this workspace survives a restart."}
             </p>
           </div>

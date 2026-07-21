@@ -28,6 +28,16 @@ temporary files out of the web root, and throttle repeated API calls.
   regression cases, and demo metadata across API restarts.
 - Every SQLite row is scoped by a validated workspace identifier so storage
   isolation exists before request-level multi-tenancy is introduced.
+- Optional bearer-key authentication maps each credential to exactly one
+  workspace. Client workspace headers are ignored, invalid keys fail closed,
+  and comparisons cannot be read across workspace stores.
+- Studio keeps an accepted workspace key in browser `sessionStorage`, not
+  persistent `localStorage`, and offers an explicit **Lock workspace** action.
+- API keys must contain 32-256 URL-safe characters and are compared using a
+  constant-time comparison.
+- Browser origins are allow-listed with
+  `TRACEBISECT_STUDIO_ALLOWED_ORIGINS`; wildcard, credential-bearing, and
+  path-bearing origins fail startup validation.
 - `/api/ready` checks the configured store, while `/api/health` separates
   process readiness from full production-SaaS readiness.
 - Compare requests reject identical baseline/candidate IDs.
@@ -45,21 +55,24 @@ temporary files out of the web root, and throttle repeated API calls.
 These are not solved by the local MVP and must be implemented before calling
 Studio a real multi-tenant SaaS:
 
-- Authentication and workspace/project authorization.
-- Managed multi-user database storage and request-scoped workspace isolation.
-- API keys and scoped ingestion tokens.
+- Managed user identities, account recovery, and team/project RBAC.
+- Managed multi-user database storage beyond the single-node SQLite backend.
+- Self-service API-key issuance, hashing, rotation, revocation, and scoped
+  ingestion tokens.
 - Durable background jobs for large OTel imports and comparisons.
 - Distributed rate limiting backed by Redis or the hosting provider.
 - Audit logs for uploads, comparisons, and generated tests.
 - Object storage and antivirus/sandbox scanning for untrusted uploads.
 - Real observability for Studio itself: structured logs, metrics, alerts, and
   error tracking.
-- Deployment-specific CORS, TLS, proxy, and security-header configuration.
+- Deployment-specific TLS, reverse-proxy, and extended security-header
+  configuration.
 
-The current build has a restart-safe single-node persistence foundation, not a
-finished hosted SaaS. The next production step is authentication plus
-request-scoped workspace authorization; do not add Langfuse-scale ClickHouse,
-queues, or enterprise controls until the core comparison workflow needs them.
+The current build has restart-safe single-node persistence plus fail-closed
+workspace API-key authorization, not a finished hosted SaaS. The next
+production step is managed identity/key lifecycle and deployment observability;
+do not add Langfuse-scale ClickHouse or queues until the comparison workflow
+needs them.
 
 ## References
 

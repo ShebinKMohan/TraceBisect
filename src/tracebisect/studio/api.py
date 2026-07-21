@@ -10,13 +10,15 @@ from collections import deque
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Annotated, cast
+from urllib.parse import urlsplit
 
-from fastapi import FastAPI, File, HTTPException, Query, Request, Response, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from starlette.responses import JSONResponse
 
 from tracebisect.schema import JsonObject, JsonValue, TraceBisectSchemaError
+from tracebisect.studio.auth import StudioAuthConfig
 from tracebisect.studio.service import (
     DEFAULT_SCENARIO_CMD,
     StudioStore,
@@ -26,21 +28,86 @@ from tracebisect.studio.service import (
     seed_demo_report,
 )
 from tracebisect.studio.storage import (
+    StudioConfigurationError,
     StudioPersistenceError,
-    create_studio_store,
+    StudioStoreRegistry,
 )
 
-MAX_UPLOAD_BYTES = int(os.getenv("TRACEBISECT_STUDIO_MAX_UPLOAD_BYTES", str(5 * 1024 * 1024)))
+
+def _configured_allowed_origins(raw: str | None = None) -> list[str]:
+    configured = (
+        os.getenv("TRACEBISECT_STUDIO_ALLOWED_ORIGINS", "") if raw is None else raw
+    ).strip()
+    origins = (
+        [item.strip() for item in configured.split(",") if item.strip()]
+        if configured
+        else [
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+        ]
+    )
+    if not origins:
+        raise StudioConfigurationError(
+            "TRACEBISECT_STUDIO_ALLOWED_ORIGINS must contain at least one origin"
+        )
+    normalized: list[str] = []
+    for origin in origins:
+        parsed = urlsplit(origin)
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.netloc
+            or parsed.path not in {"", "/"}
+            or parsed.query
+            or parsed.fragment
+            or parsed.username
+            or parsed.password
+        ):
+            raise StudioConfigurationError(
+                "TRACEBISECT_STUDIO_ALLOWED_ORIGINS must contain only HTTP(S) origins "
+                "without paths, credentials, queries, or fragments"
+            )
+        normalized.append(f"{parsed.scheme}://{parsed.netloc}")
+    return list(dict.fromkeys(normalized))
+
+
+def _positive_env_int(name: str, default: int, raw: str | None = None) -> int:
+    configured = os.getenv(name, str(default)) if raw is None else raw
+    try:
+        value = int(configured)
+    except ValueError as exc:
+        raise StudioConfigurationError(f"{name} must be a positive integer") from exc
+    if value < 1:
+        raise StudioConfigurationError(f"{name} must be a positive integer")
+    return value
+
+
+MAX_UPLOAD_BYTES = _positive_env_int(
+    "TRACEBISECT_STUDIO_MAX_UPLOAD_BYTES",
+    5 * 1024 * 1024,
+)
 MAX_FILENAME_LENGTH = 120
 MAX_SCENARIO_CMD_ITEMS = 16
 MAX_SCENARIO_CMD_ITEM_LENGTH = 240
-RATE_LIMIT_WINDOW_SECONDS = int(os.getenv("TRACEBISECT_STUDIO_RATE_LIMIT_WINDOW_SECONDS", "60"))
-RATE_LIMIT_REQUESTS = int(os.getenv("TRACEBISECT_STUDIO_RATE_LIMIT_REQUESTS", "180"))
-RATE_LIMIT_UPLOAD_REQUESTS = int(os.getenv("TRACEBISECT_STUDIO_UPLOAD_RATE_LIMIT_REQUESTS", "30"))
+RATE_LIMIT_WINDOW_SECONDS = _positive_env_int(
+    "TRACEBISECT_STUDIO_RATE_LIMIT_WINDOW_SECONDS",
+    60,
+)
+RATE_LIMIT_REQUESTS = _positive_env_int(
+    "TRACEBISECT_STUDIO_RATE_LIMIT_REQUESTS",
+    180,
+)
+RATE_LIMIT_UPLOAD_REQUESTS = _positive_env_int(
+    "TRACEBISECT_STUDIO_UPLOAD_RATE_LIMIT_REQUESTS",
+    30,
+)
 ALLOWED_UPLOAD_SUFFIXES = frozenset({".tbtrace", ".json"})
 UPLOAD_CHUNK_BYTES = 1024 * 1024
 VALID_RUN_STATUSES = frozenset({"passing", "failing"})
 VALID_RUN_SEVERITIES = frozenset({"INFO", "LOW", "MEDIUM", "HIGH", "CRITICAL"})
+PUBLIC_API_PATHS = frozenset({"/api/health", "/api/ready"})
+ALLOWED_ORIGINS = _configured_allowed_origins()
 
 app = FastAPI(
     title="TraceBisect Studio API",
@@ -48,20 +115,19 @@ app = FastAPI(
     description="SaaS-style API around the TraceBisect trace regression engine.",
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-    ],
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+AUTH_CONFIG = StudioAuthConfig.from_env()
+STORE_REGISTRY = StudioStoreRegistry()
+STORE: StudioStore = STORE_REGISTRY.default_store
 
-STORE: StudioStore = create_studio_store()
+
+def _request_store(request: Request) -> StudioStore:
+    workspace_id = getattr(request.state, "workspace_id", STORE.workspace_id)
+    if not isinstance(workspace_id, str):
+        raise StudioPersistenceError("request workspace context is invalid")
+    return STORE_REGISTRY.get(workspace_id)
+
+
+StudioStoreDependency = Annotated[StudioStore, Depends(_request_store)]
 
 
 class CompareRequest(BaseModel):
@@ -150,9 +216,34 @@ async def apply_api_guardrails(
             _apply_security_headers(limited_response)
             return limited_response
 
+        if AUTH_CONFIG.required and request.url.path not in PUBLIC_API_PATHS:
+            workspace_id = AUTH_CONFIG.workspace_for_authorization(
+                request.headers.get("Authorization")
+            )
+            if workspace_id is None:
+                unauthorized_response = JSONResponse(
+                    status_code=401,
+                    content={"detail": "A valid Studio workspace API key is required."},
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+                _apply_security_headers(unauthorized_response)
+                return unauthorized_response
+            request.state.workspace_id = workspace_id
+        else:
+            request.state.workspace_id = STORE.workspace_id
+
     response = await call_next(request)
     _apply_security_headers(response)
     return response
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/api/health", response_model=None)
@@ -161,7 +252,8 @@ def health() -> JsonObject:
     return {
         "ok": storage_ok,
         "product": "TraceBisect Studio",
-        "runtime": STORE.runtime_status(),
+        "auth": cast(JsonValue, AUTH_CONFIG.runtime_status()),
+        "runtime": _public_runtime_status(),
         "readiness": _production_readiness(storage_ok=storage_ok),
         "limits": {
             "max_upload_bytes": MAX_UPLOAD_BYTES,
@@ -187,18 +279,32 @@ def ready(response: Response) -> JsonObject:
     }
 
 
+@app.get("/api/session", response_model=None)
+def session(request: Request, store: StudioStoreDependency) -> JsonObject:
+    """Return the authenticated workspace and its actual storage behavior."""
+    workspace_id = getattr(request.state, "workspace_id", store.workspace_id)
+    if not isinstance(workspace_id, str):
+        raise StudioPersistenceError("request workspace context is invalid")
+    return {
+        "authenticated": AUTH_CONFIG.required,
+        "workspace_id": workspace_id,
+        "runtime": store.runtime_status(),
+    }
+
+
 @app.get("/api/demo-report", response_model=None)
-def demo_report() -> JsonObject:
-    return seed_demo_report(STORE)
+def demo_report(store: StudioStoreDependency) -> JsonObject:
+    return seed_demo_report(store)
 
 
 @app.get("/api/traces", response_model=None)
-def list_traces() -> JsonObject:
-    return {"traces": cast(JsonValue, STORE.list_traces())}
+def list_traces(store: StudioStoreDependency) -> JsonObject:
+    return {"traces": cast(JsonValue, store.list_traces())}
 
 
 @app.get("/api/runs", response_model=None)
 def list_runs(
+    store: StudioStoreDependency,
     q: Annotated[str | None, Query(max_length=120)] = None,
     status: Annotated[str | None, Query(max_length=32)] = None,
     severity: Annotated[str | None, Query(max_length=32)] = None,
@@ -211,7 +317,7 @@ def list_runs(
     if limit < 1 or limit > 100:
         raise HTTPException(status_code=400, detail="limit must be between 1 and 100.")
     runs = _filtered_run_summaries(
-        STORE.list_report_summaries(),
+        store.list_report_summaries(),
         q=q,
         status=status,
         severity=severity,
@@ -225,15 +331,18 @@ def list_runs(
 
 
 @app.get("/api/runs/{report_id}", response_model=None)
-def get_run_report(report_id: str) -> JsonObject:
+def get_run_report(report_id: str, store: StudioStoreDependency) -> JsonObject:
     try:
-        return STORE.get_report(report_id)
+        return store.get_report(report_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=_key_error_detail(exc)) from exc
 
 
 @app.post("/api/traces/upload", response_model=None)
-async def upload_trace(file: Annotated[UploadFile, File()]) -> JsonObject:
+async def upload_trace(
+    file: Annotated[UploadFile, File()],
+    store: StudioStoreDependency,
+) -> JsonObject:
     filename = _safe_display_filename(file.filename)
     suffix = Path(filename).suffix.lower()
     if suffix not in ALLOWED_UPLOAD_SUFFIXES:
@@ -259,15 +368,15 @@ async def upload_trace(file: Annotated[UploadFile, File()]) -> JsonObject:
         await file.close()
 
     try:
-        trace_key = STORE.add_trace(trace, name=filename)
+        trace_key = store.add_trace(trace, name=filename)
     except StudioStoreFullError as exc:
         raise HTTPException(status_code=507, detail=str(exc)) from exc
-    summary = next(item for item in STORE.list_traces() if item["id"] == trace_key)
+    summary = next(item for item in store.list_traces() if item["id"] == trace_key)
     return {"trace": summary}
 
 
 @app.post("/api/compare", response_model=None)
-def compare_traces(request: CompareRequest) -> JsonObject:
+def compare_traces(request: CompareRequest, store: StudioStoreDependency) -> JsonObject:
     scenario = _validated_scenario_cmd(request.scenario_cmd)
     if request.baseline_trace_id == request.candidate_trace_id:
         raise HTTPException(
@@ -275,33 +384,36 @@ def compare_traces(request: CompareRequest) -> JsonObject:
             detail="Baseline and candidate traces must be different.",
         )
     try:
-        baseline = STORE.get_trace(request.baseline_trace_id)
-        candidate = STORE.get_trace(request.candidate_trace_id)
+        baseline = store.get_trace(request.baseline_trace_id)
+        candidate = store.get_trace(request.candidate_trace_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=_key_error_detail(exc)) from exc
 
     report = build_comparison_report(
         baseline,
         candidate,
-        baseline_name=STORE.trace_names[request.baseline_trace_id],
-        candidate_name=STORE.trace_names[request.candidate_trace_id],
+        baseline_name=store.trace_names[request.baseline_trace_id],
+        candidate_name=store.trace_names[request.candidate_trace_id],
         scenario_cmd=scenario,
     )
-    STORE.add_report(report)
+    store.add_report(report)
     return report
 
 
 @app.get("/api/regression-cases", response_model=None)
-def list_regression_cases() -> JsonObject:
-    return {"cases": cast(JsonValue, STORE.list_cases())}
+def list_regression_cases(store: StudioStoreDependency) -> JsonObject:
+    return {"cases": cast(JsonValue, store.list_cases())}
 
 
 @app.post("/api/regression-cases", response_model=None)
-def create_regression_case(request: RegressionCaseCreateRequest) -> JsonObject:
+def create_regression_case(
+    request: RegressionCaseCreateRequest,
+    store: StudioStoreDependency,
+) -> JsonObject:
     scenario = _validated_scenario_cmd(request.scenario_cmd)
     _validate_distinct_trace_ids(request.baseline_trace_id, request.candidate_trace_id)
     try:
-        case = STORE.add_case_from_report(
+        case = store.add_case_from_report(
             name=request.name,
             description=request.description,
             tags=_validated_string_items(request.tags, field_name="tags"),
@@ -319,21 +431,25 @@ def create_regression_case(request: RegressionCaseCreateRequest) -> JsonObject:
 
 
 @app.get("/api/regression-cases/{case_id}", response_model=None)
-def get_regression_case(case_id: str) -> JsonObject:
+def get_regression_case(case_id: str, store: StudioStoreDependency) -> JsonObject:
     try:
-        return {"case": STORE.get_case(case_id)}
+        return {"case": store.get_case(case_id)}
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=_key_error_detail(exc)) from exc
 
 
 @app.post("/api/regression-cases/{case_id}/run", response_model=None)
-def run_regression_case(case_id: str, request: RegressionCaseRunRequest) -> JsonObject:
+def run_regression_case(
+    case_id: str,
+    request: RegressionCaseRunRequest,
+    store: StudioStoreDependency,
+) -> JsonObject:
     scenario = _validated_scenario_cmd(request.scenario_cmd)
     try:
-        existing = STORE.get_case(case_id)
+        existing = store.get_case(case_id)
         baseline_trace_id = _json_string(existing["baseline_trace_id"])
         _validate_distinct_trace_ids(baseline_trace_id, request.candidate_trace_id)
-        case, report = STORE.run_case(
+        case, report = store.run_case(
             case_id,
             candidate_trace_id=request.candidate_trace_id,
             scenario_cmd=scenario,
@@ -448,10 +564,22 @@ def _production_readiness(*, storage_ok: bool) -> JsonObject:
     durable = runtime["durable"] is True
     completed: list[str] = ["API storage health check"] if storage_ok else []
     blockers = [
-        "authentication and authorization",
-        "request-scoped workspace isolation",
         "managed backups and restore testing",
+        "managed user accounts and API-key lifecycle",
+        "hosted deployment observability",
     ]
+    if AUTH_CONFIG.required:
+        completed.extend(
+            [
+                "bearer API-key authentication",
+                "request-scoped workspace authorization",
+            ]
+        )
+    else:
+        blockers[:0] = [
+            "authentication and authorization",
+            "request-scoped workspace isolation",
+        ]
     if durable:
         completed.append("restart-safe workspace storage")
     else:
@@ -461,6 +589,19 @@ def _production_readiness(*, storage_ok: bool) -> JsonObject:
         "production_saas_ready": False,
         "completed": cast(JsonValue, completed),
         "blockers": cast(JsonValue, blockers),
+    }
+
+
+def _public_runtime_status() -> JsonObject:
+    runtime = STORE.runtime_status()
+    if not AUTH_CONFIG.required:
+        return runtime
+    return {
+        **runtime,
+        "workspace_id": "protected",
+        "trace_count": 0,
+        "report_count": 0,
+        "case_count": 0,
     }
 
 
