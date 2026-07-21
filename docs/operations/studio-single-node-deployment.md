@@ -14,6 +14,9 @@ multi-region SaaS topology.
 - The API is a non-root, read-only container with one persistent `/data` volume,
   a bounded temporary filesystem, dropped Linux capabilities, and a readiness
   check.
+- A private ClamAV service scans bounded trace bytes before parsing. The scanner
+  port is not published, its signature database has a persistent volume, and a
+  detected threat or unavailable scanner stores nothing.
 - The web container is non-root and read-only. Its browser client uses the same
   public origin, so credentials do not need a second public API hostname.
 - The optional email worker is a supervised Python process with graceful
@@ -32,6 +35,8 @@ private container network. Never publish container port `8000` directly.
 Use a maintained Linux host with Docker Engine and the Docker Compose plugin.
 Point the selected hostname's A/AAAA record at the host, and allow inbound TCP
 80/443 plus UDP 443. Keep SSH and the Docker socket restricted to operators.
+Plan at least 4 GB of memory for ClamAV in addition to the memory required by
+the API, web, proxy, and optional monitoring or email services.
 
 Create the private environment file:
 
@@ -143,12 +148,18 @@ curl --fail --show-error https://studio.example.com/api/ready
 curl --fail --show-error https://studio.example.com/api/health
 ```
 
-Replace the hostname. `/api/ready` must report storage ready. `/api/health`
-must report secure browser cookies, managed identity, durable SQLite, and the
+Replace the hostname. `/api/ready` must report both storage and the configured
+upload scanner ready. `/api/health` must show the scanner enabled and ready,
+along with secure browser cookies, managed identity, durable SQLite, and the
 actual email/webhook state. It will continue to report
 `production_saas_ready: false`; this topology still needs scheduled encrypted
 off-site backups, centralized request-log retention, external alert delivery,
 off-host metrics retention, and recovery drills.
+
+If scanner readiness fails, inspect the private ClamAV service and signature
+update state before accepting uploads. Do not disable scanning to make readiness
+pass. See [studio-upload-scanning.md](studio-upload-scanning.md) for the
+fail-closed contract and troubleshooting boundary.
 
 ## Practice recovery monthly
 

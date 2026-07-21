@@ -174,3 +174,19 @@ def test_single_node_compose_adds_private_bounded_monitoring() -> None:
     assert services["api"]["secrets"] == [
         {"source": "tracebisect_metrics_token", "target": "tracebisect_metrics_token"}
     ]
+
+
+def test_single_node_compose_scans_uploads_on_a_private_clamav_service() -> None:
+    compose = cast(dict[str, Any], yaml.safe_load(COMPOSE_PATH.read_text(encoding="utf-8")))
+    services = cast(dict[str, dict[str, Any]], compose["services"])
+    api = services["api"]
+    clamav = services["clamav"]
+
+    assert api["environment"]["TRACEBISECT_STUDIO_UPLOAD_SCANNER"] == "clamav"
+    assert api["environment"]["TRACEBISECT_STUDIO_CLAMAV_HOST"] == "clamav"
+    assert api["environment"]["TRACEBISECT_STUDIO_CLAMAV_PORT"] == "3310"
+    assert api["depends_on"]["clamav"] == {"condition": "service_healthy"}
+    assert clamav["image"] == "clamav/clamav:1.5.2"
+    assert clamav["networks"] == ["backend", "egress"]
+    assert clamav["volumes"] == ["clamav-data:/var/lib/clamav"]
+    assert "ports" not in clamav

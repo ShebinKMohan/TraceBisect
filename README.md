@@ -221,6 +221,19 @@ reporter is installed. Durable SQLite and PostgreSQL retain a bounded copy for
 operator request-ID search; the hosting platform still owns request-audit
 retention, centralized log access, and alert delivery.
 
+Hosted trace uploads can require a private ClamAV scan before parsing:
+
+```bash
+export TRACEBISECT_STUDIO_UPLOAD_SCANNER=clamav
+export TRACEBISECT_STUDIO_CLAMAV_HOST=private-clamav
+```
+
+Clean bytes continue to parsing; detected threats and scanner failures store
+nothing. The production Compose bundle enables this fail-closed path by default
+and does not publish the scanner port. See
+[`docs/operations/studio-upload-scanning.md`](docs/operations/studio-upload-scanning.md)
+for setup, readiness checks, and the remaining object-storage boundary.
+
 `/api/metrics` exposes Prometheus text metrics for storage readiness, request
 volume, result class, latency, authentication outcomes, in-flight work, and
 process uptime. It never

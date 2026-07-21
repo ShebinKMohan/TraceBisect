@@ -95,6 +95,11 @@ from tracebisect.studio.storage import (
     StudioPersistenceError,
     StudioStoreRegistry,
 )
+from tracebisect.studio.upload_scanner import (
+    StudioUploadScannerUnavailable,
+    StudioUploadThreatDetected,
+    create_studio_upload_scanner,
+)
 
 
 def _configured_allowed_origins(raw: str | None = None) -> list[str]:
@@ -279,6 +284,7 @@ RATE_LIMITER = create_studio_rate_limiter(
 )
 METRICS = StudioMetrics()
 METRICS_ACCESS = StudioMetricsAccess.from_env()
+UPLOAD_SCANNER = create_studio_upload_scanner()
 
 
 def _request_store(request: Request) -> StudioStore:
@@ -629,6 +635,7 @@ app.add_middleware(
 @app.get("/api/health", response_model=None)
 def health() -> JsonObject:
     storage_ok = STORE.check_health()
+    upload_scanner_ready = UPLOAD_SCANNER.check_health()
     if not storage_ok:
         runtime = _unavailable_runtime_status()
     else:
@@ -637,8 +644,9 @@ def health() -> JsonObject:
         except StudioPersistenceError:
             storage_ok = False
             runtime = _unavailable_runtime_status()
+    service_ok = storage_ok and upload_scanner_ready
     return {
-        "ok": storage_ok,
+        "ok": service_ok,
         "product": "TraceBisect Studio",
         "auth": cast(
             JsonValue,
@@ -662,8 +670,16 @@ def health() -> JsonObject:
             "scope": "process",
             "resets_on_restart": True,
         },
+        "uploads": cast(
+            JsonValue,
+            UPLOAD_SCANNER.runtime_status(ready=upload_scanner_ready),
+        ),
         "runtime": _public_runtime_status(runtime),
-        "readiness": _production_readiness(storage_ok=storage_ok, runtime=runtime),
+        "readiness": _production_readiness(
+            storage_ok=storage_ok,
+            runtime=runtime,
+            upload_scanner_ready=upload_scanner_ready,
+        ),
         "limits": {
             "max_upload_bytes": MAX_UPLOAD_BYTES,
             "max_stored_traces": STORE.max_traces,
@@ -706,11 +722,16 @@ def health() -> JsonObject:
 def ready(response: Response) -> JsonObject:
     """Report whether this API process and its configured store can serve traffic."""
     storage_ok = STORE.check_health()
-    if not storage_ok:
+    upload_scanner_ready = UPLOAD_SCANNER.check_health()
+    service_ready = storage_ok and upload_scanner_ready
+    if not service_ready:
         response.status_code = 503
+    checks: dict[str, str] = {"storage": "ok" if storage_ok else "unavailable"}
+    if UPLOAD_SCANNER.enabled:
+        checks["upload_scanner"] = "ok" if upload_scanner_ready else "unavailable"
     return {
-        "ready": storage_ok,
-        "checks": {"storage": "ok" if storage_ok else "unavailable"},
+        "ready": service_ready,
+        "checks": cast(JsonValue, checks),
     }
 
 
@@ -1366,6 +1387,24 @@ async def upload_trace(
         )
     try:
         content = await _read_limited_upload(file)
+        try:
+            UPLOAD_SCANNER.scan(content)
+        except StudioUploadThreatDetected as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "This file was rejected by Studio's security scan. "
+                    "No trace was stored."
+                ),
+            ) from exc
+        except StudioUploadScannerUnavailable as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Upload security scanning is temporarily unavailable. "
+                    "No trace was stored. Please retry."
+                ),
+            ) from exc
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
             tmp.write(content)
             temp_path = Path(tmp.name)
@@ -1758,6 +1797,7 @@ def _production_readiness(
     *,
     storage_ok: bool,
     runtime: JsonObject | None = None,
+    upload_scanner_ready: bool | None = None,
 ) -> JsonObject:
     runtime = STORE.runtime_status() if runtime is None else runtime
     durable = runtime["durable"] is True
@@ -1769,6 +1809,17 @@ def _production_readiness(
         "managed user accounts, recovery, and team membership administration",
         "hosted deployment observability",
     ]
+    scanner_ready = (
+        UPLOAD_SCANNER.check_health()
+        if upload_scanner_ready is None
+        else upload_scanner_ready
+    )
+    if UPLOAD_SCANNER.enabled:
+        completed.append("fail-closed malware scanning before upload parsing")
+        if not scanner_ready:
+            blockers.insert(0, "available malware scanner for untrusted trace uploads")
+    else:
+        blockers.insert(0, "malware scanning for untrusted trace uploads")
     if AUTH_CONFIG.required:
         completed.extend(
             [
@@ -1882,7 +1933,7 @@ def _production_readiness(
         completed.append("shared PostgreSQL sliding-window rate limiting")
         blockers.remove("distributed rate limiting across API replicas")
     return {
-        "api_ready": storage_ok,
+        "api_ready": storage_ok and scanner_ready,
         "production_saas_ready": False,
         "completed": cast(JsonValue, completed),
         "blockers": cast(JsonValue, blockers),

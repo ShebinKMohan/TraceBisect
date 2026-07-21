@@ -18,6 +18,9 @@ services:
       TRACEBISECT_STUDIO_BROWSER_SESSION_COOKIE_SECURE: "true"
       TRACEBISECT_STUDIO_AUDIT_LOG_ENABLED: "true"
       TRACEBISECT_STUDIO_ERROR_LOG_ENABLED: "true"
+      TRACEBISECT_STUDIO_UPLOAD_SCANNER: clamav
+      TRACEBISECT_STUDIO_CLAMAV_HOST: clamav
+      TRACEBISECT_STUDIO_CLAMAV_PORT: "3310"
       TRACEBISECT_STUDIO_EMAIL_PROVIDER: ${TRACEBISECT_STUDIO_EMAIL_PROVIDER:-none}
       TRACEBISECT_STUDIO_EMAIL_FROM: ${TRACEBISECT_STUDIO_EMAIL_FROM:-}
       TRACEBISECT_STUDIO_EMAIL_REPLY_TO: ${TRACEBISECT_STUDIO_EMAIL_REPLY_TO:-}
@@ -45,6 +48,20 @@ services:
       timeout: 5s
       retries: 5
       start_period: 15s
+    depends_on:
+      clamav:
+        condition: service_healthy
+
+  clamav:
+    image: clamav/clamav:1.5.2
+    restart: unless-stopped
+    volumes:
+      - clamav-data:/var/lib/clamav
+    networks:
+      - backend
+      - egress
+    security_opt:
+      - no-new-privileges:true
 
   email-worker:
     profiles: ["email"]
@@ -178,6 +195,7 @@ volumes:
   caddy-data:
   caddy-config:
   prometheus-data:
+  clamav-data:
 
 secrets:
   tracebisect_metrics_token:

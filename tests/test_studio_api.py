@@ -14,6 +14,10 @@ import tracebisect.studio.api as studio_api
 from tracebisect.studio.api import RATE_LIMITER, STORE, app
 from tracebisect.studio.audit import AUDIT_LOGGER_NAME
 from tracebisect.studio.service import build_demo_report, load_trace_from_path
+from tracebisect.studio.upload_scanner import (
+    StudioUploadScannerUnavailable,
+    StudioUploadThreatDetected,
+)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BASELINE = REPO_ROOT / "tests" / "fixtures" / "refund_search_baseline.tbtrace"
@@ -24,6 +28,31 @@ def reset_studio_state() -> None:
     STORE.clear()
     asyncio.run(RATE_LIMITER.reset())
     studio_api.METRICS.reset()
+
+
+class _StubUploadScanner:
+    def __init__(self, *, ready: bool = True, error: Exception | None = None) -> None:
+        self.enabled = True
+        self.ready = ready
+        self.error = error
+        self.scanned: list[bytes] = []
+
+    def scan(self, content: bytes) -> None:
+        self.scanned.append(content)
+        if self.error is not None:
+            raise self.error
+
+    def check_health(self) -> bool:
+        return self.ready
+
+    def runtime_status(self, *, ready: bool) -> dict[str, str | bool]:
+        return {
+            "enabled": True,
+            "provider": "clamav",
+            "ready": ready,
+            "fail_closed": True,
+            "scan_before_parse": True,
+        }
 
 
 def test_build_demo_report_contains_real_first_divergence() -> None:
@@ -298,6 +327,13 @@ def test_studio_api_sets_security_headers(caplog: pytest.LogCaptureFixture) -> N
         "format": "json",
         "request_id_header": "X-Request-ID",
     }
+    assert response.json()["uploads"] == {
+        "enabled": False,
+        "provider": "none",
+        "ready": True,
+        "fail_closed": False,
+        "scan_before_parse": False,
+    }
     assert response.json()["rate_limiting"] == {
         "kind": "memory",
         "distributed": False,
@@ -336,6 +372,26 @@ def test_studio_api_readiness_checks_storage() -> None:
 
     assert response.status_code == 200
     assert response.json() == {"ready": True, "checks": {"storage": "ok"}}
+
+
+def test_studio_health_fails_when_storage_status_cannot_be_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reset_studio_state()
+
+    def unavailable_runtime_status(_store: object) -> dict[str, object]:
+        raise studio_api.StudioPersistenceError("private database detail")
+
+    monkeypatch.setattr(type(STORE), "runtime_status", unavailable_runtime_status)
+    client = TestClient(app)
+
+    response = client.get("/api/health")
+
+    assert response.status_code == 200
+    assert response.json()["ok"] is False
+    assert response.json()["runtime"]["trace_count"] == 0
+    assert response.json()["readiness"]["api_ready"] is False
+    assert "private database detail" not in response.text
 
 
 def test_open_local_metrics_endpoint_exposes_prometheus_contract() -> None:
@@ -406,6 +462,92 @@ def test_studio_api_rejects_oversized_upload(monkeypatch: pytest.MonkeyPatch) ->
 
     assert response.status_code == 413
     assert response.json()["detail"] == "Trace upload is too large. Maximum size is 16 bytes."
+
+
+def test_studio_api_scans_upload_before_parsing_or_storing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reset_studio_state()
+    scanner = _StubUploadScanner()
+    monkeypatch.setattr(studio_api, "UPLOAD_SCANNER", scanner)
+    client = TestClient(app)
+    content = BASELINE.read_bytes()
+
+    response = client.post(
+        "/api/traces/upload",
+        files={"file": ("baseline.tbtrace", BytesIO(content), "application/octet-stream")},
+    )
+
+    assert response.status_code == 200
+    assert scanner.scanned == [content]
+    assert len(STORE.list_traces()) == 1
+
+
+@pytest.mark.parametrize(
+    ("error", "status_code", "detail"),
+    [
+        (
+            StudioUploadThreatDetected("do not expose a signature"),
+            422,
+            "This file was rejected by Studio's security scan. No trace was stored.",
+        ),
+        (
+            StudioUploadScannerUnavailable("private host details"),
+            503,
+            (
+                "Upload security scanning is temporarily unavailable. "
+                "No trace was stored. Please retry."
+            ),
+        ),
+    ],
+)
+def test_studio_api_fails_closed_when_upload_scan_is_not_clean(
+    monkeypatch: pytest.MonkeyPatch,
+    error: Exception,
+    status_code: int,
+    detail: str,
+) -> None:
+    reset_studio_state()
+    scanner = _StubUploadScanner(error=error)
+    monkeypatch.setattr(studio_api, "UPLOAD_SCANNER", scanner)
+    client = TestClient(app)
+
+    with BASELINE.open("rb") as baseline:
+        response = client.post(
+            "/api/traces/upload",
+            files={"file": ("baseline.tbtrace", baseline, "application/octet-stream")},
+        )
+
+    assert response.status_code == status_code
+    assert response.json()["detail"] == detail
+    assert len(scanner.scanned) == 1
+    assert STORE.list_traces() == []
+
+
+def test_studio_readiness_fails_when_required_upload_scanner_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reset_studio_state()
+    scanner = _StubUploadScanner(ready=False)
+    monkeypatch.setattr(studio_api, "UPLOAD_SCANNER", scanner)
+    client = TestClient(app)
+
+    ready = client.get("/api/ready")
+    health = client.get("/api/health")
+
+    assert ready.status_code == 503
+    assert ready.json() == {
+        "ready": False,
+        "checks": {"storage": "ok", "upload_scanner": "unavailable"},
+    }
+    assert health.status_code == 200
+    assert health.json()["ok"] is False
+    assert health.json()["uploads"] == scanner.runtime_status(ready=False)
+    assert health.json()["readiness"]["api_ready"] is False
+    assert (
+        "available malware scanner for untrusted trace uploads"
+        in health.json()["readiness"]["blockers"]
+    )
 
 
 def test_studio_api_rejects_upload_when_store_is_full(monkeypatch: pytest.MonkeyPatch) -> None:
