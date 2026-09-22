@@ -517,20 +517,12 @@ class StudioAuthConfig:
         )
 
     def _managed_key_material(self) -> tuple[StudioDatabaseTarget, str]:
-        if (
-            not self.access_management_enabled
-            or self._database is None
-            or self._pepper is None
-        ):
+        if not self.access_management_enabled or self._database is None or self._pepper is None:
             raise StudioApiKeyError("managed workspace access is not enabled")
         return self._database, self._pepper
 
     def _managed_identity_material(self) -> tuple[StudioDatabaseTarget, str]:
-        if (
-            not self.identity_enabled
-            or self._database is None
-            or self._identity_secret is None
-        ):
+        if not self.identity_enabled or self._database is None or self._identity_secret is None:
             raise StudioApiKeyError("managed human identity is not enabled")
         return self._database, self._identity_secret
 

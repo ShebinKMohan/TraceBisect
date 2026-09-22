@@ -1247,6 +1247,4 @@ def _postgres_managed_statement(statement: str) -> str:
 
 
 def _managed_row(row: Sequence[object]) -> tuple[object, ...]:
-    return tuple(
-        _format_datetime(value) if isinstance(value, datetime) else value for value in row
-    )
+    return tuple(_format_datetime(value) if isinstance(value, datetime) else value for value in row)

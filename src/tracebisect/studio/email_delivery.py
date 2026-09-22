@@ -638,8 +638,7 @@ class StudioEmailDelivery:
         except (OSError, sqlite3.DatabaseError, StudioPersistenceError) as exc:
             raise StudioEmailDeliveryError("could not load due invitation emails") from exc
         results = [
-            self.deliver_message(str(row[0]), transport=transport, now=current)
-            for row in rows
+            self.deliver_message(str(row[0]), transport=transport, now=current) for row in rows
         ]
         completed = [record for record in results if record is not None]
         return StudioEmailBatchResult(
@@ -678,8 +677,8 @@ class StudioEmailDelivery:
             )
         except (WebhookVerificationError, ValueError, TypeError) as exc:
             raise StudioEmailWebhookInvalid("webhook signature is invalid") from exc
-        event_type, provider_status, provider_message_id, event_created_at = (
-            _provider_event(verified)
+        event_type, provider_status, provider_message_id, event_created_at = _provider_event(
+            verified
         )
         received_at = _timestamp(_utc_now(now))
         try:
@@ -692,10 +691,14 @@ class StudioEmailDelivery:
                     (event_id,),
                 ).fetchone()
                 if existing is not None:
-                    matched = connection.execute(
-                        "SELECT 1 FROM studio_email_outbox WHERE provider_message_id = ? LIMIT 1",
-                        (provider_message_id,),
-                    ).fetchone() is not None
+                    matched = (
+                        connection.execute(
+                            "SELECT 1 FROM studio_email_outbox "
+                            "WHERE provider_message_id = ? LIMIT 1",
+                            (provider_message_id,),
+                        ).fetchone()
+                        is not None
+                    )
                     return StudioEmailWebhookResult(
                         duplicate=True,
                         matched=matched,
@@ -764,9 +767,7 @@ def _invitation_message(
         raise StudioEmailDeliveryError("automatic invitation email is not configured")
     workspace = validate_workspace_id(issued.record.workspace_id)
     recipient = canonical_email(issued.record.email)
-    invitation_url = (
-        f"{config.public_url}/#invite={quote(issued.invitation_token, safe='')}"
-    )
+    invitation_url = f"{config.public_url}/#invite={quote(issued.invitation_token, safe='')}"
     workspace_html = html.escape(workspace)
     role_html = html.escape(issued.record.role)
     url_html = html.escape(invitation_url, quote=True)
@@ -858,9 +859,7 @@ def _claim_message(
             status = str(row[4])
             due = status in {"pending", "retry"} and str(row[7]) <= _timestamp(current)
             expired_lease = (
-                status == "sending"
-                and row[12] is not None
-                and str(row[12]) <= _timestamp(current)
+                status == "sending" and row[12] is not None and str(row[12]) <= _timestamp(current)
             )
             if not due and not expired_lease:
                 return None
@@ -1180,17 +1179,12 @@ def _apply_provider_event(
     for message_id, current_status, current_event_at in rows:
         current_priority = _PROVIDER_STATUS_PRIORITY.get(str(current_status), -1)
         current_datetime = (
-            None
-            if current_event_at is None
-            else _parse_timestamp(str(current_event_at))
+            None if current_event_at is None else _parse_timestamp(str(current_event_at))
         )
         should_apply = (
             current_datetime is None
             or current_datetime < event_datetime
-            or (
-                current_datetime == event_datetime
-                and event_priority >= current_priority
-            )
+            or (current_datetime == event_datetime and event_priority >= current_priority)
         )
         if should_apply:
             connection.execute(
@@ -1424,9 +1418,7 @@ def _public_url(value: str) -> str:
         )
     loopback_hosts = {"localhost", "127.0.0.1", "::1"}
     if parsed.scheme != "https" and parsed.hostname not in loopback_hosts:
-        raise StudioConfigurationError(
-            f"{PUBLIC_URL_ENV} must use HTTPS outside local development"
-        )
+        raise StudioConfigurationError(f"{PUBLIC_URL_ENV} must use HTTPS outside local development")
     return normalized
 
 

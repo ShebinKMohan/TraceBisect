@@ -42,13 +42,17 @@ Severity: TypeAlias = Literal["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]
 class Divergence:
     type: DivergenceType
     severity: Severity
-    baseline_event: Event | None          # None for extra_event and trace-level cost_regression; set otherwise.
-    candidate_event: Event | None         # None for missing_event and trace-level cost_regression; set otherwise.
-    description: str                      # One-line human summary (used in rendering)
-    expected: JsonValue                   # Baseline-side value; shape varies by `type` (§3)
-    actual: JsonValue                     # Candidate-side value; shape varies by `type` (§3)
-    impact: "ImpactAnalysis"              # See §4
-    source_metadata: JsonObject           # Provenance: detector name, alignment kind, etc.
+    baseline_event: (
+        Event | None
+    )  # None for extra_event and trace-level cost_regression; set otherwise.
+    candidate_event: (
+        Event | None
+    )  # None for missing_event and trace-level cost_regression; set otherwise.
+    description: str  # One-line human summary (used in rendering)
+    expected: JsonValue  # Baseline-side value; shape varies by `type` (§3)
+    actual: JsonValue  # Candidate-side value; shape varies by `type` (§3)
+    impact: "ImpactAnalysis"  # See §4
+    source_metadata: JsonObject  # Provenance: detector name, alignment kind, etc.
 ```
 
 `JsonValue` and `JsonObject` are as defined in `spec/canonical-trace-schema.md` §2. `expected` / `actual` are JSON values so the divergence is trivially serializable; their concrete shape per `type` is fixed by the detector (§3).
@@ -119,6 +123,8 @@ Each subsection gives: **detector logic**, **expected / actual extraction**, **d
 - **Pytest assertion (V1):**
   ```python
   from tracebisect.testing import capture_trace, load_baseline, assert_aligned
+
+
   def test_no_tool_arg_regression():
       assert_aligned(
           baseline=load_baseline(BASELINE_PATH),
@@ -198,21 +204,21 @@ Every `Divergence` carries an `ImpactAnalysis`. Per production-spec §5.3, impac
 ```python
 @dataclass(frozen=True, slots=True)
 class ImpactAnalysis:
-    tokens_delta: int                   # candidate − baseline, summed over events
-                                        # at or after the divergence point.
-    cost_delta_ratio: float             # candidate / max(baseline, epsilon),
-                                        # over the same forward window.
-    final_output_changed: bool          # Verbatim string equality on RUN_END
-                                        # payload.final_output — no semantic check.
-    errors_introduced: list[JsonObject] # One entry per ERROR event in candidate
-                                        # that has no peer ERROR in baseline,
-                                        # restricted to events at or after the
-                                        # divergence point. Each entry shape:
-                                        # {"error_type": str, "message": str,
-                                        #  "sequence_index": int}.
-                                        # Empty list when no new errors.
-    affected_event_count: int           # Number of subsequent events whose
-                                        # alignment kind is not ID_MATCH.
+    tokens_delta: int  # candidate − baseline, summed over events
+    # at or after the divergence point.
+    cost_delta_ratio: float  # candidate / max(baseline, epsilon),
+    # over the same forward window.
+    final_output_changed: bool  # Verbatim string equality on RUN_END
+    # payload.final_output — no semantic check.
+    errors_introduced: list[JsonObject]  # One entry per ERROR event in candidate
+    # that has no peer ERROR in baseline,
+    # restricted to events at or after the
+    # divergence point. Each entry shape:
+    # {"error_type": str, "message": str,
+    #  "sequence_index": int}.
+    # Empty list when no new errors.
+    affected_event_count: int  # Number of subsequent events whose
+    # alignment kind is not ID_MATCH.
 ```
 
 These five fields are the V1 closed set. **Domain-specific impact is explicitly out of scope:** TraceBisect cannot say "12 fewer users returned" — that requires understanding what `users WHERE active = true` *means*, which the structural layer never does. V2 will add custom impact-analysis hooks for domain logic; until then, rendering translates the five fields into phrasing like "final answer changed, cost rose 1.34×, 4 downstream events affected."

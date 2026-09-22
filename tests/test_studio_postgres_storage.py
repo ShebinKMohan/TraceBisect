@@ -848,8 +848,7 @@ def test_postgres_migration_uses_one_shared_transaction_and_parameterized_insert
 
     executions = [_Execution("pg_advisory_xact_lock")]
     executions.extend(
-        _Execution(f"SELECT COUNT(*) FROM {table.name}", one=(0,))
-        for table in MIGRATION_TABLES
+        _Execution(f"SELECT COUNT(*) FROM {table.name}", one=(0,)) for table in MIGRATION_TABLES
     )
     executions.extend(
         [
@@ -958,10 +957,7 @@ def test_production_readiness_does_not_claim_sqlite_backup_for_postgres(
         "pooled multi-instance PostgreSQL workspace and managed-security storage"
         in readiness["completed"]
     )
-    assert (
-        "atomic reconciled SQLite-to-PostgreSQL cutover tooling"
-        in readiness["completed"]
-    )
+    assert "atomic reconciled SQLite-to-PostgreSQL cutover tooling" in readiness["completed"]
     assert "verified local backup and non-destructive restore tooling" not in readiness["completed"]
     assert "PostgreSQL invitation email outbox" in readiness["blockers"][0]
 
@@ -989,9 +985,7 @@ def test_production_readiness_claims_shared_postgres_rate_limiting(
     )
 
     assert "shared PostgreSQL sliding-window rate limiting" in readiness["completed"]
-    assert (
-        "distributed rate limiting across API replicas" not in readiness["blockers"]
-    )
+    assert "distributed rate limiting across API replicas" not in readiness["blockers"]
 
 
 def test_production_readiness_reports_postgres_human_identity_without_email_claim(
@@ -1026,9 +1020,7 @@ def test_production_readiness_reports_postgres_human_identity_without_email_clai
 
     assert "Argon2id human accounts with invitation-only enrollment" in readiness["completed"]
     assert "workspace-scoped team membership administration" in readiness["completed"]
-    assert not any(
-        "managed user accounts" in blocker for blocker in readiness["blockers"]
-    )
+    assert not any("managed user accounts" in blocker for blocker in readiness["blockers"])
     assert any("transactional invitation email" in blocker for blocker in readiness["blockers"])
     assert any("PostgreSQL invitation email outbox" in blocker for blocker in readiness["blockers"])
 
@@ -1065,8 +1057,7 @@ def test_production_readiness_claims_postgres_email_only_with_shared_store(
         in readiness["completed"]
     )
     assert not any(
-        "PostgreSQL invitation email outbox" in blocker
-        for blocker in readiness["blockers"]
+        "PostgreSQL invitation email outbox" in blocker for blocker in readiness["blockers"]
     )
 
 
@@ -1284,9 +1275,9 @@ def test_live_postgres_store_shares_fresh_data_and_isolates_workspaces() -> None
             expires_in_days=1,
             identity_secret_value=identity_secret,
         )
-        webhook_secret = "whsec_" + base64.b64encode(
-            b"tracebisect-live-postgres-webhook-secret"
-        ).decode()
+        webhook_secret = (
+            "whsec_" + base64.b64encode(b"tracebisect-live-postgres-webhook-secret").decode()
+        )
         email_env = {
             "TRACEBISECT_STUDIO_STORAGE": "postgres",
             "TRACEBISECT_STUDIO_IDENTITY_SECRET": identity_secret,
@@ -1346,8 +1337,7 @@ def test_live_postgres_store_shares_fresh_data_and_isolates_workspaces() -> None
                 with first.managed_connection() as connection:
                     if provider_message_id is not None:
                         connection.execute(
-                            "DELETE FROM studio_email_webhook_events "
-                            "WHERE provider_message_id = ?",
+                            "DELETE FROM studio_email_webhook_events WHERE provider_message_id = ?",
                             (provider_message_id,),
                         )
                     connection.execute(

@@ -262,6 +262,7 @@ from tracebisect.testing import (
 BASELINE_PATH = "tests/fixtures/baseline_refund_042.tbtrace"
 SCENARIO_CMD = ["python", "examples/refund_agent.py", "--case", "refund_042"]
 
+
 def test_refund_agent_no_regression():
     """Regression test for refund_042 case.
     Generated 2026-05-09 from divergence at event 7
@@ -312,27 +313,27 @@ A **trace** is an ordered tree of **events**. The top-level `Trace` and individu
 ```python
 @dataclass(frozen=True, slots=True)
 class Trace:
-    schema_version: int               # See SCHEMA_VERSION constant
-    trace_id: str                     # Globally unique
+    schema_version: int  # See SCHEMA_VERSION constant
+    trace_id: str  # Globally unique
     created_at: datetime
-    root_event: Event                 # The RUN_START event at the top
-    events: list[Event]               # Flat list for fast iteration
+    root_event: Event  # The RUN_START event at the top
+    events: list[Event]  # Flat list for fast iteration
     source_convention: Literal[
-        "native",                     # Produced by TraceBisect's own recorder
-        "genai",                      # OTel GenAI semantic conventions (gen_ai.*)
-        "openinference",              # OpenInference conventions (openinference.*)
-        "mixed",                      # Spans use both genai and openinference
-        "unknown",                    # Couldn't determine convention
+        "native",  # Produced by TraceBisect's own recorder
+        "genai",  # OTel GenAI semantic conventions (gen_ai.*)
+        "openinference",  # OpenInference conventions (openinference.*)
+        "mixed",  # Spans use both genai and openinference
+        "unknown",  # Couldn't determine convention
     ]
 
 
 @dataclass(frozen=True, slots=True)
 class Event:
-    id: str                           # Globally unique within the trace
-    parent_id: Optional[str]          # Tree structure
-    sequence_index: int               # Position in depth-first traversal
-    type: EventType                   # Enum (see below)
-    semantic_name: str                # Free-text descriptive name
+    id: str  # Globally unique within the trace
+    parent_id: Optional[str]  # Tree structure
+    sequence_index: int  # Position in depth-first traversal
+    type: EventType  # Enum (see below)
+    semantic_name: str  # Free-text descriptive name
     timestamp: datetime
     duration_ms: Optional[float]
 
@@ -349,8 +350,8 @@ class Event:
     ]
 
     # Provenance
-    source_format: Literal["otel", "native"]   # V1 values only
-    source_event_id: str              # Original ID in source system
+    source_format: Literal["otel", "native"]  # V1 values only
+    source_event_id: str  # Original ID in source system
 
     # Replay metadata
     model_version: Optional[str]
@@ -373,7 +374,7 @@ Each payload type has its own typed schema. For example:
 class LLMCallPayload:
     model: str
     provider: str
-    messages: list[dict]          # OpenAI-style messages
+    messages: list[dict]  # OpenAI-style messages
     response_text: str
     response_tool_calls: list[dict]
     input_tokens: int
@@ -463,10 +464,10 @@ class Divergence:
     severity: Severity
     baseline_event: Optional[Event]
     candidate_event: Optional[Event]
-    description: str              # Human-readable summary
-    expected: Any                 # Baseline value
-    actual: Any                   # Candidate value
-    impact: ImpactAnalysis        # See below
+    description: str  # Human-readable summary
+    expected: Any  # Baseline value
+    actual: Any  # Candidate value
+    impact: ImpactAnalysis  # See below
     suggested_fix: Optional[str]
 ```
 

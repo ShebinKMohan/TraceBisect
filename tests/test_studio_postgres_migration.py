@@ -191,9 +191,7 @@ def test_complete_migration_is_source_safe_and_reconciles_every_table(tmp_path: 
     assert report.identity_session_count == 1
     assert report.queued_email_count == 1
     assert all(item.row_count == 1 for item in report.table_results)
-    assert _all_table_counts(destination) == {
-        table.name: 1 for table in MIGRATION_TABLES
-    }
+    assert _all_table_counts(destination) == {table.name: 1 for table in MIGRATION_TABLES}
     assert _file_sha256(source) == source_hash
 
     verified = verify_sqlite_postgres_migration(source, destination)
@@ -273,8 +271,7 @@ def test_source_change_during_copy_is_detected_and_rolls_back(
         original_copy(*args)  # type: ignore[arg-type]
         with sqlite3.connect(source) as connection:
             connection.execute(
-                "UPDATE studio_metadata SET value = 'changed-live' "
-                "WHERE key = 'demo_report_id'"
+                "UPDATE studio_metadata SET value = 'changed-live' WHERE key = 'demo_report_id'"
             )
 
     monkeypatch.setattr(postgres_migration, "_copy_tables", copy_then_change_source)

@@ -351,8 +351,7 @@ def test_studio_api_sets_security_headers(caplog: pytest.LogCaptureFixture) -> N
     assert response.json()["readiness"]["production_saas_ready"] is False
     assert "restart-safe durable storage" in response.json()["readiness"]["blockers"]
     assert (
-        "distributed rate limiting across API replicas"
-        in response.json()["readiness"]["blockers"]
+        "distributed rate limiting across API replicas" in response.json()["readiness"]["blockers"]
     )
     assert (
         "verified local backup and non-destructive restore tooling"

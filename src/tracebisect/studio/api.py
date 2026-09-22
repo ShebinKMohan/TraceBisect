@@ -407,9 +407,7 @@ async def apply_api_guardrails(
             unavailable_response = JSONResponse(
                 status_code=503,
                 content={
-                    "detail": (
-                        "Request protection is temporarily unavailable. Please retry."
-                    )
+                    "detail": ("Request protection is temporarily unavailable. Please retry.")
                 },
             )
             return _finalize_audited_response(
@@ -710,9 +708,7 @@ def health() -> JsonObject:
                 MAX_STORED_EMAIL_MESSAGES_PER_WORKSPACE if EMAIL_DELIVERY.enabled else 0
             ),
             "max_stored_email_webhook_events": (
-                MAX_STORED_WEBHOOK_EVENTS
-                if EMAIL_DELIVERY.config.webhooks_enabled
-                else 0
+                MAX_STORED_WEBHOOK_EVENTS if EMAIL_DELIVERY.config.webhooks_enabled else 0
             ),
         },
     }
@@ -1082,9 +1078,7 @@ def list_workspace_invitations(request: Request) -> JsonObject:
             [
                 {
                     **_invitation_payload(item),
-                    "delivery": _email_delivery_payload(
-                        delivery_records.get(item.invitation_id)
-                    ),
+                    "delivery": _email_delivery_payload(delivery_records.get(item.invitation_id)),
                 }
                 for item in invitations
             ],
@@ -1392,10 +1386,7 @@ async def upload_trace(
         except StudioUploadThreatDetected as exc:
             raise HTTPException(
                 status_code=422,
-                detail=(
-                    "This file was rejected by Studio's security scan. "
-                    "No trace was stored."
-                ),
+                detail=("This file was rejected by Studio's security scan. No trace was stored."),
             ) from exc
         except StudioUploadScannerUnavailable as exc:
             raise HTTPException(
@@ -1431,8 +1422,7 @@ async def upload_trace(
         raise HTTPException(
             status_code=409,
             detail=(
-                "A trace with this ID already exists. "
-                "Give every uploaded run a unique trace ID."
+                "A trace with this ID already exists. Give every uploaded run a unique trace ID."
             ),
         ) from exc
     summary = next(item for item in store.list_traces() if item["id"] == trace_key)
@@ -1810,9 +1800,7 @@ def _production_readiness(
         "hosted deployment observability",
     ]
     scanner_ready = (
-        UPLOAD_SCANNER.check_health()
-        if upload_scanner_ready is None
-        else upload_scanner_ready
+        UPLOAD_SCANNER.check_health() if upload_scanner_ready is None else upload_scanner_ready
     )
     if UPLOAD_SCANNER.enabled:
         completed.append("fail-closed malware scanning before upload parsing")
@@ -1837,9 +1825,7 @@ def _production_readiness(
                 ]
             )
             if AUTH_CONFIG.ingestion_tokens_enabled:
-                completed.append(
-                    "workspace-scoped upload-only ingestion tokens for agents and CI"
-                )
+                completed.append("workspace-scoped upload-only ingestion tokens for agents and CI")
             if BROWSER_SESSION_COOKIE_SECURE:
                 completed.append("Secure browser session cookies")
             else:

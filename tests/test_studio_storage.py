@@ -256,10 +256,7 @@ def test_sqlite_store_migrates_v5_to_encrypted_email_outbox(tmp_path: Path) -> N
         assert connection.execute("SELECT version FROM studio_schema").fetchone() == (
             SCHEMA_VERSION,
         )
-        columns = {
-            row[1]
-            for row in connection.execute("PRAGMA table_info(studio_email_outbox)")
-        }
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(studio_email_outbox)")}
     assert {"payload_ciphertext", "lease_token", "provider_message_id"}.issubset(columns)
     migrated.close()
 
@@ -281,10 +278,7 @@ def test_sqlite_store_migrates_v6_to_email_webhook_reconciliation(tmp_path: Path
         assert connection.execute("SELECT version FROM studio_schema").fetchone() == (
             SCHEMA_VERSION,
         )
-        columns = {
-            row[1]
-            for row in connection.execute("PRAGMA table_info(studio_email_outbox)")
-        }
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(studio_email_outbox)")}
         webhook_table = connection.execute(
             """
             SELECT name FROM sqlite_master
@@ -320,9 +314,7 @@ def test_sqlite_store_migrates_v7_to_upload_only_ingestion_tokens(tmp_path: Path
             row[1] for row in connection.execute("PRAGMA table_info(studio_ingestion_tokens)")
         }
     assert table == ("studio_ingestion_tokens",)
-    assert {"token_id", "workspace_id", "scope", "token_hash", "expires_at"}.issubset(
-        columns
-    )
+    assert {"token_id", "workspace_id", "scope", "token_hash", "expires_at"}.issubset(columns)
     migrated.close()
 
 
@@ -346,9 +338,7 @@ def test_sqlite_store_migrates_v8_to_retained_server_error_events(tmp_path: Path
             WHERE type = 'table' AND name = 'studio_error_events'
             """
         ).fetchone()
-        columns = {
-            row[1] for row in connection.execute("PRAGMA table_info(studio_error_events)")
-        }
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(studio_error_events)")}
     assert table == ("studio_error_events",)
     assert {
         "event_id",

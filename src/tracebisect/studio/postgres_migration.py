@@ -62,9 +62,7 @@ class _MigrationTable:
     @property
     def select_sql(self) -> str:
         columns = ", ".join(self.columns)
-        order_columns = (
-            self.columns[:2] if self.name in _COMPOSITE_KEY_TABLES else self.columns[:1]
-        )
+        order_columns = self.columns[:2] if self.name in _COMPOSITE_KEY_TABLES else self.columns[:1]
         order = ", ".join(order_columns)
         return f"SELECT {columns} FROM {self.name} ORDER BY {order}"
 
@@ -340,9 +338,7 @@ def _prepare_snapshot(snapshot: Path) -> None:
                 )
             tables = {
                 str(row[0])
-                for row in connection.execute(
-                    "SELECT name FROM sqlite_master WHERE type = 'table'"
-                )
+                for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
             }
             required = {table.name for table in MIGRATION_TABLES}
             if not required.issubset(tables):

@@ -29,9 +29,7 @@ from tracebisect.studio.storage import StudioConfigurationError, StudioStoreRegi
 
 IDENTITY_SECRET = "email-test-identity-secret-with-more-than-thirty-two-characters"
 PEPPER = "email-test-api-key-pepper-with-more-than-thirty-two-characters"
-WEBHOOK_SECRET = "whsec_" + base64.b64encode(
-    b"tracebisect-test-webhook-signing-secret"
-).decode()
+WEBHOOK_SECRET = "whsec_" + base64.b64encode(b"tracebisect-test-webhook-signing-secret").decode()
 
 
 def _env(database: Path) -> dict[str, str]:
@@ -357,9 +355,7 @@ def test_public_webhook_endpoint_requires_a_valid_raw_signature(
     assert rejected.status_code == 400
     health = client.get("/api/health").json()
     assert health["email"]["webhooks"] is True
-    assert "authenticated idempotent email delivery" in " ".join(
-        health["readiness"]["completed"]
-    )
+    assert "authenticated idempotent email delivery" in " ".join(health["readiness"]["completed"])
     assert "sender-domain monitoring" in " ".join(health["readiness"]["blockers"])
 
 
@@ -476,19 +472,22 @@ def test_supervised_email_worker_runs_one_cycle_and_stops_cleanly(
         classmethod(lambda cls, env: FakeDelivery()),
     )
 
-    assert main(
-        [
-            "studio",
-            "email",
-            "work",
-            "--database",
-            str(tmp_path / "studio.db"),
-            "--limit",
-            "12",
-            "--poll-seconds",
-            "5",
-        ]
-    ) == 0
+    assert (
+        main(
+            [
+                "studio",
+                "email",
+                "work",
+                "--database",
+                str(tmp_path / "studio.db"),
+                "--limit",
+                "12",
+                "--poll-seconds",
+                "5",
+            ]
+        )
+        == 0
+    )
     output = capsys.readouterr().out
     assert "Studio email worker started" in output
     assert "examined=1 accepted=1" in output

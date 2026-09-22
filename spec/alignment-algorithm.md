@@ -15,13 +15,18 @@
 
 ```python
 MatchKind: TypeAlias = Literal[
-    "ID_MATCH", "STRUCTURAL_MATCH", "POSITIONAL_MATCH", "DELETION", "INSERTION",
+    "ID_MATCH",
+    "STRUCTURAL_MATCH",
+    "POSITIONAL_MATCH",
+    "DELETION",
+    "INSERTION",
 ]
+
 
 @dataclass(frozen=True, slots=True)
 class Match:
-    baseline: Event | None        # None iff kind == "INSERTION"
-    candidate: Event | None       # None iff kind == "DELETION"
+    baseline: Event | None  # None iff kind == "INSERTION"
+    candidate: Event | None  # None iff kind == "DELETION"
     kind: MatchKind
 ```
 
@@ -128,17 +133,22 @@ The control flow is **depth-first**, not breadth-first: a matched child pair is 
 StableID: TypeAlias = tuple[str | int, ...]
 ChildPair: TypeAlias = tuple[Event | None, Event | None, MatchKind]
 
+
 def align(baseline: Trace, candidate: Trace) -> list[Match]:
-    validate_roots(baseline, candidate)                  # may raise; see §7
+    validate_roots(baseline, candidate)  # may raise; see §7
 
     matches: list[Match] = []
     # Root pair is set before any descent. Tier 1 does not run at the root level —
     # roots are paired by position per §3.
     matches.append(Match(baseline.root_event, candidate.root_event, "ID_MATCH"))
     emit_matched_parent(
-        baseline.root_event, candidate.root_event, baseline, candidate, matches,
+        baseline.root_event,
+        candidate.root_event,
+        baseline,
+        candidate,
+        matches,
     )
-    return matches                                       # already in DFS order
+    return matches  # already in DFS order
 
 
 def emit_matched_parent(
@@ -151,8 +161,8 @@ def emit_matched_parent(
     # Compute child outcomes in parent-local order, then walk them DFS:
     # recurse into each matched pair immediately, and expand each unmatched
     # child's whole subtree before moving on to the next sibling record.
-    b_kids = list(children_of(b_parent, baseline))       # sequence_index order
-    c_kids = list(children_of(c_parent, candidate))      # sequence_index order
+    b_kids = list(children_of(b_parent, baseline))  # sequence_index order
+    c_kids = list(children_of(c_parent, candidate))  # sequence_index order
     for b, c, kind in pair_children(b_kids, c_kids):
         if kind in ("ID_MATCH", "STRUCTURAL_MATCH", "POSITIONAL_MATCH"):
             matches.append(Match(b, c, kind))
@@ -175,9 +185,9 @@ def emit_unmatched_subtree(
     # covered by exactly one Match of `kind`, visited in sequence_index order.
     if kind == "DELETION":
         matches.append(Match(event, None, "DELETION"))
-    else:                                                # "INSERTION"
+    else:  # "INSERTION"
         matches.append(Match(None, event, "INSERTION"))
-    for child in children_of(event, trace):              # sequence_index order
+    for child in children_of(event, trace):  # sequence_index order
         emit_unmatched_subtree(child, trace, kind, matches)
 
 
@@ -187,11 +197,11 @@ def pair_children(b_kids: list[Event], c_kids: list[Event]) -> list[ChildPair]:
     paired_c: set[str] = set()
     id_pairs: list[ChildPair] = []
 
-    for keyfn in (primary_key_for, secondary_key_for):   # priority order, §3
+    for keyfn in (primary_key_for, secondary_key_for):  # priority order, §3
         b_buckets: dict[object, list[Event]] = bucket_by(keyfn, b_kids, exclude=paired_b)
         c_buckets: dict[object, list[Event]] = bucket_by(keyfn, c_kids, exclude=paired_c)
         for key, b_bucket in b_buckets.items():
-            if key is None:                              # event has no key for this layer
+            if key is None:  # event has no key for this layer
                 continue
             c_bucket = c_buckets.get(key)
             if not c_bucket:
@@ -201,7 +211,7 @@ def pair_children(b_kids: list[Event], c_kids: list[Event]) -> list[ChildPair]:
             c_bucket.sort(key=lambda e: e.sequence_index)
             for b, c in zip(b_bucket, c_bucket):
                 if keyfn is primary_key_for and not raw_id_pair_allowed(b, c, b_kids, c_kids):
-                    continue                             # the tool moved rather than changed (§3)
+                    continue  # the tool moved rather than changed (§3)
                 id_pairs.append((b, c, "ID_MATCH"))
                 paired_b.add(b.id)
                 paired_c.add(c.id)
@@ -213,7 +223,8 @@ def pair_children(b_kids: list[Event], c_kids: list[Event]) -> list[ChildPair]:
     struct_pairs: list[ChildPair] = []
     for b in list(remaining_b):
         candidates = [
-            c for c in remaining_c
+            c
+            for c in remaining_c
             if c.type == b.type and levenshtein(c.semantic_name, b.semantic_name) <= 2
         ]
         if not candidates:
@@ -299,6 +310,7 @@ Frame: TypeAlias = (
     | tuple[Literal["EXPAND_INS"], Event]
 )
 
+
 def align_iterative(baseline: Trace, candidate: Trace) -> list[Match]:
     validate_roots(baseline, candidate)
     matches: list[Match] = []
@@ -322,8 +334,8 @@ def align_iterative(baseline: Trace, candidate: Trace) -> list[Match]:
                     stack.append(("EXPAND_MATCHED", b, c))
                     # Note: emission of the parent Match itself happens inline,
                     # not via a frame, to keep the stack alphabet small. Order:
-                    matches.append(Match(b, c, kind))     # logically: emit, then
-                                                          # descend on next iter
+                    matches.append(Match(b, c, kind))  # logically: emit, then
+                    # descend on next iter
                 elif kind == "DELETION":
                     stack.append(("EXPAND_DEL", b))
                 elif kind == "INSERTION":

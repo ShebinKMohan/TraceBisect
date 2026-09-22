@@ -296,8 +296,7 @@ def build_parser() -> argparse.ArgumentParser:
     studio_keys_create.add_argument(
         "--database",
         help=(
-            "SQLite database path. Omit for PostgreSQL when "
-            "TRACEBISECT_STUDIO_DATABASE_URL is set."
+            "SQLite database path. Omit for PostgreSQL when TRACEBISECT_STUDIO_DATABASE_URL is set."
         ),
     )
     studio_keys_create.add_argument(
@@ -333,8 +332,7 @@ def build_parser() -> argparse.ArgumentParser:
     studio_keys_list.add_argument(
         "--database",
         help=(
-            "SQLite database path. Omit for PostgreSQL when "
-            "TRACEBISECT_STUDIO_DATABASE_URL is set."
+            "SQLite database path. Omit for PostgreSQL when TRACEBISECT_STUDIO_DATABASE_URL is set."
         ),
     )
 
@@ -345,8 +343,7 @@ def build_parser() -> argparse.ArgumentParser:
     studio_keys_revoke.add_argument(
         "--database",
         help=(
-            "SQLite database path. Omit for PostgreSQL when "
-            "TRACEBISECT_STUDIO_DATABASE_URL is set."
+            "SQLite database path. Omit for PostgreSQL when TRACEBISECT_STUDIO_DATABASE_URL is set."
         ),
     )
     studio_keys_revoke.add_argument(
@@ -372,8 +369,7 @@ def build_parser() -> argparse.ArgumentParser:
     studio_ingest_token_create.add_argument(
         "--database",
         help=(
-            "SQLite database path. Omit for PostgreSQL when "
-            "TRACEBISECT_STUDIO_DATABASE_URL is set."
+            "SQLite database path. Omit for PostgreSQL when TRACEBISECT_STUDIO_DATABASE_URL is set."
         ),
     )
     studio_ingest_token_create.add_argument(
@@ -400,8 +396,7 @@ def build_parser() -> argparse.ArgumentParser:
     studio_ingest_token_list.add_argument(
         "--database",
         help=(
-            "SQLite database path. Omit for PostgreSQL when "
-            "TRACEBISECT_STUDIO_DATABASE_URL is set."
+            "SQLite database path. Omit for PostgreSQL when TRACEBISECT_STUDIO_DATABASE_URL is set."
         ),
     )
 
@@ -412,8 +407,7 @@ def build_parser() -> argparse.ArgumentParser:
     studio_ingest_token_revoke.add_argument(
         "--database",
         help=(
-            "SQLite database path. Omit for PostgreSQL when "
-            "TRACEBISECT_STUDIO_DATABASE_URL is set."
+            "SQLite database path. Omit for PostgreSQL when TRACEBISECT_STUDIO_DATABASE_URL is set."
         ),
     )
     studio_ingest_token_revoke.add_argument(
@@ -439,8 +433,7 @@ def build_parser() -> argparse.ArgumentParser:
     studio_error_events_list.add_argument(
         "--database",
         help=(
-            "SQLite database path. Omit for PostgreSQL when "
-            "TRACEBISECT_STUDIO_DATABASE_URL is set."
+            "SQLite database path. Omit for PostgreSQL when TRACEBISECT_STUDIO_DATABASE_URL is set."
         ),
     )
     studio_error_events_list.add_argument(
@@ -756,10 +749,7 @@ def run_studio_deployment_check(base_url: str, timeout_seconds: float) -> int:
     report = check_studio_deployment(base_url, timeout_seconds=timeout_seconds)
     print("Studio deployment check")
     print(f"  Address: {report.base_url}")
-    print(
-        "  Hosted core: "
-        + ("READY" if report.hosted_core_ready else "NOT READY")
-    )
+    print("  Hosted core: " + ("READY" if report.hosted_core_ready else "NOT READY"))
     print("  Full SaaS: " + ("READY" if report.full_saas_ready else "NOT READY"))
     print()
     print("Safety checks")
@@ -1288,8 +1278,7 @@ def run_studio_error_events_list(
     for record in records:
         workspace = record.workspace_id or "public or unavailable"
         print(
-            f"- {record.occurred_at} · {record.action} · {record.error_type} · "
-            f"{record.fingerprint}"
+            f"- {record.occurred_at} · {record.action} · {record.error_type} · {record.fingerprint}"
         )
         print(f"  request {record.request_id} · workspace {workspace}")
         print(f"  location {record.failure_location}")
@@ -1307,15 +1296,12 @@ def _studio_key_database(database: str | None) -> Iterator[StudioDatabaseTarget]
         from tracebisect.studio.access_keys import StudioApiKeyError
 
         raise StudioApiKeyError(
-            "provide --database for SQLite or set TRACEBISECT_STUDIO_DATABASE_URL "
-            "for PostgreSQL"
+            "provide --database for SQLite or set TRACEBISECT_STUDIO_DATABASE_URL for PostgreSQL"
         )
     if not database_url.startswith(("postgresql://", "postgres://")):
         from tracebisect.studio.storage import StudioConfigurationError
 
-        raise StudioConfigurationError(
-            "TRACEBISECT_STUDIO_DATABASE_URL must be a PostgreSQL URL"
-        )
+        raise StudioConfigurationError("TRACEBISECT_STUDIO_DATABASE_URL must be a PostgreSQL URL")
     from tracebisect.studio.postgres_storage import PostgresStudioStore
 
     store = PostgresStudioStore(database_url, workspace_id="operator")
@@ -1527,10 +1513,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             StudioPostgresMigrationError,
         ) as exc:
             failed_command = args.studio_command
-            if (
-                args.studio_command == "backup-key"
-                and args.studio_backup_key_command is not None
-            ):
+            if args.studio_command == "backup-key" and args.studio_backup_key_command is not None:
                 failed_command = f"backup-key {args.studio_backup_key_command}"
             if args.studio_command == "keys" and args.studio_keys_command is not None:
                 failed_command = f"keys {args.studio_keys_command}"

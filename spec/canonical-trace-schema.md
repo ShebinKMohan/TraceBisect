@@ -43,9 +43,7 @@ SCHEMA_VERSION: int = 1
 # alias for any JSON-serializable value; `JsonObject` is a JSON object.
 # Use these everywhere a payload field is "raw JSON we will not introspect
 # beyond structural diff" — never bare `dict` or `list[dict]`.
-JsonValue: TypeAlias = (
-    str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
-)
+JsonValue: TypeAlias = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
 JsonObject: TypeAlias = dict[str, JsonValue]
 
 
@@ -76,31 +74,33 @@ Invariants (enforced in a `__post_init__` or a `validate()` helper — to be dec
 @dataclass(frozen=True, slots=True)
 class Event:
     # Identity and tree structure
-    id: str                           # Globally unique within the trace; opaque stable string in native traces.
-    parent_id: Optional[str]          # None only for the root RUN_START event.
-    sequence_index: int               # Position in depth-first traversal; 0 for root.
+    id: str  # Globally unique within the trace; opaque stable string in native traces.
+    parent_id: Optional[str]  # None only for the root RUN_START event.
+    sequence_index: int  # Position in depth-first traversal; 0 for root.
 
     # Semantic identity — what this event "is"
-    type: EventType                   # Discriminator for `payload`.
-    semantic_name: str                # Human-readable label, e.g. "search_database", "gpt-4o-mini".
-                                      # Used in alignment's semantic-match tier and in rendered output.
+    type: EventType  # Discriminator for `payload`.
+    semantic_name: str  # Human-readable label, e.g. "search_database", "gpt-4o-mini".
+    # Used in alignment's semantic-match tier and in rendered output.
 
     # Temporal
-    timestamp: datetime               # UTC, timezone-aware. Start time of the event.
-    duration_ms: Optional[float]      # None for instantaneous events (e.g. BRANCH_DECISION).
+    timestamp: datetime  # UTC, timezone-aware. Start time of the event.
+    duration_ms: Optional[float]  # None for instantaneous events (e.g. BRANCH_DECISION).
 
     # Type-specific data
-    payload: "EventPayload"           # Discriminated union; see §5. Shape MUST match `type`.
+    payload: "EventPayload"  # Discriminated union; see §5. Shape MUST match `type`.
 
     # Provenance — where this event came from
-    source_format: Literal["otel", "native"]   # V1 values only. Vendor adapters land in V1.1+.
-    source_event_id: str              # Original ID in the source system (OTel span ID, etc.).
+    source_format: Literal["otel", "native"]  # V1 values only. Vendor adapters land in V1.1+.
+    source_event_id: str  # Original ID in the source system (OTel span ID, etc.).
 
     # Replay metadata — needed for export-pytest reproduction
-    model_version: Optional[str]      # e.g. "gpt-4o-2024-08-06". Only meaningful for LLM_CALL.
-    prompt_version: Optional[str]     # User-supplied prompt template version; opaque to TraceBisect.
-    code_sha: Optional[str]           # git SHA of the agent code at run time, if available.
-    sampling_params: Optional[JsonObject]   # temperature/top_p/seed snapshot for replay. Opaque escape hatch.
+    model_version: Optional[str]  # e.g. "gpt-4o-2024-08-06". Only meaningful for LLM_CALL.
+    prompt_version: Optional[str]  # User-supplied prompt template version; opaque to TraceBisect.
+    code_sha: Optional[str]  # git SHA of the agent code at run time, if available.
+    sampling_params: Optional[
+        JsonObject
+    ]  # temperature/top_p/seed snapshot for replay. Opaque escape hatch.
 ```
 
 **On `sampling_params: Optional[JsonObject]`.** One of two intentional escape hatches in the schema (the other is `run_metadata`). Providers add sampling knobs constantly — logit bias, response format, structured outputs, reasoning effort. A typed shape would either omit fields or churn quarterly. Contract: opaque to alignment and divergence; exists solely so export-pytest can re-issue the call faithfully.
@@ -149,41 +149,43 @@ Each `EventType` maps to exactly one payload dataclass. All payloads are `frozen
 ```python
 @dataclass(frozen=True, slots=True)
 class RunStartPayload:
-    user_input: str                   # The initial prompt or task description.
-    agent_name: Optional[str]         # User-supplied identifier for the agent under test.
-    agent_version: Optional[str]      # User-supplied version string.
-    run_metadata: JsonObject          # Free-form metadata; opaque escape hatch #2.
+    user_input: str  # The initial prompt or task description.
+    agent_name: Optional[str]  # User-supplied identifier for the agent under test.
+    agent_version: Optional[str]  # User-supplied version string.
+    run_metadata: JsonObject  # Free-form metadata; opaque escape hatch #2.
 
 
 @dataclass(frozen=True, slots=True)
 class RunEndPayload:
-    final_output: str                 # The agent's final answer/result.
+    final_output: str  # The agent's final answer/result.
     total_input_tokens: int
     total_output_tokens: int
     total_cost_usd: float
-    success: bool                     # False if the run completed but failed acceptance.
+    success: bool  # False if the run completed but failed acceptance.
 
 
 @dataclass(frozen=True, slots=True)
 class LLMCallPayload:
-    model: str                        # e.g. "gpt-4o-mini". Used in semantic-match tier.
-    provider: str                     # "openai", "anthropic", "google", etc.
-    messages: list[JsonObject]        # OpenAI-style messages. Shape stable across providers post-normalization.
+    model: str  # e.g. "gpt-4o-mini". Used in semantic-match tier.
+    provider: str  # "openai", "anthropic", "google", etc.
+    messages: list[
+        JsonObject
+    ]  # OpenAI-style messages. Shape stable across providers post-normalization.
     response_text: str
-    response_tool_calls: list[JsonObject]   # OpenAI tool-call shape, post-normalization.
+    response_tool_calls: list[JsonObject]  # OpenAI tool-call shape, post-normalization.
     input_tokens: int
     output_tokens: int
     cost_usd: float
     temperature: float
-    seed: Optional[int]               # Critical for determinism-mode replay.
+    seed: Optional[int]  # Critical for determinism-mode replay.
 
 
 @dataclass(frozen=True, slots=True)
 class ToolCallPayload:
     tool_name: str
-    arguments: JsonObject             # Normalized JSON-serializable args.
-    result: Optional[str]             # Stringified result; None if the call raised.
-    error: Optional[str]              # Exception summary; None on success.
+    arguments: JsonObject  # Normalized JSON-serializable args.
+    result: Optional[str]  # Stringified result; None if the call raised.
+    error: Optional[str]  # Exception summary; None on success.
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,46 +195,50 @@ class MCPCallPayload:
     arguments: JsonObject
     result: Optional[str]
     error: Optional[str]
-    protocol_version: Optional[str]   # MCP version; included because wire compatibility matters for replay.
+    protocol_version: Optional[
+        str
+    ]  # MCP version; included because wire compatibility matters for replay.
 
 
 @dataclass(frozen=True, slots=True)
 class RetrievalPayload:
     query: str
-    retriever: str                    # e.g. "pinecone:prod-index-v3", "bm25:docs".
+    retriever: str  # e.g. "pinecone:prod-index-v3", "bm25:docs".
     top_k: int
-    document_ids: list[str]           # The IDs returned, in rank order. Used for set-diff in divergence.
-    scores: list[float]               # Aligned with document_ids; empty if retriever doesn't expose scores.
+    document_ids: list[str]  # The IDs returned, in rank order. Used for set-diff in divergence.
+    scores: list[float]  # Aligned with document_ids; empty if retriever doesn't expose scores.
 
 
 @dataclass(frozen=True, slots=True)
 class StateTransitionPayload:
-    from_state: Optional[str]         # None on initial transition.
+    from_state: Optional[str]  # None on initial transition.
     to_state: str
-    trigger: Optional[str]            # What caused the transition (event name, condition).
+    trigger: Optional[str]  # What caused the transition (event name, condition).
 
 
 @dataclass(frozen=True, slots=True)
 class BranchDecisionPayload:
-    branch_name: str                  # Identifier for the decision point.
-    chosen_branch: str                # The branch label that was taken.
-    available_branches: list[str]     # All branches considered; lets divergence flag "could have but didn't".
-    reasoning: Optional[str]          # Model-emitted rationale, if captured.
+    branch_name: str  # Identifier for the decision point.
+    chosen_branch: str  # The branch label that was taken.
+    available_branches: list[
+        str
+    ]  # All branches considered; lets divergence flag "could have but didn't".
+    reasoning: Optional[str]  # Model-emitted rationale, if captured.
 
 
 @dataclass(frozen=True, slots=True)
 class ErrorPayload:
-    error_type: str                   # Exception class name.
+    error_type: str  # Exception class name.
     message: str
     stack_trace: Optional[str]
-    recovered: bool                   # True if the run continued past this error.
+    recovered: bool  # True if the run continued past this error.
 
 
 @dataclass(frozen=True, slots=True)
 class HumanInputPayload:
-    prompt_shown: str                 # What the human was asked.
-    response: str                     # What the human entered.
-    responder_id: Optional[str]       # Optional identity tag for multi-reviewer setups.
+    prompt_shown: str  # What the human was asked.
+    response: str  # What the human entered.
+    responder_id: Optional[str]  # Optional identity tag for multi-reviewer setups.
 
 
 EventPayload: TypeAlias = (

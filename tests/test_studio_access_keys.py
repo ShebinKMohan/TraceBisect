@@ -409,9 +409,7 @@ def test_key_cli_uses_the_managed_postgres_url_without_a_database_flag(
     with tracebisect_cli._studio_key_database(None) as target:
         assert isinstance(target, _PostgresTarget)
 
-    assert created == [
-        ("postgresql://studio:secret@db.example/tracebisect", "operator")
-    ]
+    assert created == [("postgresql://studio:secret@db.example/tracebisect", "operator")]
     assert closed is True
 
 
