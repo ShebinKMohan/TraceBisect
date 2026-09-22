@@ -89,8 +89,14 @@ export function friendlyDivergenceDescription(
   const stepMatch = description.match(/\b(?:RUN_START|RUN_END|LLM_CALL|TOOL_CALL|MCP_CALL|RETRIEVAL|STATE_TRANSITION|BRANCH_DECISION|ERROR|HUMAN_INPUT)\s+([^\s]+)\s+(.+)/u);
   const stepName = stepMatch?.[1]?.replaceAll("_", " ");
 
-  if (type === "changed_tool_args" && stepName) {
-    return `${stepName} used different tool arguments`;
+  if (type === "changed_tool_args") {
+    // Labels may contain spaces ("Files Server/read_file"), so match the swap
+    // sentence as a whole instead of relying on the single-token step capture.
+    const swap = description.endsWith(" arguments differ")
+      ? null
+      : description.match(/\b(?:TOOL_CALL|MCP_CALL)\s+(.+?)\s+replaced by\s+(.+)$/u);
+    if (swap) return `${swap[1].replaceAll("_", " ")} was replaced by ${swap[2].replaceAll("_", " ")}`;
+    if (stepName) return `${stepName} used different tool arguments`;
   }
   if (type === "changed_final_output") return "The final answer changed";
   if (type === "cost_regression") return "The run became more expensive";

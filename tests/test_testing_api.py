@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import os
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from tracebisect import testing
-from tracebisect.schema import Trace
+from tracebisect.schema import EventType, ToolCallPayload, Trace
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BASELINE = REPO_ROOT / "tests" / "fixtures" / "refund_search_baseline.tbtrace"
@@ -55,6 +56,33 @@ def test_assert_aligned_tool_args_fails_on_changed_arguments() -> None:
     candidate = testing.load_baseline(CHANGED_TOOL_ARGS)
 
     with pytest.raises(AssertionError, match="changed_tool_args"):
+        testing.assert_aligned(
+            baseline=baseline,
+            candidate=candidate,
+            assertions=["tool_args"],
+        )
+
+
+def test_assert_aligned_tool_args_fails_when_a_different_tool_is_called() -> None:
+    baseline = testing.load_baseline(BASELINE)
+    events = [
+        replace(
+            event,
+            semantic_name="cancel_order",
+            payload=replace(event.payload, tool_name="cancel_order"),
+        )
+        if event.type is EventType.TOOL_CALL and isinstance(event.payload, ToolCallPayload)
+        else event
+        for event in baseline.events
+    ]
+    candidate = replace(
+        baseline,
+        trace_id="trc_refund_swapped_tool",
+        root_event=events[0],
+        events=events,
+    )
+
+    with pytest.raises(AssertionError, match="search_database replaced by cancel_order"):
         testing.assert_aligned(
             baseline=baseline,
             candidate=candidate,

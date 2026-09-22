@@ -448,7 +448,7 @@ A **divergence** is a typed difference detected during alignment. The full taxon
 | `extra_event` | Event present in candidate, absent in baseline | HIGH | V1 |
 | `changed_input` | Matched events but input payload differs | varies | V2 |
 | `changed_output` | Matched events but output payload differs | varies | V2 |
-| `changed_tool_args` | Tool call matched but arguments differ | CRITICAL | V1 |
+| `changed_tool_args` | Tool call matched but the called tool or its arguments differ | CRITICAL | V1 |
 | `branch_changed` | Branch decision differs at matched node | CRITICAL | V1 |
 | `retrieval_changed` | RAG retrieval returned different chunks | HIGH | V2 |
 | `state_changed` | State transition reached different value | HIGH | V2 |

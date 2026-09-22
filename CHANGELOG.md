@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased
+
+- Fixes a false negative where a tool call replaced by a different tool with
+  identical arguments (for example `lookup_order` becoming `cancel_order`)
+  reported no divergence. When alignment pairs two tool calls,
+  `changed_tool_args` now compares tool identity (`tool_name`, plus
+  `server_name` for MCP calls) before arguments, so `tracebisect diff`, Studio,
+  and generated `tool_args` regression tests catch a swap at an aligned step.
+  Names are compared after removing invisible format characters, NFC
+  normalization, and trimming, and are otherwise case-sensitive. Placeholder
+  names match any name: `unknown_tool` when a tool span has neither
+  `tool.name` nor a span name, and MCP server `unknown` when
+  `mcp.server.name` is absent.
+- Alignment no longer lets a shared raw event id, such as the native
+  recorder's position-based `evt_NNN`, pair two different sibling tool calls
+  when either tool still appears among the other run's siblings. Reordering
+  distinctly named sibling tool calls now reports no divergence, and inserting
+  or removing one before later siblings reports that single extra or missing
+  step. Tool calls that move under a different parent step, such as another
+  model turn, are still compared step by step, and same-name calls with
+  different arguments still pair by sibling order.
+- Studio's comparison detail explains a swap as a replaced tool, including
+  tool labels that contain spaces. Run lists and issue groups still label it
+  "Tool arguments changed".
+
 ## 0.1.0
 
 - Adds TraceBisect Studio MVP: a FastAPI backend and Next.js 16 dashboard that

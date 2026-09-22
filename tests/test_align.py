@@ -432,3 +432,92 @@ def test_cycle_raises() -> None:
 
     with pytest.raises(TraceCycleError):
         align(trace, _trace([_run_start("candidate_root")]))
+
+
+def test_positional_raw_ids_do_not_pair_reordered_tools() -> None:
+    baseline = _trace(
+        [
+            _run_start("evt_001"),
+            _tool("evt_002", "evt_001", 1, tool_name="get_status"),
+            _tool("evt_003", "evt_001", 2, tool_name="get_shipping"),
+        ]
+    )
+    candidate = _trace(
+        [
+            _run_start("evt_001"),
+            _tool("evt_002", "evt_001", 1, tool_name="get_shipping"),
+            _tool("evt_003", "evt_001", 2, tool_name="get_status"),
+        ]
+    )
+
+    assert _ids(align(baseline, candidate)) == [
+        ("evt_001", "evt_001", "ID_MATCH"),
+        ("evt_002", "evt_003", "ID_MATCH"),
+        ("evt_003", "evt_002", "ID_MATCH"),
+    ]
+
+
+def test_shared_raw_id_still_pairs_a_tool_that_did_not_move() -> None:
+    baseline = _trace(
+        [
+            _run_start("evt_001"),
+            _tool("evt_002", "evt_001", 1, tool_name="lookup_order"),
+        ]
+    )
+    candidate = _trace(
+        [
+            _run_start("evt_001"),
+            _tool("evt_002", "evt_001", 1, tool_name="cancel_order"),
+        ]
+    )
+
+    assert _ids(align(baseline, candidate)) == [
+        ("evt_001", "evt_001", "ID_MATCH"),
+        ("evt_002", "evt_002", "ID_MATCH"),
+    ]
+
+
+def test_raw_id_gate_compares_normalized_tool_names() -> None:
+    baseline = _trace(
+        [
+            _run_start("evt_001"),
+            _tool("evt_002", "evt_001", 1, tool_name="get_status"),
+            _tool("evt_003", "evt_001", 2, tool_name="get_shipping"),
+        ]
+    )
+    candidate = _trace(
+        [
+            _run_start("evt_001"),
+            _tool("evt_002", "evt_001", 1, tool_name="get_shipping "),
+            _tool("evt_003", "evt_001", 2, tool_name="get_status "),
+        ]
+    )
+
+    assert _ids(align(baseline, candidate)) == [
+        ("evt_001", "evt_001", "ID_MATCH"),
+        ("evt_002", "evt_003", "STRUCTURAL_MATCH"),
+        ("evt_003", "evt_002", "STRUCTURAL_MATCH"),
+    ]
+
+
+def test_raw_id_gate_uses_tool_names_not_semantic_names() -> None:
+    baseline = _trace(
+        [
+            _run_start("evt_001"),
+            _tool("evt_002", "evt_001", 1, tool_name="get_status", semantic_name="tool"),
+            _tool("evt_003", "evt_001", 2, tool_name="get_shipping", semantic_name="tool"),
+        ]
+    )
+    candidate = _trace(
+        [
+            _run_start("evt_001"),
+            _tool("evt_002", "evt_001", 1, tool_name="get_shipping", semantic_name="tool"),
+            _tool("evt_003", "evt_001", 2, tool_name="get_status", semantic_name="tool"),
+        ]
+    )
+
+    assert _ids(align(baseline, candidate)) == [
+        ("evt_001", "evt_001", "ID_MATCH"),
+        ("evt_002", "evt_003", "ID_MATCH"),
+        ("evt_003", "evt_002", "ID_MATCH"),
+    ]

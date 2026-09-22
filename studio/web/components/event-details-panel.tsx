@@ -40,7 +40,14 @@ const tabs: { id: InspectorTab; label: string }[] = [
 function plainLanguageChange(divergence: Divergence | null, event: TraceEvent | null): string {
   if (!divergence) return "The two runs follow the same meaningful behavior.";
   const subject = event?.semantic_name ? `The ${event.semantic_name} step` : "The new run";
-  if (divergence.type === "changed_tool_args") return `${subject} received different inputs.`;
+  if (divergence.type === "changed_tool_args") {
+    const { tool_changed: toolChanged, baseline_tool: baselineTool, candidate_tool: candidateTool } =
+      divergence.source_metadata;
+    if (toolChanged === true && typeof baselineTool === "string" && typeof candidateTool === "string") {
+      return `The new run called ${candidateTool} instead of ${baselineTool}.`;
+    }
+    return `${subject} received different inputs.`;
+  }
   if (divergence.type === "missing_event") return "A step from the known-good run did not happen in the new run.";
   if (divergence.type === "extra_event") return "The new run added a step that was not present in the known-good run.";
   if (divergence.type === "branch_changed") return "The new run followed a different decision path.";

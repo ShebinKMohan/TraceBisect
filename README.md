@@ -13,7 +13,15 @@ generated-test runtime, and a first SaaS-style Studio dashboard slice.
 ## Install
 
 ```bash
-pip install tracebisect
+pip install git+https://github.com/ShebinKMohan/TraceBisect.git
+```
+
+Or from a clone:
+
+```bash
+git clone https://github.com/ShebinKMohan/TraceBisect.git
+cd TraceBisect
+pip install -e .
 ```
 
 ## Quickstart

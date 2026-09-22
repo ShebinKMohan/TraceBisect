@@ -8,6 +8,7 @@ and deterministic DFS output with expanded insertion/deletion subtrees.
 from __future__ import annotations
 
 import hashlib
+import itertools
 import json
 import unicodedata
 from collections.abc import Callable
@@ -34,6 +35,7 @@ MatchKind: TypeAlias = Literal[
 ]
 
 StableID: TypeAlias = tuple[str, ...]
+ToolIdentity: TypeAlias = tuple[str | None, ...]
 
 __all__ = [
     "EmptyTraceError",
@@ -41,8 +43,12 @@ __all__ = [
     "MatchKind",
     "RootTypeMismatch",
     "SchemaVersionMismatch",
+    "ToolIdentity",
     "TraceCycleError",
     "align",
+    "normalize_tool_name",
+    "same_tool",
+    "tool_identity",
 ]
 
 
@@ -273,6 +279,7 @@ def _pair_children(
     paired_baseline: set[str] = set()
     paired_candidate: set[str] = set()
 
+    accept_raw_id = _raw_id_pair_filter(baseline_children, candidate_children)
     _pair_by_key(
         baseline_children,
         candidate_children,
@@ -281,6 +288,7 @@ def _pair_children(
         pair_by_baseline_id=pair_by_baseline_id,
         key_func=_event_id_key,
         kind="ID_MATCH",
+        accept=accept_raw_id,
     )
     _pair_by_key(
         baseline_children,
@@ -290,6 +298,7 @@ def _pair_children(
         pair_by_baseline_id=pair_by_baseline_id,
         key_func=_source_event_id_key,
         kind="ID_MATCH",
+        accept=accept_raw_id,
     )
     _pair_by_key(
         baseline_children,
@@ -331,6 +340,7 @@ def _pair_by_key(
     pair_by_baseline_id: dict[str, _PairRecord],
     key_func: _KeyFunc,
     kind: Literal["ID_MATCH"],
+    accept: Callable[[Event, Event], bool] | None = None,
 ) -> None:
     baseline_buckets = _bucket_by_key(baseline_children, paired_baseline, key_func)
     candidate_buckets = _bucket_by_key(candidate_children, paired_candidate, key_func)
@@ -339,6 +349,8 @@ def _pair_by_key(
         c_bucket = candidate_buckets[key]
         for baseline_event, candidate_event in zip(b_bucket, c_bucket, strict=False):
             if baseline_event.type is not candidate_event.type:
+                continue
+            if accept is not None and not accept(baseline_event, candidate_event):
                 continue
             _record_pair(
                 baseline_event,
@@ -518,6 +530,93 @@ def _computed_stable_key(event: Event) -> StableID | None:
     if isinstance(payload, BranchDecisionPayload):
         return ("branch", payload.branch_name)
     return None
+
+
+def tool_identity(event: Event) -> ToolIdentity | None:
+    """Return the called tool for TOOL_CALL / MCP_CALL events, or None otherwise.
+
+    A component is None when the name is empty or an OTel importer placeholder;
+    ``same_tool`` treats None as matching any name.
+    """
+    payload = event.payload
+    if isinstance(payload, MCPCallPayload):
+        return (
+            _known_tool_name(payload.server_name, placeholder="unknown"),
+            _known_tool_name(payload.tool_name, placeholder="unknown_tool"),
+        )
+    if isinstance(payload, ToolCallPayload):
+        return (_known_tool_name(payload.tool_name, placeholder="unknown_tool"),)
+    return None
+
+
+def same_tool(left: ToolIdentity | None, right: ToolIdentity | None) -> bool:
+    """Compare tool identities, treating unknown (None) components as wildcards."""
+    if left is None or right is None:
+        return left is right
+    return len(left) == len(right) and all(
+        a is None or b is None or a == b for a, b in zip(left, right, strict=True)
+    )
+
+
+def normalize_tool_name(name: str) -> str:
+    """Drop Unicode format characters such as zero-width spaces, NFC-normalize, and trim."""
+    visible = "".join(char for char in name if unicodedata.category(char) != "Cf")
+    return unicodedata.normalize("NFC", visible).strip()
+
+
+def _known_tool_name(name: str, *, placeholder: str) -> str | None:
+    normalized = normalize_tool_name(name)
+    return None if not normalized or normalized == placeholder else normalized
+
+
+def _raw_id_pair_filter(
+    baseline_children: list[Event],
+    candidate_children: list[Event],
+) -> Callable[[Event, Event], bool]:
+    baseline_tools = _ToolIndex(baseline_children)
+    candidate_tools = _ToolIndex(candidate_children)
+
+    def accept(baseline_event: Event, candidate_event: Event) -> bool:
+        baseline_tool = tool_identity(baseline_event)
+        candidate_tool = tool_identity(candidate_event)
+        if baseline_tool is None or candidate_tool is None:
+            return True
+        if same_tool(baseline_tool, candidate_tool):
+            return True
+        # Raw ids can be position-derived (the native recorder's evt_NNN). If either tool
+        # still appears on the other side, the steps moved rather than changed, so leave
+        # them to the identity-aware tiers.
+        return not candidate_tools.contains(baseline_tool) and not baseline_tools.contains(
+            candidate_tool
+        )
+
+    return accept
+
+
+class _ToolIndex:
+    """Sibling tool identities, queried with the same wildcard rules as ``same_tool``.
+
+    Identities with no known component are skipped: a nameless call is no evidence
+    that a specific tool moved.
+    """
+
+    def __init__(self, events: list[Event]) -> None:
+        self._projections: set[tuple[int, tuple[int, ...], ToolIdentity]] = set()
+        for event in events:
+            identity = tool_identity(event)
+            if identity is None or all(part is None for part in identity):
+                continue
+            for size in range(len(identity) + 1):
+                for positions in itertools.combinations(range(len(identity)), size):
+                    projection = tuple(identity[i] for i in positions)
+                    self._projections.add((len(identity), positions, projection))
+
+    def contains(self, identity: ToolIdentity) -> bool:
+        known = tuple(i for i, part in enumerate(identity) if part is not None)
+        for projection in itertools.product(*((identity[i], None) for i in known)):
+            if (len(identity), known, projection) in self._projections:
+                return True
+        return False
 
 
 def _stable_hash(value: object) -> str:

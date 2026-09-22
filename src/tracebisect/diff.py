@@ -7,7 +7,7 @@ import unicodedata
 from dataclasses import dataclass
 from typing import Literal, TypeAlias
 
-from tracebisect.align import Match
+from tracebisect.align import Match, normalize_tool_name, same_tool, tool_identity
 from tracebisect.schema import (
     BranchDecisionPayload,
     ErrorPayload,
@@ -220,6 +220,30 @@ def _changed_tool_args(
     candidate_args = _tool_arguments(candidate_event)
     if baseline_args is None or candidate_args is None:
         return None
+    if not same_tool(tool_identity(baseline_event), tool_identity(candidate_event)):
+        # Tier 3, or a shared raw id when neither tool moved, can pair two different
+        # tools, so a swapped tool must be reported even when the arguments are identical.
+        return Divergence(
+            type="changed_tool_args",
+            severity="CRITICAL",
+            baseline_event=baseline_event,
+            candidate_event=candidate_event,
+            description=(
+                f"{baseline_event.type.value} {_tool_label(baseline_event)} "
+                f"replaced by {_tool_label(candidate_event)}"
+            ),
+            expected=_tool_call_summary(baseline_event, baseline_args),
+            actual=_tool_call_summary(candidate_event, candidate_args),
+            impact=_impact(matches, baseline, candidate, match_index),
+            source_metadata={
+                "detector": "changed_tool_args",
+                "alignment_kind": alignment_kind,
+                "match_index": match_index,
+                "tool_changed": True,
+                "baseline_tool": _tool_label(baseline_event),
+                "candidate_tool": _tool_label(candidate_event),
+            },
+        )
     if _canonical_json(baseline_args) == _canonical_json(candidate_args):
         return None
     return Divergence(
@@ -364,6 +388,29 @@ def _tool_arguments(event: Event) -> JsonObject | None:
     if isinstance(event.payload, ToolCallPayload | MCPCallPayload):
         return event.payload.arguments
     return None
+
+
+def _tool_label(event: Event) -> str:
+    payload = event.payload
+    if isinstance(payload, MCPCallPayload):
+        return f"{_label_part(payload.server_name)}/{_label_part(payload.tool_name)}"
+    if isinstance(payload, ToolCallPayload):
+        return _label_part(payload.tool_name)
+    return event.semantic_name
+
+
+def _label_part(name: str) -> str:
+    return normalize_tool_name(name) or "(unnamed)"
+
+
+def _tool_call_summary(event: Event, arguments: JsonObject) -> JsonObject:
+    summary: JsonObject = {}
+    if isinstance(event.payload, MCPCallPayload):
+        summary["server_name"] = event.payload.server_name
+    if isinstance(event.payload, ToolCallPayload | MCPCallPayload):
+        summary["tool_name"] = event.payload.tool_name
+    summary["arguments"] = arguments
+    return summary
 
 
 def _event_summary(event: Event) -> JsonObject:
