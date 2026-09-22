@@ -10,6 +10,16 @@ not return. TraceBisect Studio is the web dashboard around that engine.
 The implemented V1 flow includes ingest, record, diff, export-pytest, the
 generated-test runtime, and a first SaaS-style Studio dashboard slice.
 
+## Platform support
+
+Linux and macOS are supported and covered by CI on Python 3.10 through 3.13.
+
+Windows is not currently supported. Two things break there: the file-permission
+checks that keep secrets and the Studio database owner-only rely on POSIX mode
+bits, which Windows does not implement, and Studio backup and restore hit SQLite
+file-locking differences. Both are tracked and Windows is out of the CI matrix
+until they are fixed, rather than left failing.
+
 ## Install
 
 ```bash
