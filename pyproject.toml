@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "tracebisect"
 version = "0.1.0"
-description = "Git bisect for AI agent traces"
+description = "Find the first behavioral divergence between two AI agent traces and export a pytest regression test"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"

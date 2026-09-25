@@ -53,7 +53,10 @@ if TYPE_CHECKING:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="tracebisect",
-        description="Git bisect for AI agent traces.",
+        description=(
+            "Compare two AI agent traces, find the first behavioral divergence, "
+            "and export a pytest regression test."
+        ),
     )
     parser.add_argument(
         "--version",
