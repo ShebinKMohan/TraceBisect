@@ -51,6 +51,11 @@ def capture_trace(
     The scenario receives ``TRACEBISECT_OUTPUT`` in its environment and is
     expected to write one canonical trace there. This is the minimal V1 runtime
     contract used by generated tests and by the demo recorder.
+
+    A ``str`` command is run through the shell (``shell=True``), so any path
+    in it that contains spaces or quotes must be quoted by the caller, for
+    example with :func:`shlex.join`. Prefer the list form, which is passed to
+    the process unchanged; ``export-pytest`` always emits the list form.
     """
     if side_effects not in {"stub", "live"}:
         raise ValueError("side_effects must be 'stub' or 'live'")

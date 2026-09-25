@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import shlex
+import subprocess
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -192,7 +194,11 @@ def test_capture_trace_accepts_string_command(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    trace = testing.capture_trace(f"{sys.executable} {scenario}")
+    # A str command runs through the shell, so quote each argument: the
+    # interpreter or temp path may contain spaces or quotes.
+    argv = [sys.executable, str(scenario)]
+    command = subprocess.list2cmdline(argv) if os.name == "nt" else shlex.join(argv)
+    trace = testing.capture_trace(command)
 
     assert trace.trace_id == "trc_refund_baseline"
 
