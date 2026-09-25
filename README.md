@@ -1,18 +1,60 @@
 # TraceBisect
 
-Git bisect for AI agent traces.
+TraceBisect compares two AI-agent runs, finds the first behavioral divergence
+between them, and exports a pytest regression test that fails if that
+divergence comes back.
 
-TraceBisect is a regression-debugging platform for AI agents. The Python CLI is
-the core engine: it compares two agent traces, finds the first meaningful
-behavioral divergence, and exports a pytest regression test so the failure does
-not return. TraceBisect Studio is the web dashboard around that engine.
+V1 compares two traces. V2 will run that comparison automatically across commit
+history to find the exact change that broke your agent. That commit-history
+bisection is not built yet
+([spec §9](spec/production-spec.md#9-the-bisect-vision-v1--v2-path)).
 
-The implemented V1 flow includes ingest, record, diff, export-pytest, the
-generated-test runtime, and a first SaaS-style Studio dashboard slice.
+The Python CLI and library are the engine. TraceBisect Studio, a FastAPI and
+Next.js dashboard, puts the same engine behind a web UI. Neither calls an LLM:
+you bring the traces.
+
+## What counts as working
+
+The spec's V1 acceptance criterion (§8.0) is one loop: record a good run and a
+regressed run of the same scenario, find the first divergence, export a test
+from the good run, and check that the test fails on the regressed agent and
+passes on the good one. From a clone (see [Install](#install)), using
+`examples/refund_agent.py`, a scripted example agent with a stubbed model call:
+
+```bash
+tracebisect record --output base.tbtrace -- python examples/refund_agent.py --case refund_042
+tracebisect record --output cand.tbtrace -- python examples/refund_agent.py --case refund_042 --variant regressed
+tracebisect diff --mode ci base.tbtrace cand.tbtrace    # exits 1
+tracebisect export-pytest base.tbtrace test_guard.py \
+  --scenario "python examples/refund_agent.py --case refund_042 --variant regressed" \
+  --assert tool_args,final_output,cost
+pytest -q test_guard.py                                 # 1 failed
+```
+
+`diff` opens with:
+
+```text
+✗ First divergence at event 2: tool_call.search_database
+  Severity: CRITICAL
+  Type:     changed_tool_args
+
+  Expected:
+    {"query": "users WHERE active = true"}
+
+  Actual:
+    {"query": "users WHERE active = true AND deleted = false"}
+```
+
+The generated test fails with `changed_tool_args: TOOL_CALL search_database
+arguments differ`. Exported with the good scenario instead (no
+`--variant regressed`), the same test passes. The test re-runs its scenario
+through `tracebisect.testing` each time, so in CI it checks the agent itself,
+not a stored copy of its output.
 
 ## Platform support
 
-Linux and macOS are supported and covered by CI on Python 3.10 through 3.13.
+Linux and macOS are supported. CI runs Python 3.10–3.13 on Linux and 3.12 on
+macOS.
 
 Windows is not currently supported. Two things break there: the file-permission
 checks that keep secrets and the Studio database owner-only rely on POSIX mode
